@@ -2211,32 +2211,32 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // ══════════════════════════════════════════════════════════════════════════════
 // ЧАТ ПРИ ОТКРЫТОМ РАДИАЛЬНОМ МЕНЮ (PlayerInteraction) — только ПК (Radmir).
 //
-// Два эффекта прятали чат:
-//   1) PlayerInteraction при открытии ставит чату «неактивное» состояние (setChatIsInactive(true)) —
-//      он выцветает; кроме того таймер неактивности сам гасит чат через 20 с;
-//   2) тёмная подложка круга (.player-interaction__container:after, 600% экрана) лежит над Hud и
-//      затемняет чат вместе со всем остальным.
-// Что делаем: держим чат «активным», пока меню открыто, а подложку рисуем сами — с плавным «окном»
-// вокруг чата (то же затемнение, но в области чата его нет). Сам чат при этом остаётся в Hud, т.е. НИЖЕ
-// круга и его пунктов — поверх ничего не поднимаем. То же окно вырезается в bg14.png (:before), если он
-// заходит на чат.
+// Почему чат был тёмным: Hud и PlayerInteraction — два соседних .interface (оба z-index:1), а
+// PlayerInteraction в DOM позже, поэтому весь его слой (тёмная подложка круга :after на 600% экрана
+// и картинка bg14.png в :before) лежит ВЫШЕ всего Hud, включая чат. Кроме того, при открытии меню
+// игра ставит чату «неактивное» состояние (setChatIsInactive(true)) и он выцветает.
+//
+// Что делаем:
+//   1) штатные :before (bg14) и :after (подложка) круга прячем и рисуем ровно то же самое сами —
+//      отдельным слоем ВНУТРИ Hud (в том же .interface, что и чат);
+//   2) на время открытого меню поднимаем чату z-index выше нашего слоя. Итог по порядку снизу вверх:
+//      остальной Hud → подложка + bg14 → ЧАТ → (слой PlayerInteraction) круг, пункты, сектора.
+//      Подложка и bg14 остаются на месте целиком (никаких «дыр»), просто лежат под чатом;
+//   3) чат не даём погасить (isInactive), пока меню открыто.
+// Никаких файлов игры не трогаем — только pravo.js.
 //
 // Настройки:
-//   window.PRAVO_CHAT_UNDIM = false — вернуть как в игре (чат гаснет и затемняется).
-//   По умолчанию ('above') затемнение остаётся, но рисуется в слое Hud ПОД чатом: чат выше затемнения, ниже круга.
-//   window.PRAVO_CHAT_UNDIM_MODE = 'off' — затемнение круга убрать совсем (:after и bg14.png скрыты);
-//     window.PRAVO_CHAT_UNDIM_KEEP_BG = true — в режиме 'off' оставить bg14.png (кольцо вокруг круга).
-//   window.PRAVO_CHAT_UNDIM_MODE = 'window' — старый вариант: затемнение над чатом, но с «окном» под чат.
-//   window.PRAVO_CHAT_UNDIM_FEATHER — ширина плавного перехода, vh (по умолчанию 3).
-//   window.PRAVO_CHAT_UNDIM_PAD — поле вокруг чата, vh (по умолчанию 0.8).
+//   window.PRAVO_CHAT_UNDIM = false — вернуть как в игре (чат затемняется и гаснет).
 // На мобилке (Hassle) чат в этом меню прячет сама игра (hideChat: "mobile") — не трогаем.
 // ══════════════════════════════════════════════════════════════════════════════
 (function _pravoChatUnderRadial() {
     if (window.__pravoChatUndim) return;
     window.__pravoChatUndim = true;
 
-    var DIM_ID = 'pravo-pi-dim', STYLE_ID = 'pravo-pi-undim-css', CLS = 'pravo-pi-undim';
-    var lastSig = '';
+    var DIM_ID = 'pravo-pi-dim', STYLE_ID = 'pravo-pi-undim-css', HTML_CLS = 'pravo-pi-undim';
+    var Z_DIM = 4000, Z_CHAT = 4001;   // Hud-овские z-index ≤ 10 (кроме окна помощи 9999) — оба выше остального Hud
+    var FADE_MS = 250;                 // как у fade-перехода интерфейсов
+    var bgUrl = null, lastSig = '', removeTimer = null;
 
     function dbg() {
         if (!window.PRAVO_MOBLIC_DEBUG) return;
@@ -2251,54 +2251,30 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             return (hud && hud.$refs && hud.$refs.chat) || null;
         } catch (e) { return null; }
     }
-    function num(v, def) { return (typeof v === 'number' && isFinite(v)) ? v : def; }
+    // .interface-обёртка Hud: в ней лежат и чат, и остальной Hud (.hud без z-index контекст не создаёт)
+    function hudLayer() {
+        var el = document.querySelector('.radmir-chat');
+        return el ? el.closest('.interface') : null;
+    }
+    function html() { return document.documentElement; }
 
     (function injectCss() {
         if (document.getElementById(STYLE_ID)) return;
         var st = document.createElement('style');
         st.id = STYLE_ID;
         st.textContent =
-            // родную подложку прячем — вместо неё наша (с окном под чат)
-            '.player-interaction__container.' + CLS + ':after{display:none!important}' +
-            '.player-interaction__container.' + CLS + '.pravo-pi-nobg:before{display:none!important}' +
-            // bg14.png: окно вырезаем маской из CSS-переменных, которые выставляет tick()
-            '.player-interaction__container.' + CLS + ':before{' +
-                '-webkit-mask-image:var(--pravo-mb-i);mask-image:var(--pravo-mb-i);' +
-                '-webkit-mask-size:var(--pravo-mb-s);mask-size:var(--pravo-mb-s);' +
-                '-webkit-mask-position:var(--pravo-mb-p);mask-position:var(--pravo-mb-p);' +
-                '-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}' +
-            '#' + DIM_ID + '{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:-1;' +
-                '-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}';
+            // штатные подложка (:after) и bg14 (:before) круга прячем — вместо них наш слой под чатом
+            'html.' + HTML_CLS + ' .player-interaction__container:before,' +
+            'html.' + HTML_CLS + ' .player-interaction__container:after{display:none!important}' +
+            // чат поднимаем над нашим слоем; z-index из transition:all не анимируем, чтобы чат не «проныривал» под слой
+            'html.' + HTML_CLS + ' .radmir-chat{z-index:' + Z_CHAT + '!important;' +
+                'transition-property:opacity,left,top,transform!important}' +
+            '#' + DIM_ID + '{position:fixed;left:0;top:0;width:100vw;height:100vh;overflow:hidden;' +
+                'pointer-events:none;z-index:' + Z_DIM + ';opacity:0;transition:opacity ' + FADE_MS + 'ms ease}' +
+            '#' + DIM_ID + '.pravo-on{opacity:1}' +
+            '#' + DIM_ID + ' .pravo-pi-bg{position:absolute}';
         (document.head || document.documentElement).appendChild(st);
     })();
-
-    // Маска «всё, кроме прямоугольника-окна»: четыре полосы вокруг окна, у края окна — плавный спад.
-    // W×H — размер элемента, (x0,y0)-(x1,y1) — окно в координатах элемента, f — ширина спада (px).
-    function holeMask(W, H, x0, y0, x1, y1, f) {
-        if (x1 <= 0 || y1 <= 0 || x0 >= W || y0 >= H) return null;     // окно мимо элемента — маска не нужна
-        x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(W, x1); y1 = Math.min(H, y1);
-        var img = [], size = [], pos = [];
-        function add(g, w, h, x, y) {
-            if (w <= 0.5 || h <= 0.5) return;
-            img.push(g);
-            size.push(Math.round(w) + 'px ' + Math.round(h) + 'px');
-            pos.push(Math.round(x) + 'px ' + Math.round(y) + 'px');
-        }
-        var fp = Math.round(f) + 'px';
-        add('linear-gradient(to bottom,#000 calc(100% - ' + fp + '),transparent)', W, y0, 0, 0);            // сверху
-        add('linear-gradient(to bottom,transparent,#000 ' + fp + ')', W, H - y1, 0, y1);                     // снизу
-        add('linear-gradient(to right,#000 calc(100% - ' + fp + '),transparent)', x0, y1 - y0, 0, y0);      // слева
-        add('linear-gradient(to right,transparent,#000 ' + fp + ')', W - x1, y1 - y0, x1, y0);              // справа
-        if (!img.length) return null;
-        return { i: img.join(','), s: size.join(','), p: pos.join(',') };
-    }
-
-    function chatRect() {
-        var el = document.querySelector('.radmir-chat__container') || document.querySelector('.radmir-chat');
-        if (!el) return null;
-        var r = el.getBoundingClientRect();
-        return (r.width > 1 && r.height > 1) ? r : null;
-    }
 
     // Пока меню открыто, чат не должен выцветать (в том числе по 20-секундному таймеру неактивности)
     function keepChatActive() {
@@ -2310,139 +2286,87 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         } catch (e) {}
     }
 
-    // ── Режим по умолчанию ('above'): затемнение рисуем сами, но в слое Hud — ПОД чатом. ──────────
-    // Слой PlayerInteraction целиком выше Hud, поэтому родные :after (тёмная подложка) и :before (bg14.png)
-    // всегда накрывают чат. Скрываем их и рисуем такие же в слое Hud (z-index 0, чат — 1): чат оказывается
-    // выше затемнения, но по-прежнему ниже круга и его пунктов.
-    var UNDER_ID = 'pravo-pi-under', bgUrl = '';
-
-    function removeLayers(instant) {
-        var u = document.getElementById(UNDER_ID);
-        if (!u) return;
-        if (instant) { if (u.parentNode) u.parentNode.removeChild(u); return; }
-        if (u.__closing) return;
-        u.__closing = true;
-        u.style.opacity = '0';
-        setTimeout(function () { if (u.parentNode) u.parentNode.removeChild(u); }, 300);
+    // Адрес bg14.png берём у самого круга (хэш в имени файла у сборок разный)
+    function readBgUrl(box) {
+        try {
+            var bg = getComputedStyle(box, '::before').backgroundImage || '';
+            var m = /url\((['"]?)(.*?)\1\)/.exec(bg);
+            return m ? m[2] : null;
+        } catch (e) { return null; }
     }
 
-    function tickAbove(box, cr) {
-        var chatEl = document.querySelector('.radmir-chat');
-        if (!chatEl || !chatEl.parentNode) return;                 // чата нет — оставляем родное затемнение
-        if (!bgUrl) {                                              // адрес bg14.png читаем до того, как скроем :before
-            var bi = getComputedStyle(box, '::before').backgroundImage || '';
-            var m = /url\((['"]?)(.*?)\1\)/.exec(bi);
-            if (m) bgUrl = m[2];
-        }
-        if (!box.classList.contains(CLS)) box.classList.add(CLS);   // прячет родной :after
-        var nobg = !!bgUrl;                                         // родной bg14 прячем, только если можем перерисовать
-        if (box.classList.contains('pravo-pi-nobg') !== nobg) box.classList.toggle('pravo-pi-nobg', nobg);
-
-        var u = document.getElementById(UNDER_ID);
-        if (u && (u.__closing || u.parentNode !== chatEl.parentNode)) { removeLayers(true); u = null; }
-        if (!u) {
-            u = document.createElement('div');
-            u.id = UNDER_ID;
-            u.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;overflow:hidden;pointer-events:none;' +
-                'z-index:0;opacity:0;transition:opacity .25s ease';
-            u.innerHTML = '<div style="position:absolute;left:0;top:0;right:0;bottom:0"></div><div style="position:absolute"></div>';
-            chatEl.parentNode.insertBefore(u, chatEl);
+    function teardown() {
+        var dim = document.getElementById(DIM_ID);
+        if (!dim) { html().classList.remove(HTML_CLS); lastSig = ''; return; }
+        dim.classList.remove('pravo-on');            // плавно гасим вместе с fade-ом самого меню
+        if (removeTimer) clearTimeout(removeTimer);
+        removeTimer = setTimeout(function () {
+            removeTimer = null;
+            if (isOpen() && enabled()) return;       // успели открыть заново — tick всё вернёт
+            var d = document.getElementById(DIM_ID);
+            if (d && d.parentNode) d.parentNode.removeChild(d);
+            html().classList.remove(HTML_CLS);
             lastSig = '';
-            dbg('затемнение перенесено под чат');
-            requestAnimationFrame(function () { u.style.opacity = '1'; });
-        }
-        // если у предка есть transform, fixed считается от него — компенсируем сдвиг
-        var ur = u.getBoundingClientRect();
-        if (Math.abs(ur.left) > 0.5 || Math.abs(ur.top) > 0.5) {
-            u.style.left = ((parseFloat(u.style.left) || 0) - ur.left) + 'px';
-            u.style.top = ((parseFloat(u.style.top) || 0) - ur.top) + 'px';
-        }
-
-        var vhp = window.innerHeight / 100;
-        var cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
-        var R = Math.round(cr.width * 3);                           // как у родного градиента
-        var bW = 106.5 * vhp;
-        var sig = ['a', Math.round(cx), Math.round(cy), R, window.innerWidth, window.innerHeight, bgUrl.length].join(',');
-        if (sig === lastSig) return;
-        lastSig = sig;
-
-        u.firstChild.style.background = 'radial-gradient(circle ' + R + 'px at ' + cx + 'px ' + cy + 'px,' +
-            '#141414e6 30%,#141414cc 40%,#141414b3 50%,#14141499 60%,#14141480 70%)';
-        var b = u.lastChild;
-        if (bgUrl) {
-            b.style.cssText = 'position:absolute;left:' + (cx - bW / 2) + 'px;top:' + (cy - bW / 2) + 'px;width:' + bW + 'px;height:' + bW +
-                'px;background:url("' + bgUrl + '") 50% 50%/cover no-repeat';
-        } else b.style.display = 'none';
-        dbg('затемнение под чатом:', Math.round(cx) + ',' + Math.round(cy), '| bg14:', bgUrl ? 'да' : 'не найден (родной оставлен)');
+            dbg('слой убран');
+        }, FADE_MS + 60);
     }
 
     function tick() {
-        if (!enabled() || !isOpen()) { lastSig = ''; removeLayers(); return; }
-        keepChatActive();
-        var box = document.querySelector('.player-interaction__container');
-        if (!box) return;
-        var cr = box.getBoundingClientRect();
-        if (!cr.width || !cr.height) return;
-
-        var mode = window.PRAVO_CHAT_UNDIM_MODE;
-        if (mode !== 'window' && mode !== 'off') { tickAbove(box, cr); return; }
-        removeLayers(true);
-        // 'off': затемнение круга выключено совсем (родной :after и bg14.png скрыты, своей подложки нет).
-        if (mode === 'off') {
-            if (!box.classList.contains(CLS)) { box.classList.add(CLS); dbg('затемнение круга отключено'); }
-            var keepBg = window.PRAVO_CHAT_UNDIM_KEEP_BG === true;
-            if (box.classList.contains('pravo-pi-nobg') === keepBg) box.classList.toggle('pravo-pi-nobg', !keepBg);
-            var old = document.getElementById(DIM_ID);
-            if (old && old.parentNode) old.parentNode.removeChild(old);
-            box.style.removeProperty('--pravo-mb-i');
+        if (!enabled() || !isOpen()) {
+            if (document.getElementById(DIM_ID) && !removeTimer) teardown();
             return;
         }
-        box.classList.remove('pravo-pi-nobg');
+        keepChatActive();
+        var box = document.querySelector('.player-interaction__container');
+        var host = hudLayer();
+        if (!box || !host) return;                   // чата/круга ещё нет — остаётся штатное поведение игры
+        var cr = box.getBoundingClientRect();
+        if (!cr.width || !cr.height) return;
+        if (!bgUrl) bgUrl = readBgUrl(box);          // читаем ДО того, как спрячем штатный :before
+        if (!bgUrl) return;                          // не смогли прочитать — ничего не ломаем
 
-        var vw = window.innerWidth, vh = window.innerHeight, vhp = vh / 100;
-        var cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
-
-        // Наша подложка. Размер — только чтобы покрыть экран (родная 600% контейнера слишком велика для маски).
-        var S = Math.ceil(2 * Math.hypot(Math.max(cx, vw - cx), Math.max(cy, vh - cy))) + 8;
-        var R = Math.round(cr.width * 3);   // родной градиент: 50% от 600% ширины контейнера
         var dim = document.getElementById(DIM_ID);
-        if (!dim || dim.parentNode !== box) {
-            if (dim && dim.parentNode) dim.parentNode.removeChild(dim);
+        if (dim && dim.parentNode !== host) { dim.parentNode && dim.parentNode.removeChild(dim); dim = null; }
+        if (!dim) {
             dim = document.createElement('div');
             dim.id = DIM_ID;
-            box.appendChild(dim);
+            var bg = document.createElement('div');
+            bg.className = 'pravo-pi-bg';
+            dim.appendChild(bg);
+            host.appendChild(dim);
             lastSig = '';
-            dbg('подложка создана');
+            dbg('слой создан');
         }
-        if (!box.classList.contains(CLS)) box.classList.add(CLS);
+        if (removeTimer) { clearTimeout(removeTimer); removeTimer = null; }
+        html().classList.add(HTML_CLS);
+        if (!dim.classList.contains('pravo-on')) {
+            // включаем на следующем кадре, чтобы сработал transition opacity
+            requestAnimationFrame(function () { requestAnimationFrame(function () {
+                var d = document.getElementById(DIM_ID);
+                if (d && !removeTimer && isOpen()) d.classList.add('pravo-on');
+            }); });
+        }
 
-        var cRect = chatRect();
-        var pad = num(window.PRAVO_CHAT_UNDIM_PAD, 0.8) * vhp;
-        var f = Math.max(1, num(window.PRAVO_CHAT_UNDIM_FEATHER, 3) * vhp);
-        var L = cRect ? cRect.left - pad : 0, T = cRect ? cRect.top - pad : 0;
-        var Rr = cRect ? cRect.right + pad : 0, B = cRect ? cRect.bottom + pad : 0;
-        var sig = [S, R, Math.round(cx), Math.round(cy), Math.round(L), Math.round(T), Math.round(Rr), Math.round(B), Math.round(f)].join(',');
+        var vh = window.innerHeight, vhp = vh / 100;
+        var cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+        var sig = [Math.round(cx), Math.round(cy), Math.round(cr.width), window.innerWidth, vh].join(',');
         if (sig === lastSig) return;
         lastSig = sig;
 
-        // 1) подложка: тот же градиент, что у родной, + окно под чат
-        dim.style.width = S + 'px';
-        dim.style.height = S + 'px';
-        dim.style.background = 'radial-gradient(circle ' + R + 'px at 50% 50%,#141414e6 30%,#141414cc 40%,#141414b3 50%,#14141499 60%,#14141480 70%)';
-        var md = cRect ? holeMask(S, S, L - (cx - S / 2), T - (cy - S / 2), Rr - (cx - S / 2), B - (cy - S / 2), f) : null;
-        var mi = md ? md.i : 'none';
-        dim.style.webkitMaskImage = mi; dim.style.maskImage = mi;
-        dim.style.webkitMaskSize = md ? md.s : 'auto'; dim.style.maskSize = md ? md.s : 'auto';
-        dim.style.webkitMaskPosition = md ? md.p : '0 0'; dim.style.maskPosition = md ? md.p : '0 0';
+        // 1) подложка: тот же радиальный градиент, что у штатного :after (50% от 600% ширины круга = 3 ширины)
+        var R = Math.round(cr.width * 3);
+        dim.style.background = 'radial-gradient(circle ' + R + 'px at ' + Math.round(cx) + 'px ' + Math.round(cy) + 'px,' +
+            '#141414e6 30%,#141414cc 40%,#141414b3 50%,#14141499 60%,#14141480 70%)';
 
-        // 2) bg14.png (:before, 106.5vh, по центру круга) — то же окно, если оно его касается
-        var bW = 106.5 * vhp;
-        var mb = cRect ? holeMask(bW, bW, L - (cx - bW / 2), T - (cy - bW / 2), Rr - (cx - bW / 2), B - (cy - bW / 2), f) : null;
-        box.style.setProperty('--pravo-mb-i', mb ? mb.i : 'none');
-        box.style.setProperty('--pravo-mb-s', mb ? mb.s : 'auto');
-        box.style.setProperty('--pravo-mb-p', mb ? mb.p : '0 0');
+        // 2) bg14.png: тот же размер (106.5vh) и по центру круга, как штатный :before
+        var b = dim.firstChild, bW = 106.5 * vhp;
+        b.style.width = bW + 'px';
+        b.style.height = bW + 'px';
+        b.style.left = Math.round(cx - bW / 2) + 'px';
+        b.style.top = Math.round(cy - bW / 2) + 'px';
+        b.style.background = 'url("' + bgUrl + '") 50%/cover no-repeat';
 
-        dbg('окно под чат:', cRect ? [Math.round(L), Math.round(T), Math.round(Rr), Math.round(B)].join(',') : 'чат не найден', '| подложка', S + 'px');
+        dbg('слой обновлён: центр', Math.round(cx) + ',' + Math.round(cy), '| R', R, '| bg14', Math.round(bW) + 'px');
     }
 
     // setChatIsInactive(true) от самого PlayerInteraction (mounted) — гасим, пока меню открыто
@@ -2475,66 +2399,49 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         }
         return r;
     };
+    // Закрытие меню: слой гасим сразу (иначе он провисит до ближайшего тика)
+    var _ci = window.closeInterface;
+    if (typeof _ci === 'function') {
+        window.closeInterface = function (name) {
+            var r = _ci.apply(this, arguments);
+            if (name === 'PlayerInteraction') { try { teardown(); } catch (e) {} }
+            return r;
+        };
+    }
     setInterval(tick, 250);
 
-    // ── Диагностика: что реально затемняет чат ────────────────────────────────────────────────
+    // ── Диагностика ────────────────────────────────────────────────────────────────────────────
     // window.pravoChatProbe() — вручную; при window.PRAVO_MOBLIC_DEBUG = true запускается сама через 700 мс
-    // после открытия круга. Всё пишется в консоль с префиксом [PRAVO][PROBE].
-    function nm(el) {
-        var c = el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className;
-        return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (c ? '.' + String(c).trim().split(/\s+/).slice(0, 3).join('.') : '');
-    }
-    function pseudoInfo(el, which) {
-        var x = getComputedStyle(el, which);
-        if (!x || x.content === 'none' || x.content === 'normal') return '';
-        return ' ' + which + '{disp=' + x.display + ' z=' + x.zIndex + ' op=' + x.opacity +
-            ' bg=' + (x.backgroundImage !== 'none' ? x.backgroundImage.slice(0, 36) : x.backgroundColor) +
-            ' mask=' + (((x.webkitMaskImage || x.maskImage) || 'none') !== 'none' ? 'да' : 'нет') + '}';
-    }
+    // после открытия круга. Пишет в консоль с префиксом [PRAVO][PROBE].
     window.pravoChatProbe = function () {
         try {
             var L = function () { console.log.apply(console, ['[PRAVO][PROBE]'].concat([].slice.call(arguments))); };
-            var cr = chatRect();
-            if (!cr) { L('чат не найден'); return; }
-            var c = getChat(), box = document.querySelector('.player-interaction__container');
-            var dim = document.getElementById(DIM_ID);
-            L('чат rect:', [cr.left, cr.top, cr.right, cr.bottom].map(Math.round).join(','), '| экран:', innerWidth + 'x' + innerHeight);
-            L('круг открыт:', isOpen(), '| box найден:', !!box, '| класс undim на box:', !!(box && box.classList.contains(CLS)),
-              '| isInactive:', c && c.isInactive);
-            if (box) {
-                L('box::after display =', getComputedStyle(box, '::after').display, '| box::before mask =',
-                  ((getComputedStyle(box, '::before').webkitMaskImage) || 'none') !== 'none' ? 'есть' : 'нет');
-            }
+            var chat = document.querySelector('.radmir-chat'), dim = document.getElementById(DIM_ID);
+            var box = document.querySelector('.player-interaction__container');
+            var cs = chat && getComputedStyle(chat);
+            L('круг открыт:', isOpen(), '| html-класс:', html().classList.contains(HTML_CLS),
+              '| bg14:', bgUrl ? 'url найден' : 'url НЕ найден', '| isInactive:', (getChat() || {}).isInactive);
+            L('чат: z=' + (cs ? cs.zIndex : '—'), 'opacity=' + (cs ? cs.opacity : '—'),
+              '| в .interface:', !!(chat && chat.closest('.interface')));
             if (dim) {
-                var dr = dim.getBoundingClientRect(), dc = getComputedStyle(dim);
-                L('наша подложка rect:', [dr.left, dr.top, dr.right, dr.bottom].map(Math.round).join(','),
-                  '| mask:', ((dc.webkitMaskImage || dc.maskImage) || 'none') !== 'none' ? 'есть' : 'НЕТ', '| z=' + dc.zIndex);
-            } else L('нашей подложки НЕТ в DOM');
-            // цепочка предков чата: всё, что может его гасить или затемнять
-            var el = document.querySelector('.radmir-chat'), chain = [];
-            while (el && el !== document.documentElement) {
-                var cs = getComputedStyle(el);
-                if (cs.opacity !== '1' || cs.filter !== 'none' || cs.visibility !== 'visible' || cs.zIndex !== 'auto' || cs.mixBlendMode !== 'normal')
-                    chain.push(nm(el) + '{op=' + cs.opacity + ' z=' + cs.zIndex + (cs.filter !== 'none' ? ' filter=' + cs.filter : '') +
-                        (cs.visibility !== 'visible' ? ' vis=' + cs.visibility : '') + '}');
-                el = el.parentElement;
+                var dc = getComputedStyle(dim);
+                L('слой: z=' + dc.zIndex, 'opacity=' + dc.opacity, '| в одном .interface с чатом:',
+                  !!(chat && dim.parentNode === chat.closest('.interface')));
+            } else L('нашего слоя НЕТ в DOM');
+            if (box) L('штатные :before/:after круга скрыты:',
+                getComputedStyle(box, '::before').display === 'none' && getComputedStyle(box, '::after').display === 'none');
+            if (chat) {
+                var r = chat.getBoundingClientRect();
+                var els = document.elementsFromPoint(r.left + 30, r.top + 14);
+                L('сверху вниз над чатом:', els.slice(0, 8).map(function (e) {
+                    return e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') +
+                        (e.className && e.className.baseVal === undefined && e.className ? '.' + String(e.className).trim().split(/\s+/)[0] : '');
+                }).join(' > '));
             }
-            L('предки чата (opacity/z/filter):', chain.join(' <- ') || 'ничего особенного');
-            // что лежит над чатом по hit-test (pointer-events:none элементы сюда не попадают)
-            [[cr.left + 30, cr.top + 14], [cr.left + cr.width * 0.25, cr.top + cr.height * 0.5]].forEach(function (p) {
-                var els = document.elementsFromPoint(p[0], p[1]);
-                L('точка ' + Math.round(p[0]) + ',' + Math.round(p[1]) + ' сверху вниз:');
-                els.slice(0, 12).forEach(function (e, i) {
-                    var cs = getComputedStyle(e);
-                    L('  ' + i + ' ' + nm(e) + ' pos=' + cs.position + ' z=' + cs.zIndex + ' op=' + cs.opacity +
-                      ' bg=' + (cs.backgroundImage !== 'none' ? cs.backgroundImage.slice(0, 36) : cs.backgroundColor) +
-                      pseudoInfo(e, '::before') + pseudoInfo(e, '::after'));
-                });
-            });
         } catch (e) { try { console.log('[PRAVO][PROBE] ошибка:', e); } catch (_) {} }
     };
 
-    console.log('[PRAVO] ✅ Чат при радиальном меню (не гаснет и не затемняется) установлен');
+    console.log('[PRAVO] ✅ Чат над затемнением радиального меню (bg14 и подложка — под чатом) установлен');
 })();
 // ══════════════════════════════════════════════════════════════════════════════
 
