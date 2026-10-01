@@ -405,9 +405,8 @@
             <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>
             <span id="binds-hint">Выберите пункт и нажмите Enter — назначить кнопку</span>
           </div>
-            <div id="binds-groups" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
             <div class="info-box" style="margin-bottom:14px">
-          Назначьте кнопки для пунктов меню АХК: <b>главное меню</b>, <b>«Повседневная»</b> и <b>выдача лицензий</b>. Выберите пункт в окне (мышью или <b>↑ ↓</b>) и нажмите <b>Enter</b> — или двойной клик, или <b>⌨</b> справа, — чтобы задать бинд. <b>Esc</b> сбрасывает бинд выбранного пункта. Переключатель над текстом (или <b>←</b> / <b>→</b>) выбирает, какое из двух игровых меню настраивать: «Главное меню» или «Повседневная». В самом окне, как в игре, только <b>Enter</b> и <b>Esc</b>.<br>
+          Назначьте кнопки для пунктов меню АХК: <b>главное меню</b>, <b>«Повседневная»</b> и <b>выдача лицензий</b>. Выберите пункт в окне (мышью или <b>↑ ↓</b>). Как в игре: <b>Enter</b> или двойной клик на «Повседневная» / «Выдача лицензии» открывает это меню, <b>Esc</b> возвращает назад. Чтобы назначить бинд самому пункту — <b>⌨</b> справа от него; на обычных пунктах это делает и <b>Enter</b>. <b>Delete</b> или <b>✕</b> сбрасывает бинд.<br>
           Значок <b>⏱</b> (есть только у пунктов «Повседневной») включает отправку команды <b>/c 60</b> после отыгровки этого пункта — диалог «Точное время» закроется сам через 1.5 сек, чтобы не мешал.
         </div>
         <div id="binds-status" style="display:none;font-size:11px;line-height:1.5;margin-bottom:10px"></div>
@@ -588,7 +587,7 @@ ALL_MENU_ITEMS.forEach(function(it){menuItemTimers[it.action]=false;});
 var BINDS_ZOOM=1.05;   // общий масштаб окна (размеры в игре заданы в vh, а окно установщика ниже экрана игры)
 var BINDS_DEPT_TITLES={mvd:'МВД',fsb:'ФСБ',fsin:'ФСИН',pravo:'ПРАВИТЕЛЬСТВО'};
 var BINDS_EXTRA_CSS="\n*,*::before,*::after{box-sizing:border-box}\n:host{display:block;font-family:'Open Sans',sans-serif;--fallback-font:'Open Sans',sans-serif;color:#fff;-webkit-user-select:none;user-select:none}\np{margin:0}\n/* Modal.css делает .modal полноэкранным (fixed 100vw/100vh) — здесь окно встроено в страницу */\n.modal[data-v-0c90f898]{position:relative;left:auto;top:auto;width:auto;height:auto;display:block;z-index:auto}\n.modal__pattern{background-position:50%;background-repeat:no-repeat;background-size:cover;opacity:.05;transform:rotate(148deg) scale3d(-1,1,1)}\n/* ширина окна — по содержимому, как containerWidth в Window.js */\n.window__content-container[data-v-8a748e31]{position:relative;width:max-content}\n.scrollable-container__container{scrollbar-width:none}\n.scrollable-container__container::-webkit-scrollbar{display:none}\n.window-table__item{user-select:none}\n.window-table__col{white-space:nowrap;flex:1 1 auto}\n.window-table__item .bd-right{align-items:center;display:flex;flex-shrink:0;gap:0.74vh;padding-right:1.11vh}\n.bd-ico{align-items:center;background:#ffffff0f;border:0.09vh solid #0000;border-radius:0.37vh;cursor:pointer;display:flex;height:2.59vh;justify-content:center;padding:0;transition:all .15s;width:2.59vh}\n.bd-ico svg{fill:none;height:1.3vh;stroke:#f4f1e166;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;width:1.3vh}\n.bd-ico:hover{background:#f9b70130}\n.bd-ico:hover svg,.bd-ico.on svg{stroke:#f9b701}\n.bd-ico.on{background:#f9b70138;border-color:#f9b70180}\n.bd-ico_clear:hover{background:#e2554430}\n.bd-ico_clear:hover svg{stroke:#e25544}\n.bd-badge{background:#f9b70126;border:0.09vh solid #f9b70166;border-radius:0.37vh;color:#f9b701;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:1.3vh;font-weight:500;padding:0.37vh 0.93vh;white-space:nowrap}\n.bd-badge:hover{background:#f9b70148}\n\n/* ButtonContainer.css игры в репозитории нет — минимальный аналог для подписей к кнопкам (отступы между кнопками задаёт Window.css) */\n.controls-button__container{align-items:center;display:flex}\n.controls-button__container-text{color:rgba(244,241,225,.6);font-family:'Open Sans',sans-serif;font-size:1.11vh;font-weight:600;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.04em;padding-left:0.56vh}\n";
-var _bindsPage=0,_bindsSel=null,_bindsPages=[],_bindsScrollInit=false,_bindsAssets=false,_bindsRoot=null;
+var _bindsPage=0,_bindsOpener=null,_bindsSel=null,_bindsPages=[],_bindsScrollInit=false,_bindsAssets=false,_bindsRoot=null;
 var _V='data-v-8a748e31',_VM='data-v-0c90f898',_VB='data-v-11f6a12f',_VS='data-v-db32da26',_VT='data-v-e3acdd50';
 function _bq(sel){return _bindsRoot?_bindsRoot.querySelector(sel):null;}
 function _bindsInit(){
@@ -669,34 +668,35 @@ function _bindsBtn(kind,keyText,label,disabled,onclick){
   }
   return box;
 }
+// Какой пункт главного меню открывает какую группу (в игре это отдельные диалоги: 677 → 667 «Повседневная», givelic → выбор лицензии)
+var BINDS_SUBMENU={povsednev:'Повседневная',givelic:'Выдача лицензии'};
+function _bindsSubIndex(action){
+  var name=BINDS_SUBMENU[action];if(!name)return -1;
+  for(var i=0;i<_bindsPages.length;i++){if(_bindsPages[i].group===name)return i;}
+  return -1;
+}
+function _bindsHasRoot(){return _bindsPages.length>1&&_bindsPages[0].group==='Главное меню';}
 function _bindsRenderButtons(){
   var btns=_bq('#bd-btns');
   if(!btns)return;
-  var n=_bindsPages.length;
   btns.innerHTML='';
-  var hasSel=!!_bindsSel&&n>0,hasBind=hasSel&&!!menuItemBinds[_bindsSel];
-  btns.appendChild(_bindsBtn('enter','Enter','Назначить',!hasSel,function(){_showOverlay('bind:'+_bindsSel);}));
-  btns.appendChild(_bindsBtn('esc','Esc','Сбросить',!hasBind,function(){clearMenuBind(_bindsSel);}));
+  var hasSel=!!_bindsSel&&_bindsPages.length>0;
+  var opens=hasSel&&_bindsPage===0&&_bindsSubIndex(_bindsSel)>=0;
+  var canBack=_bindsHasRoot()&&_bindsPage>0;
+  btns.appendChild(_bindsBtn('enter','Enter',opens?'Выбрать':'Назначить',!hasSel,_bindsEnter));
+  btns.appendChild(_bindsBtn('esc','Esc',canBack?'Назад':'Отмена',!canBack,_bindsBack));
 }
-// Переключатель групп меню — вне игрового окна (в игре это два отдельных диалога: 677 «МВД» и 667 «Повседневная»)
-function _bindsRenderGroups(){
-  var box=document.getElementById('binds-groups');
-  if(!box)return;
-  box.innerHTML='';
-  box.style.display=_bindsPages.length>1?'flex':'none';
-  _bindsPages.forEach(function(pg,i){
-    var b=document.createElement('button');
-    var on=i===_bindsPage;
-    b.textContent=pg.group;
-    b.style.cssText='font:600 11px "Open Sans",sans-serif;padding:6px 12px;border-radius:7px;cursor:pointer;border:1px solid '+(on?'rgba(249,183,1,.5)':'var(--border2)')+';background:'+(on?'var(--accent-dim)':'rgba(255,255,255,.04)')+';color:'+(on?'var(--accent2)':'var(--text2)');
-    b.onclick=function(){_bindsGoPage(i-_bindsPage);};
-    box.appendChild(b);
-  });
+// Enter / двойной клик: пункт-меню → открыть его, обычный пункт → назначить бинд
+function _bindsEnter(){
+  if(!_bindsSel)return;
+  var i=(_bindsPage===0)?_bindsSubIndex(_bindsSel):-1;
+  if(i>=0){_bindsOpener=_bindsSel;_bindsPage=i;_bindsSel=null;var sc=_bq('#bd-scroll');if(sc)sc.scrollTop=0;buildBindsList();return;}
+  _showOverlay('bind:'+_bindsSel);
 }
-function _bindsGoPage(d){
-  var np=_bindsPage+d;
-  if(np<0||np>=_bindsPages.length)return;
-  _bindsPage=np;_bindsSel=null;
+// Esc: из подменю — назад в главное (как ответ 0 у диалога 667 → showMvdSubMenu)
+function _bindsBack(){
+  if(!_bindsHasRoot()||_bindsPage===0)return;
+  _bindsPage=0;_bindsSel=_bindsOpener;_bindsOpener=null;
   var sc=_bq('#bd-scroll');if(sc)sc.scrollTop=0;
   buildBindsList();
 }
@@ -746,7 +746,7 @@ function buildBindsList(){
       row.className='window-table__item'+(it.action===_bindsSel?' selected':'');
       row.setAttribute(_V,'');row.setAttribute('data-action',it.action);
       row.onclick=function(){_bindsSelect(it.action);};
-      row.ondblclick=function(){_showOverlay('bind:'+it.action);};
+      row.ondblclick=function(){_bindsSelect(it.action);_bindsEnter();};
       var col=document.createElement('div');col.className='window-table__col';col.setAttribute(_V,'');
       col.textContent=(pg.offset+idx+1)+'. '+it.label.replace(/^\d+\.\s*/,'');
       row.appendChild(col);
@@ -773,12 +773,11 @@ function buildBindsList(){
       container.appendChild(row);
     });
   }
-  _bindsRenderGroups();
   _bindsRenderButtons();
   if(scroll)scroll.scrollTop=keepTop;
   if(!_bindsScrollInit&&typeof initDlgScroll==='function'){_bindsScrollInit=true;initDlgScroll(_bq('#bd-scroll'),_bq('#bd-thumb'),_bq('#bd-rail'));}
 }
-// Клавиши: ↑/↓ — выбор пункта, Enter — назначить, Esc — сбросить, ←/→ — переключить группу меню (вне игрового окна).
+// Клавиши как в игровом диалоге: ↑/↓ — выбор, Enter — выбрать/назначить, Esc — назад; Delete — сбросить бинд выбранного пункта.
 // Работает только на вкладке «Бинды» и когда не открыт захват клавиши (его обработчик ставит defaultPrevented).
 document.addEventListener('keydown',function(e){
   if(e.defaultPrevented||_captureTarget)return;
@@ -789,10 +788,9 @@ document.addEventListener('keydown',function(e){
   var c=e.code,handled=true;
   if(c==='ArrowDown')_bindsMove(1);
   else if(c==='ArrowUp')_bindsMove(-1);
-  else if(c==='ArrowLeft')_bindsGoPage(-1);
-  else if(c==='ArrowRight')_bindsGoPage(1);
-  else if(c==='Enter'||c==='NumpadEnter'){if(_bindsSel)_showOverlay('bind:'+_bindsSel);}
-  else if(c==='Escape'){if(_bindsSel&&menuItemBinds[_bindsSel])clearMenuBind(_bindsSel);}
+  else if(c==='Enter'||c==='NumpadEnter')_bindsEnter();
+  else if(c==='Escape')_bindsBack();
+  else if(c==='Delete'){if(_bindsSel&&menuItemBinds[_bindsSel])clearMenuBind(_bindsSel);}
   else handled=false;
   if(handled)e.preventDefault();
 });
@@ -827,7 +825,7 @@ function _setBindsStatus(text,isErr){
   el.style.color=isErr?'var(--danger)':'var(--text3)';
 }
 function _applyMenuItems(items){
-  ALL_MENU_ITEMS=items;_bindsPage=0;_bindsSel=null;
+  ALL_MENU_ITEMS=items;_bindsPage=0;_bindsSel=null;_bindsOpener=null;
   buildBindsList();
 }
 function loadMenuItems(dept){
