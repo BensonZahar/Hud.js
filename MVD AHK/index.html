@@ -343,23 +343,19 @@
         <div class="page-dot"></div>
         <span class="page-title">Бинды</span>
       </div>
-      <div class="content" style="padding:16px 20px 16px">
-        <div style="display:flex;gap:18px;align-items:flex-start">
-          <div style="flex:1;min-width:0">
-            <div class="game-dialog-header">
-            <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>
-            <span id="binds-hint">Выберите пункт и нажмите Enter — назначить кнопку</span>
-          </div>
-            <div class="info-box" style="margin-bottom:14px">
+      <div class="content" style="padding:16px 20px 18px">
+        <div class="game-dialog-header" style="margin-bottom:10px">
+          <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>
+          <span id="binds-hint">Выберите пункт и нажмите Enter — назначить кнопку</span>
+        </div>
+        <div class="game-dialog-wrap" style="margin-bottom:14px">
+          <div id="binds-host" class="binds-host" style="display:flex;justify-content:center"></div>
+        </div>
+        <div class="info-box" style="margin-bottom:10px">
           Назначьте кнопки для пунктов меню АХК: <b>главное меню</b>, <b>«Повседневная»</b> и <b>выдача лицензий</b>. Выберите пункт в окне (мышью или <b>↑ ↓</b>). Как в игре: <b>Enter</b> или двойной клик на «Повседневная» / «Выдача лицензии» открывает это меню, <b>Esc</b> возвращает назад. Чтобы назначить бинд самому пункту — <b>⌨</b> справа от него; на обычных пунктах это делает и <b>Enter</b>. <b>Delete</b> или <b>✕</b> сбрасывает бинд.<br>
           Значок <b>⏱</b> (есть только у пунктов «Повседневной») включает отправку команды <b>/c 60</b> после отыгровки этого пункта — диалог «Точное время» закроется сам через 1.5 сек, чтобы не мешал.
         </div>
         <div id="binds-status" style="display:none;font-size:11px;line-height:1.5;margin-bottom:10px"></div>
-          </div>
-          <div class="game-dialog-wrap" style="flex:none;margin-bottom:0">
-            <div id="binds-host" class="binds-host" style="display:flex;justify-content:center"></div>
-          </div>
-        </div>
       </div>
     </div>
     <div class="page" id="page-remove">
@@ -529,9 +525,9 @@ ALL_MENU_ITEMS.forEach(function(it){menuItemTimers[it.action]=false;});
 // ── Вкладка «Бинды»: окно собрано из оригинальных Modal.css + Window.css игры (Shadow DOM, разметка как в Window.js) ──
 // Как в игре (mvdF.js): диалог «Повседневная» (667) — одна страница со всеми пунктами и скроллом, без листания по N штук.
 // «Страницы» здесь — только группы меню: «Главное меню» (677) и «Повседневная» (667).
-var GW_ZOOM=1.05;   // общий масштаб окна (размеры в игре заданы в vh, а окно установщика ниже экрана игры)
+var GW_ZOOM=1.4;   // общий масштаб окна (размеры в игре заданы в vh, а окно установщика ниже экрана игры)
 var BINDS_DEPT_TITLES={mvd:'МВД',fsb:'ФСБ',fsin:'ФСИН',pravo:'ПРАВИТЕЛЬСТВО'};
-var GW_EXTRA_CSS="\n*,*::before,*::after{box-sizing:border-box}\n:host{display:block;font-family:'Open Sans',sans-serif;--fallback-font:'Open Sans',sans-serif;color:#fff;-webkit-user-select:none;user-select:none}\np{margin:0}\n/* Modal.css делает .modal полноэкранным (fixed 100vw/100vh) — здесь окно встроено в страницу */\n.modal[data-v-0c90f898]{position:relative;left:auto;top:auto;width:auto;height:auto;display:block;z-index:auto}\n.modal__pattern{background-position:50%;background-repeat:no-repeat;background-size:cover;opacity:.05;transform:rotate(148deg) scale3d(-1,1,1)}\n/* ширина окна — по содержимому, как containerWidth в Window.js */\n.window__content-container[data-v-8a748e31]{position:relative;width:max-content}\n.scrollable-container__container{scrollbar-width:none}\n.scrollable-container__container::-webkit-scrollbar{display:none}\n.window-table__item{user-select:none}\n.window-table__col{white-space:nowrap;flex:1 1 auto}\n.window-table__item .bd-right{align-items:center;display:flex;flex-shrink:0;gap:0.74vh;padding-right:1.11vh}\n.bd-ico{align-items:center;background:#ffffff0f;border:0.09vh solid #0000;border-radius:0.37vh;cursor:pointer;display:flex;height:2.59vh;justify-content:center;padding:0;transition:all .15s;width:2.59vh}\n.bd-ico svg{fill:none;height:1.3vh;stroke:#f4f1e166;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;width:1.3vh}\n.bd-ico:hover{background:#f9b70130}\n.bd-ico:hover svg,.bd-ico.on svg{stroke:#f9b701}\n.bd-ico.on{background:#f9b70138;border-color:#f9b70180}\n.bd-ico_clear:hover{background:#e2554430}\n.bd-ico_clear:hover svg{stroke:#e25544}\n.bd-badge{background:#f9b70126;border:0.09vh solid #f9b70166;border-radius:0.37vh;color:#f9b701;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:1.3vh;font-weight:500;padding:0.37vh 0.93vh;white-space:nowrap}\n.bd-badge:hover{background:#f9b70148}\n/* авто-снаряжение: подсветка при наведении и строки с подписью (патроны) */\n.window-table__item:hover:not(.selected){background:#ffffff18}\n.gw-item_sub{height:6.3vh}\n.gw-item_sub .window-table__col{flex-direction:column;gap:0.2vh}\n.gw-sub{color:#f4f1e159;font-size:1.2vh;font-weight:400}\n.selected .gw-sub{color:#f4f1e199}\n\n/* ButtonContainer.css игры в репозитории нет — минимальный аналог для подписей к кнопкам (отступы между кнопками задаёт Window.css) */\n.controls-button__container{align-items:center;display:flex}\n.controls-button__container-text{color:rgba(244,241,225,.6);font-family:'Open Sans',sans-serif;font-size:1.11vh;font-weight:600;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.04em;padding-left:0.56vh}\n";
+var GW_EXTRA_CSS="\n*,*::before,*::after{box-sizing:border-box}\n:host{display:block;font-family:'Open Sans',sans-serif;--fallback-font:'Open Sans',sans-serif;color:#fff;-webkit-user-select:none;user-select:none}\np{margin:0}\n/* Modal.css делает .modal полноэкранным (fixed 100vw/100vh) — здесь окно встроено в страницу */\n.modal[data-v-0c90f898]{position:relative;left:auto;top:auto;width:auto;height:auto;display:block;z-index:auto}\n.modal__pattern{background-position:50%;background-repeat:no-repeat;background-size:cover;opacity:.05;transform:rotate(148deg) scale3d(-1,1,1)}\n/* ширина окна — по содержимому, как containerWidth в Window.js */\n.window__content-container[data-v-8a748e31]{position:relative;width:max-content}\n.scrollable-container__container{scrollbar-width:none}\n.scrollable-container__container::-webkit-scrollbar{display:none}\n.window-table__item{user-select:none}\n.window-table__col{white-space:nowrap;flex:1 1 auto}\n.window-table__item .bd-right{align-items:center;display:flex;flex-shrink:0;gap:0.74vh;padding-right:1.11vh}\n.bd-ico{align-items:center;background:#ffffff0f;border:0.09vh solid #0000;border-radius:0.37vh;cursor:pointer;display:flex;height:2.59vh;justify-content:center;padding:0;transition:all .15s;width:2.59vh}\n.bd-ico svg{fill:none;height:1.3vh;stroke:#f4f1e166;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;width:1.3vh}\n.bd-ico:hover{background:#f9b70130}\n.bd-ico:hover svg,.bd-ico.on svg{stroke:#f9b701}\n.bd-ico.on{background:#f9b70138;border-color:#f9b70180}\n.bd-ico_clear:hover{background:#e2554430}\n.bd-ico_clear:hover svg{stroke:#e25544}\n.bd-badge{background:#f9b70126;border:0.09vh solid #f9b70166;border-radius:0.37vh;color:#f9b701;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:1.3vh;font-weight:500;padding:0.37vh 0.93vh;white-space:nowrap}\n.bd-badge:hover{background:#f9b70148}\n/* авто-снаряжение: подсветка при наведении и строки с подписью (патроны) */\n.window-table__item:hover:not(.selected){background:#ffffff18}\n.gw-item_sub{height:6.3vh}\n.gw-item_sub .window-table__col{flex-direction:column;gap:0.2vh}\n.gw-sub{color:#f4f1e159;font-size:1.35vh;font-weight:400}\n.selected .gw-sub{color:#f4f1e199}\n\n/* ButtonContainer.css игры в репозитории нет — минимальный аналог для подписей к кнопкам (отступы между кнопками задаёт Window.css) */\n.controls-button__container{align-items:center;display:flex}\n.controls-button__container-text{color:rgba(244,241,225,.6);font-family:'Open Sans',sans-serif;font-size:1.11vh;font-weight:600;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.04em;padding-left:0.56vh}\n";
 var _bindsPage=0,_bindsOpener=null,_bindsSel=null,_bindsPages=[],_bindsRoot=null;
 var _V='data-v-8a748e31',_VM='data-v-0c90f898',_VB='data-v-11f6a12f',_VS='data-v-db32da26',_VT='data-v-e3acdd50';
 function _bq(sel){return _bindsRoot?_bindsRoot.querySelector(sel):null;}
@@ -580,7 +576,7 @@ function _bindsInit(){
   var host=document.getElementById('binds-host');
   if(!host||!host.attachShadow)return false;
   // как у серверного диалога «list_title»: «AHK by konstt» — серая шапка таблицы (window-table__head), а не subtitle
-  _bindsRoot=_gwMount(host,'bd','AHK by konstt',63.4);
+  _bindsRoot=_gwMount(host,'bd','AHK by konstt',41);
   return true;
 }
 function _bindsBuildPages(){
@@ -889,7 +885,7 @@ function _grInit(){
   if(_grRoot)return true;
   var host=document.getElementById('grab-host');
   if(!host||!host.attachShadow)return false;
-  _grRoot=_gwMount(host,'gr','',32);
+  _grRoot=_gwMount(host,'gr','',34);
   _gq('.window__content-container').style.minHeight='0';   // в Window.css у таблицы min-height:43.89vh — список здесь короче
   var btns=_gq('#gr-btns');   // кнопки-подсказки, как в игре (действий у них нет)
   btns.appendChild(_gwBtn('enter','Enter','Взять',false,null));

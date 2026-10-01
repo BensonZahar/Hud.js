@@ -258,7 +258,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .cs-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:0;opacity:0}
 .cs-wrap.show{max-height:60px;opacity:1}
 .grab-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0;margin-bottom:0}
-.grab-wrap.show{max-height:560px;opacity:1;margin-bottom:10px}
+.grab-wrap.show{max-height:720px;opacity:1;margin-bottom:10px}
 #swap-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
 #swap-wrap.show{max-height:140px;opacity:1}
 #eject-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
