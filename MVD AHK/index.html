@@ -603,9 +603,11 @@ function _bindsInit(){
         '<div class="modal__content" '+_VM+'>'+
           '<div class="modal__title" id="bd-title" '+_VM+'></div>'+
           '<div class="window__container" '+_V+'>'+
-            '<div class="window__subtitle" '+_V+'>AHK by konstt</div>'+
             '<div class="window__content-container" '+_V+'>'+
-              '<div class="bd-scroll" id="bd-scroll"><div class="window__content" '+_V+'><div class="window-table" '+_V+'><div class="window-table__items" id="bd-items" '+_V+'></div></div></div></div>'+
+              // как у серверного диалога «list_title»: «AHK by konstt» — серая шапка таблицы (window-table__head), а не subtitle
+              '<div class="bd-scroll" id="bd-scroll"><div class="window__content" '+_V+'><div class="window-table" '+_V+'>'+
+                '<div class="window-table__head" '+_V+'><div class="window-table__col" '+_V+'>AHK by konstt</div></div>'+
+                '<div class="window-table__items" id="bd-items" '+_V+'></div></div></div></div>'+
               '<div class="gdlg-scroll-rail" id="bd-rail" style="bottom:1.6vh"><div class="gdlg-scroll-rail-bg"></div><div class="gdlg-scroll-thumb" id="bd-thumb"><div class="gdlg-scroll-thumb-shadow"></div><div class="gdlg-scroll-thumb-deco"><span></span><hr><span></span></div></div></div>'+
             '</div>'+
             '<div class="window__paginate" id="bd-pag" '+_V+' style="display:none"></div>'+
