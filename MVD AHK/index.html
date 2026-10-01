@@ -399,11 +399,39 @@
       </div>
       <div class="content" style="padding:16px 20px 16px">
         <div class="info-box" style="margin-bottom:14px">
-          Назначьте кнопки для пунктов меню АХК: <b>главное меню</b>, <b>«Повседневная»</b> и <b>выдача лицензий</b>. Нажмите <b>⌨</b> справа от нужного пункта, чтобы задать бинд.<br>
+          Назначьте кнопки для пунктов меню АХК: <b>главное меню</b>, <b>«Повседневная»</b> и <b>выдача лицензий</b>. Выберите пункт в окне (мышью или <b>↑ ↓</b>) и нажмите <b>Enter</b> — или двойной клик, или <b>⌨</b> справа, — чтобы задать бинд. <b>Esc</b> сбрасывает бинд выбранного пункта, <b>A</b> / <b>D</b> листают страницы — как в игровом меню.<br>
           Значок <b>⏱</b> (есть только у пунктов «Повседневной») включает отправку команды <b>/c 60</b> после отыгровки этого пункта — диалог «Точное время» закроется сам через 1.5 сек, чтобы не мешал.
         </div>
         <div id="binds-status" style="display:none;font-size:11px;line-height:1.5;margin-bottom:10px"></div>
-        <div id="binds-list" style="display:flex;flex-direction:column;gap:6px"></div>
+        <div class="game-dialog-wrap">
+          <div class="game-dialog-header">
+            <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>
+            <span id="binds-hint">Выберите пункт и нажмите Enter — назначить кнопку</span>
+          </div>
+          <div class="gdlg-wrap" style="width:100%;max-width:520px">
+            <div class="gdlg-inner">
+              <div class="gdlg-pattern"><div class="gdlg-pattern__image" id="binds-pattern"></div></div>
+              <div class="gdlg-content">
+                <div class="gdlg-title" id="binds-title"></div>
+                <div class="gdlg-subtitle" id="binds-subtitle">AHK by konstt</div>
+                <div class="gdlg-list-wrap">
+                  <div class="gdlg-list-scroll" id="binds-list-scroll" style="max-height:330px">
+                    <div class="gdlg-items" id="binds-list"></div>
+                  </div>
+                  <div class="gdlg-scroll-rail" id="binds-rail">
+                    <div class="gdlg-scroll-rail-bg"></div>
+                    <div class="gdlg-scroll-thumb" id="binds-thumb">
+                      <div class="gdlg-scroll-thumb-shadow"></div>
+                      <div class="gdlg-scroll-thumb-deco"><span></span><hr><span></span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="gdlg-paginate" id="binds-paginate" style="display:none"></div>
+                <div class="gdlg-buttons" id="binds-buttons"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="page" id="page-remove">
@@ -570,59 +598,169 @@ ALL_MENU_ITEMS.forEach(function(it){menuItemBinds[it.action]='';});
 var menuItemTimers={};
 ALL_MENU_ITEMS.forEach(function(it){menuItemTimers[it.action]=false;});
 
+// ── Вкладка «Бинды»: окно один в один как в игре (Modal.css + Window.css, тот же макет, что у автоснаряжения) ──
+var BINDS_PER_PAGE=7; // как ITEMS_PER_PAGE в скриптах: «Повседневная» листается по 7 пунктов
+var BINDS_DEPT_TITLES={mvd:'МВД',fsb:'ФСБ',fsin:'ФСИН',pravo:'ПРАВИТЕЛЬСТВО'};
+var _bindsPage=0,_bindsSel=null,_bindsPages=[],_bindsScrollInit=false,_bindsAssets=false;
+function _bindsBuildPages(){
+  var groups=[];
+  ALL_MENU_ITEMS.forEach(function(it){
+    var g=it.group||'Повседневная';
+    var last=groups[groups.length-1];
+    if(!last||last.name!==g){last={name:g,items:[]};groups.push(last);}
+    last.items.push(it);
+  });
+  var dept=BINDS_DEPT_TITLES[currentDepartment]||BINDS_DEPT_TITLES.mvd;
+  var pages=[];
+  groups.forEach(function(g){
+    var per=(g.name==='Повседневная')?BINDS_PER_PAGE:Math.max(g.items.length,1);
+    var title=(g.name==='Главное меню')?dept:(dept+' | '+g.name);
+    for(var i=0;i<g.items.length;i+=per){
+      pages.push({group:g.name,title:title,items:g.items.slice(i,i+per),offset:i});
+    }
+  });
+  return pages;
+}
+// Кнопка как в игре (ControlsContaineredButton): kind = 'key' | 'enter' | 'esc'
+function _bindsBtn(kind,keyText,label,disabled,onclick){
+  var box=document.createElement('div');
+  box.className='controls-button__container';
+  var btn=document.createElement('div');
+  btn.className='controls-button'+(kind==='enter'?' controls-button_enter':kind==='esc'?' controls-button_is-esc controls-button_length-3':' controls-button_length-1')+(disabled?' controls-button_disabled':' clickable controls-button_with-hover');
+  var content=document.createElement('div');content.className='controls-button-content';
+  if(kind==='enter'){
+    var icon=document.createElement('img');icon.className='controls-button-icon controls-button-icon_key';
+    var src=document.querySelector('#grab-wrap .controls-button-icon_key');if(src)icon.src=src.src;
+    content.appendChild(icon);
+  }
+  var tw=document.createElement('div');tw.className='controls-button--text-wrapper';
+  var tx=document.createElement('div');tx.className='controls-button--text';tx.textContent=keyText;
+  var bd=document.createElement('div');bd.className='controls-button--text-border';
+  tw.appendChild(tx);tw.appendChild(bd);content.appendChild(tw);btn.appendChild(content);
+  var sh=document.createElement('div');sh.className='controls-button-shadow';btn.appendChild(sh);
+  box.appendChild(btn);
+  var lb=document.createElement('span');lb.className='controls-button__container-text';lb.textContent=label;box.appendChild(lb);
+  if(!disabled&&onclick){box.style.cursor='pointer';box.onclick=onclick;}
+  return box;
+}
+function _bindsRenderButtons(){
+  var pager=document.getElementById('binds-paginate'),btns=document.getElementById('binds-buttons');
+  if(!pager||!btns)return;
+  var n=_bindsPages.length,hasPrev=_bindsPage>0,hasNext=_bindsPage<n-1;
+  pager.innerHTML='';
+  pager.style.display=(hasPrev||hasNext)?'flex':'none';
+  pager.appendChild(_bindsBtn('key','A','Назад',!hasPrev,function(){_bindsGoPage(-1);}));
+  pager.appendChild(_bindsBtn('key','D','Далее',!hasNext,function(){_bindsGoPage(1);}));
+  btns.innerHTML='';
+  var hasSel=!!_bindsSel&&n>0,hasBind=hasSel&&!!menuItemBinds[_bindsSel];
+  btns.appendChild(_bindsBtn('enter','Enter','Назначить',!hasSel,function(){_showOverlay('bind:'+_bindsSel);}));
+  btns.appendChild(_bindsBtn('esc','Esc','Сбросить',!hasBind,function(){clearMenuBind(_bindsSel);}));
+}
+function _bindsGoPage(d){
+  var np=_bindsPage+d;
+  if(np<0||np>=_bindsPages.length)return;
+  _bindsPage=np;_bindsSel=null;
+  var sc=document.getElementById('binds-list-scroll');if(sc)sc.scrollTop=0;
+  buildBindsList();
+}
+function _bindsSelect(action){
+  _bindsSel=action;
+  Array.prototype.forEach.call(document.querySelectorAll('#binds-list .gdlg-item'),function(r){r.classList.toggle('on',r.getAttribute('data-action')===action);});
+  _bindsRenderButtons();
+}
+function _bindsMove(d){
+  var pg=_bindsPages[_bindsPage];if(!pg)return;
+  var idx=-1;pg.items.forEach(function(it,i){if(it.action===_bindsSel)idx=i;});
+  var ni=Math.max(0,Math.min(pg.items.length-1,idx+d));
+  _bindsSelect(pg.items[ni].action);
+  var row=document.querySelector('#binds-list .gdlg-item.on');
+  if(row&&row.scrollIntoView)row.scrollIntoView({block:'nearest'});
+}
 function buildBindsList(){
   var container=document.getElementById('binds-list');
   if(!container)return;
+  // Узор заголовка берём у окна автоснаряжения — он один и тот же, дублировать картинку не нужно
+  if(!_bindsAssets){
+    var srcPat=document.querySelector('#grab-wrap .gdlg-pattern__image'),dstPat=document.getElementById('binds-pattern');
+    if(srcPat&&dstPat&&srcPat.style.backgroundImage){dstPat.style.backgroundImage=srcPat.style.backgroundImage;_bindsAssets=true;}
+  }
+  var scroll=document.getElementById('binds-list-scroll');
+  var keepTop=scroll?scroll.scrollTop:0;
+  _bindsPages=_bindsBuildPages();
+  if(_bindsPage>=_bindsPages.length)_bindsPage=0;
   container.innerHTML='';
-  var lastGroup=null;
-  ALL_MENU_ITEMS.forEach(function(it){
-    if(it.group&&it.group!==lastGroup){
-      lastGroup=it.group;
-      var hdr=document.createElement('div');
-      hdr.style.cssText='font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin:10px 2px 0';
-      hdr.textContent=it.group;
-      container.appendChild(hdr);
-    }
-    var bind=menuItemBinds[it.action]||'';
-    var row=document.createElement('div');
-    row.style.cssText='display:flex;align-items:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:10px 14px;gap:10px;-webkit-app-region:no-drag';
-    var lbl=document.createElement('p');
-    lbl.style.cssText='flex:1;font-size:12px;font-weight:600;color:var(--text2);margin:0;line-height:1.4';
-    lbl.textContent=it.label.replace(/^\d+\.\s*/,'');
-    row.appendChild(lbl);
-    var right=document.createElement('div');
-    right.style.cssText='display:flex;align-items:center;gap:6px;flex-shrink:0';
-    var timerBtn=document.createElement('button');
-    timerBtn.className='gdlg-timer-btn'+(menuItemTimers[it.action]?' on':'');
-    timerBtn.title='После отыгровки слать /c 60 и закрывать диалог "Точное время" через 1.5с';
-    timerBtn.innerHTML='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>';
-    timerBtn.onclick=function(){toggleMenuTimer(it.action);};
-    if(it.timer!==false)right.appendChild(timerBtn);
-    if(bind){
-      var badge=document.createElement('span');
-      badge.className='gdlg-bind-badge';
-      badge.title='Изменить бинд';
-      badge.textContent=_keyDisplayRu(bind);
-      badge.onclick=function(){_showOverlay('bind:'+it.action);};
-      right.appendChild(badge);
-      var clearBtn=document.createElement('button');
-      clearBtn.className='gdlg-bind-clear';
-      clearBtn.title='Сбросить';
-      clearBtn.innerHTML='<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-      clearBtn.onclick=function(){clearMenuBind(it.action);};
-      right.appendChild(clearBtn);
-    } else {
-      var addBtn=document.createElement('button');
-      addBtn.className='gdlg-bind-btn';
-      addBtn.title='Назначить кнопку';
-      addBtn.innerHTML='<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>';
-      addBtn.onclick=function(){_showOverlay('bind:'+it.action);};
-      right.appendChild(addBtn);
-    }
-    row.appendChild(right);
-    container.appendChild(row);
-  });
+  var dept=BINDS_DEPT_TITLES[currentDepartment]||BINDS_DEPT_TITLES.mvd;
+  var titleEl=document.getElementById('binds-title');
+  var pg=_bindsPages[_bindsPage];
+  if(titleEl)titleEl.textContent=pg?pg.title:dept;
+  var hint=document.getElementById('binds-hint');
+  if(hint)hint.textContent=pg?('Выберите пункт и нажмите Enter — назначить кнопку · '+pg.group+(_bindsPages.length>1?' · стр. '+(_bindsPage+1)+' из '+_bindsPages.length:'')):'Загрузка меню…';
+  if(pg){
+    // по умолчанию выбран первый пункт страницы — как selected:0 в Window.js
+    if(!pg.items.some(function(it){return it.action===_bindsSel;}))_bindsSel=pg.items[0].action;
+    pg.items.forEach(function(it,idx){
+      var bind=menuItemBinds[it.action]||'';
+      var row=document.createElement('div');
+      row.className='gdlg-item'+(it.action===_bindsSel?' on':'');
+      row.setAttribute('data-action',it.action);
+      row.onclick=function(){_bindsSelect(it.action);};
+      row.ondblclick=function(){_showOverlay('bind:'+it.action);};
+      var col=document.createElement('div');col.className='gdlg-item-col';
+      var p=document.createElement('p');
+      p.textContent=(pg.offset+idx+1)+'. '+it.label.replace(/^\d+\.\s*/,'');
+      col.appendChild(p);row.appendChild(col);
+      var right=document.createElement('div');right.className='gdlg-item-right';
+      if(it.timer!==false){
+        var timerBtn=document.createElement('button');
+        timerBtn.className='gdlg-timer-btn'+(menuItemTimers[it.action]?' on':'');
+        timerBtn.title='После отыгровки слать /c 60 и закрывать диалог "Точное время" через 1.5с';
+        timerBtn.innerHTML='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>';
+        timerBtn.onclick=function(e){e.stopPropagation();toggleMenuTimer(it.action);};
+        right.appendChild(timerBtn);
+      }
+      if(bind){
+        var badge=document.createElement('span');
+        badge.className='gdlg-bind-badge';badge.title='Изменить бинд';badge.textContent=_keyDisplayRu(bind);
+        badge.onclick=function(e){e.stopPropagation();_bindsSelect(it.action);_showOverlay('bind:'+it.action);};
+        right.appendChild(badge);
+        var clearBtn=document.createElement('button');
+        clearBtn.className='gdlg-bind-clear';clearBtn.title='Сбросить';
+        clearBtn.innerHTML='<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        clearBtn.onclick=function(e){e.stopPropagation();clearMenuBind(it.action);};
+        right.appendChild(clearBtn);
+      }else{
+        var addBtn=document.createElement('button');
+        addBtn.className='gdlg-bind-btn';addBtn.title='Назначить кнопку';
+        addBtn.innerHTML='<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>';
+        addBtn.onclick=function(e){e.stopPropagation();_bindsSelect(it.action);_showOverlay('bind:'+it.action);};
+        right.appendChild(addBtn);
+      }
+      row.appendChild(right);
+      container.appendChild(row);
+    });
+  }
+  _bindsRenderButtons();
+  if(scroll)scroll.scrollTop=keepTop;
+  if(!_bindsScrollInit&&typeof initDlgScroll==='function'){_bindsScrollInit=true;initDlgScroll('binds-list-scroll','binds-thumb','binds-rail');}
 }
+// Клавиши как в игровом окне: ↑/↓ — выбор, A/D — страницы, Enter — назначить, Esc — сбросить.
+// Работает только на вкладке «Бинды» и когда не открыт захват клавиши (его обработчик ставит defaultPrevented).
+document.addEventListener('keydown',function(e){
+  if(e.defaultPrevented||_captureTarget)return;
+  var pg=document.getElementById('page-binds');
+  if(!pg||pg.style.display==='none')return;
+  var t=e.target&&e.target.tagName;if(t==='INPUT'||t==='TEXTAREA'||t==='SELECT')return;
+  if(e.ctrlKey||e.altKey||e.metaKey)return;
+  var c=e.code,handled=true;
+  if(c==='ArrowDown')_bindsMove(1);
+  else if(c==='ArrowUp')_bindsMove(-1);
+  else if(c==='KeyA'||c==='ArrowLeft')_bindsGoPage(-1);
+  else if(c==='KeyD'||c==='ArrowRight')_bindsGoPage(1);
+  else if(c==='Enter'||c==='NumpadEnter'){if(_bindsSel)_showOverlay('bind:'+_bindsSel);}
+  else if(c==='Escape'){if(_bindsSel&&menuItemBinds[_bindsSel])clearMenuBind(_bindsSel);}
+  else handled=false;
+  if(handled)e.preventDefault();
+});
 function clearMenuBind(action){
   menuItemBinds[action]='';
   buildBindsList();
@@ -654,7 +792,7 @@ function _setBindsStatus(text,isErr){
   el.style.color=isErr?'var(--danger)':'var(--text3)';
 }
 function _applyMenuItems(items){
-  ALL_MENU_ITEMS=items;
+  ALL_MENU_ITEMS=items;_bindsPage=0;_bindsSel=null;
   buildBindsList();
 }
 function loadMenuItems(dept){
@@ -1095,10 +1233,11 @@ _api.insert_hassle_code(cs,callsignOn,pwd,menuKey,currentDepartment,'',licensorH
 
 function doRemove(){var btn=document.getElementById('btn-remove');btn.disabled=true;if(removeTarget==='phone'){_setHassleStatus('hassle-remove-status','Удаление с телефона...','muted');runBar('pbar-remove','pbar-remove-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.remove_hassle_code('').then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-remove-status',r.message||'Код удалён','ok');flash(true);}else{_setHassleStatus('hassle-remove-status',(r&&r.message)||'Ошибка удаления','err');flash(false);}});}else{_setHassleStatus('hassle-remove-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
-function initGrabScroll(){
-  var el=document.getElementById('grab-list-scroll');
-  var thumb=document.getElementById('grab-thumb');
-  var rail=document.getElementById('grab-rail');
+function initGrabScroll(){initDlgScroll('grab-list-scroll','grab-thumb','grab-rail');}
+function initDlgScroll(listId,thumbId,railId){
+  var el=document.getElementById(listId);
+  var thumb=document.getElementById(thumbId);
+  var rail=document.getElementById(railId);
   if(!el||!thumb||!rail)return;
 
   function updateThumb(){

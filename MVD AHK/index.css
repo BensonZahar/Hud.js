@@ -594,6 +594,11 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 }
 .gdlg-buttons .controls-button__container{margin-right:1.48vh}
 .gdlg-buttons .controls-button__container:last-child{margin-right:0}
+/* Window.css: ряд пагинации — кнопки по краям, у правой подпись слева от кнопки */
+.gdlg-paginate .controls-button__container{margin-right:0}
+.gdlg-paginate .controls-button__container:last-child{flex-direction:row-reverse}
+.gdlg-paginate .controls-button__container:last-child .controls-button__container-text{padding:0 1.11vh 0 0}
+.gdlg-item{user-select:none}
 
 /* ══ controls-button — точная копия Button.css из игры (без изменений) ══ */
 .controls-button{align-items:center;display:flex;height:2.22vh;justify-content:center;position:relative;transition:all .25s ease;z-index:2}
