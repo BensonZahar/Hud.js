@@ -389,6 +389,89 @@ const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
 ];
+// ── РЕЕСТР ПУНКТОВ ГЛАВНОГО МЕНЮ ДЛЯ БИНДОВ (читается установщиком) ──────────────
+// Пункты диалога «ПРАВИТЕЛЬСТВО» (showMvdSubMenu). Пункты «Повседневной» берутся из
+// povsednevOptions, типы лицензий — из _GIVE_LIC_TYPES; здесь их дублировать не нужно.
+// Добавили пункт в showMvdSubMenu — добавьте его сюда и в _pravoRunMenuBind,
+// и он появится во вкладке «Бинды» установщика.
+const mainMenuOptions = [
+    { name: "Повседневная (открыть меню)",  action: "povsednev" },
+    { name: "Выдача лицензии",              action: "givelic" },
+    { name: "Круговое меню (вкл/выкл)",     action: "circle_lic" },
+    { name: "Просьба о чае (вкл/выкл)",     action: "tea_ask" },
+    { name: "Авто-перевыдача лицензии",     action: "auto_reissue_lic" },
+    { name: "Авто-снаряжение (вкл/выкл)",   action: "autograb" },
+];
+// Запуск бинда пункта, которого нет в «Повседневной»: пункты главного меню и «lic_<тип>»
+// (быстрая выдача конкретной лицензии: бинд → ввод ID → /givelic без выбора типа).
+// Условия доступности те же, что у пунктов в showMvdSubMenu.
+function _pravoRunMenuBind(action) {
+    var _label = action;
+    var _lic = /^lic_(\d+)$/.exec(action);
+    var _licIdx = -1;
+    if (_lic) {
+        for (var _i = 0; _i < _GIVE_LIC_TYPES.length; _i++) {
+            if (_GIVE_LIC_TYPES[_i].type === Number(_lic[1])) { _licIdx = _i; break; }
+        }
+        if (_licIdx < 0) return;
+        _label = 'Выдача: ' + _GIVE_LIC_TYPES[_licIdx].name;
+    } else {
+        var _m = mainMenuOptions.find(function(o) { return o.action === action; });
+        if (!_m) return;
+        _label = _m.name;
+    }
+    var _deny = function() {
+        console.log('[AHK-BIND] "' + action + '" сейчас недоступен');
+        try { gtAdd('~y~АХК~n~~w~Пункт «' + _label + '» сейчас недоступен', 2500, 3); } catch (e) {}
+    };
+    var _run = function() {
+        var _quickGive = _isLicensorRank() && window._pravoQuickGiveOn();
+        if (_licIdx >= 0) {
+            if (!_quickGive) return _deny();
+            window._pravoPendingLic = { idx: _licIdx, ts: Date.now() };
+            window.showGiveLicIdInputDialog();
+            return;
+        }
+        switch (action) {
+            case "povsednev":
+                lastMenuType = "povsednev";
+                currentPage = 0;
+                showPovsednevMenuPage(giveLicenseTo === -1 ? undefined : giveLicenseTo);
+                break;
+            case "givelic":
+                if (!_quickGive) return _deny();
+                window._pravoPendingLic = null;
+                window.showGiveLicIdInputDialog();
+                break;
+            case "circle_lic":
+                if (!(window._pravoCircleAllowed() && window._pravoQuickGiveOn())) return _deny();
+                toggleCircleLic();
+                break;
+            case "tea_ask":
+                if (!window._pravoCircleAllowed()) return _deny();
+                toggleTeaAsk();
+                break;
+            case "auto_reissue_lic":
+                if (!((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _isLicensorRank())) return _deny();
+                if (_lastGiveLicData) {
+                    _pravoReissueLic({});
+                } else {
+                    gtAdd('~r~Авто-перевыдача~n~~w~Нет данных — сначала выдайте лицензию через меню', 3500, 3);
+                }
+                break;
+            case "autograb":
+                if (!(window.AUTO_GRAB === true && _isGrabAllowedRank())) return _deny();
+                toggleAutoGrab();
+                break;
+        }
+    };
+    // Звание нужно для проверок выше — если профиль ещё не загружен, грузим и повторяем
+    if (!window._pravoRank && typeof window._pravoLoadPlayerProfile === 'function') {
+        window._pravoLoadPlayerProfile(_run);
+    } else {
+        _run();
+    }
+}
 const ITEMS_PER_PAGE = 7;
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
 const messageFilters = [
@@ -620,7 +703,7 @@ window.addEventListener('keydown', function(e) {
             if (!_matchesCombo(e, MENU_BINDS[_action])) continue;
             e.preventDefault && e.preventDefault();
             var _opt = povsednevOptions.find(function(o){ return o.action === _action; });
-            if (!_opt) break;
+            if (!_opt) { _pravoRunMenuBind(_action); break; }
             currentAction = _action;
             currentMenu = "povsednev"; // FIX: устанавливаем currentMenu чтобы диалог 668 сработал
             // FIX: СОБР-скин (15340) для greeting не требует ID — как в HandlePovsednevCommand
@@ -3842,10 +3925,17 @@ window.sendClientEventCustom = (event, ...args) => {
             }
         }
         else if (args[1] === 678) { // /givelic: ввод ID игрока
+            // Бинд на конкретную лицензию (lic_<тип>) оставляет здесь выбранный тип (актуален 60 с)
+            const _pend = window._pravoPendingLic;
+            window._pravoPendingLic = null;
             if (args[2] === 1) {
                 const inputId = (args[4] || '').trim();
                 if (inputId) {
-                    setTimeout(() => window.showGiveLicTypeDialog(inputId), 50);
+                    if (_pend && (Date.now() - _pend.ts) < 60000) {
+                        setTimeout(() => window.pravoGiveLicenseByIndex(inputId, _pend.idx), 50);
+                    } else {
+                        setTimeout(() => window.showGiveLicTypeDialog(inputId), 50);
+                    }
                 }
             } else {
                 // Отмена — возвращаем Interaction (FIX: раньше не появлялся)
