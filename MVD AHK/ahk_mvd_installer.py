@@ -588,41 +588,153 @@ def _strip_js_line_comments(text: str) -> str:
         out.append(line)
     return '\n'.join(out)
 
+def _split_top_level_objects(body: str) -> list:
+    """Возвращает тела {...}-объектов верхнего уровня; вложенные {} и строки учитываются."""
+    objs, depth, start, in_str, quote_ch, i = [], 0, None, False, '', 0
+    while i < len(body):
+        ch = body[i]
+        if in_str:
+            if ch == '\\':
+                i += 2
+                continue
+            if ch == quote_ch:
+                in_str = False
+        else:
+            if ch in ('"', "'", '`'):
+                in_str, quote_ch = True, ch
+            elif ch == '{':
+                if depth == 0:
+                    start = i + 1
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0 and start is not None:
+                    objs.append(body[start:i])
+                    start = None
+        i += 1
+    return objs
+
+def _array_body(js_text: str, var_name: str):
+    """
+    Тело JS-массива `const <var_name> = [ ... ]` без комментариев (// и /* */).
+    Сканер учитывает строки и вложенные [], так что скобки внутри названий не мешают.
+    None — если массива с таким именем нет.
+    """
+    m = _re.search(r'(?:const|let|var)\s+' + _re.escape(var_name) + r'\s*=\s*\[', js_text)
+    if not m:
+        return None
+    n, i, depth, out = len(js_text), m.end(), 1, []
+    while i < n:
+        ch = js_text[i]
+        two = js_text[i:i + 2]
+        if two == '//':
+            j = js_text.find('\n', i)
+            i = n if j < 0 else j
+            continue
+        if two == '/*':
+            j = js_text.find('*/', i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if ch in ('"', "'", '`'):
+            q = ch
+            out.append(ch)
+            i += 1
+            while i < n:
+                c2 = js_text[i]
+                out.append(c2)
+                i += 1
+                if c2 == '\\' and i < n:
+                    out.append(js_text[i])
+                    i += 1
+                elif c2 == q:
+                    break
+            continue
+        if ch == '[':
+            depth += 1
+        elif ch == ']':
+            depth -= 1
+            if depth == 0:
+                break
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+def _strip_numbering(name: str) -> str:
+    """'1. Приветствие' -> 'Приветствие' (порядок и так задаётся списком)."""
+    return _re.sub(r'^\s*\d+\s*[.)]\s*', '', name).strip()
+
 def parse_povsednev_options(js_text: str) -> list:
     """
     Достаёт массив povsednevOptions из текста pravo.js и возвращает
     [{'action': 'greeting', 'name': 'Приветствие', 'needs_id': True}, ...]
     в том порядке, в котором они объявлены в скрипте.
     """
-    m = _re.search(r'(?:const|let|var)\s+povsednevOptions\s*=\s*\[', js_text)
-    if not m:
+    body = _array_body(js_text, 'povsednevOptions')
+    if body is None:
         return []
-    # вырезаем тело массива по балансу скобок
-    depth, i = 1, m.end()
-    while i < len(js_text) and depth:
-        c = js_text[i]
-        if c == '[':
-            depth += 1
-        elif c == ']':
-            depth -= 1
-        i += 1
-    body = _strip_js_line_comments(js_text[m.end():i - 1])
     items = []
-    for obj in _re.finditer(r'\{([^{}]*)\}', body):
-        chunk = obj.group(1)
+    for chunk in _split_top_level_objects(body):
         a = _re.search(r'action\s*:\s*(["\'])(.+?)\1', chunk)
         if not a:
             continue
         n = _re.search(r'name\s*:\s*(["\'])(.+?)\1', chunk)
         nid = _re.search(r'needsId\s*:\s*(true|false)', chunk)
-        raw_name = n.group(2) if n else a.group(2)
         items.append({
             'action': a.group(2),
-            # убираем нумерацию "1. " — порядок и так задаётся списком
-            'name': _re.sub(r'^\s*\d+\s*[.)]\s*', '', raw_name).strip(),
+            'name': _strip_numbering(n.group(2) if n else a.group(2)),
             'needs_id': bool(nid and nid.group(1) == 'true'),
         })
     return items
+
+def parse_main_menu_options(js_text: str) -> list:
+    """Пункты главного меню из реестра mainMenuOptions: [{'action','name'}, ...]."""
+    body = _array_body(js_text, 'mainMenuOptions')
+    if body is None:
+        return []
+    items = []
+    for chunk in _split_top_level_objects(body):
+        a = _re.search(r'action\s*:\s*(["\'])(.+?)\1', chunk)
+        if not a:
+            continue
+        n = _re.search(r'name\s*:\s*(["\'])(.+?)\1', chunk)
+        items.append({'action': a.group(2), 'name': _strip_numbering(n.group(2) if n else a.group(2))})
+    return items
+
+def parse_license_types(js_text: str) -> list:
+    """Типы лицензий из _GIVE_LIC_TYPES: [{'type': 1, 'name': 'Права'}, ...]."""
+    body = _array_body(js_text, '_GIVE_LIC_TYPES')
+    if body is None:
+        return []
+    items = []
+    for chunk in _split_top_level_objects(body):
+        t = _re.search(r'\btype\s*:\s*(\d+)', chunk)
+        n = _re.search(r'name\s*:\s*(["\'])(.+?)\1', chunk)
+        if t and n:
+            items.append({'type': int(t.group(1)), 'name': n.group(2).strip()})
+    return items
+
+def parse_menu_groups(js_text: str) -> list:
+    """
+    Всё меню скрипта по разделам (пустые разделы пропускаются):
+      main      — главное меню «ПРАВИТЕЛЬСТВО»  (mainMenuOptions)
+      povsednev — меню «Повседневная»           (povsednevOptions; только у него работает таймер /c 60)
+      lic       — выдача конкретной лицензии    (_GIVE_LIC_TYPES; action = 'lic_<тип>')
+    Каждый пункт: {'action', 'name', 'needs_id', 'timer'}.
+    """
+    groups = []
+    main = [{'action': it['action'], 'name': it['name'], 'needs_id': False, 'timer': False}
+            for it in parse_main_menu_options(js_text)]
+    if main:
+        groups.append({'id': 'main', 'title': 'Главное меню', 'items': main})
+    pov = [{'action': it['action'], 'name': it['name'], 'needs_id': it['needs_id'], 'timer': True}
+           for it in parse_povsednev_options(js_text)]
+    if pov:
+        groups.append({'id': 'povsednev', 'title': 'Повседневная', 'items': pov})
+    lic = [{'action': 'lic_%d' % it['type'], 'name': 'Выдать: ' + it['name'], 'needs_id': True, 'timer': False}
+           for it in parse_license_types(js_text)]
+    if lic:
+        groups.append({'id': 'lic', 'title': 'Выдача лицензии', 'items': lic})
+    return groups
 
 def parse_loader_target(loader_text: str):
     """Из LoadXxx.js берёт папку и имя основного скрипта (const folder / const filename)."""
@@ -751,7 +863,7 @@ class InstallerAPI:
         Пункты меню «Повседневная» для выбранной структуры — читаются прямо из
         её основного скрипта на GitHub (povsednevOptions), поэтому список биндов
         в установщике всегда совпадает с тем, что реально есть в pravo.js.
-        Возвращает {'ok': bool, 'items': [{'action','name','needs_id'}], 'error': str}.
+        Возвращает {'ok': bool, 'items': [...плоский список...], 'groups': [{'id','title','items'}], 'error': str}.
         """
         loaders = {
             'fsb': FSB_AHK_URL, 'fsin': FSIN_AHK_URL,
@@ -771,10 +883,12 @@ class InstallerAPI:
             script_url = loader_url.rsplit('/', 1)[0] + '/' + _quote(filename)
             st = requests.get(f"{script_url}?_={ts}", timeout=20)
             st.raise_for_status()
-            items = parse_povsednev_options(st.text)
-            if not items:
-                return {'ok': False, 'items': [], 'error': 'povsednevOptions не найден в ' + filename}
-            result = {'ok': True, 'items': items, 'error': ''}
+            groups = parse_menu_groups(st.text)
+            if not groups:
+                return {'ok': False, 'items': [], 'groups': [], 'error': 'пункты меню не найдены в ' + filename}
+            # items — плоский список всех пунктов (для старого index.html), groups — по разделам
+            flat = [it for g in groups for it in g['items']]
+            result = {'ok': True, 'items': flat, 'groups': groups, 'error': ''}
             _MENU_CACHE[dept] = result
             return result
         except Exception as e:

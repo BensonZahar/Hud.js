@@ -323,6 +323,72 @@ const povsednevOptions = [
     { name: "14. Изъятие прав", action: "takeLicense", needsId: true },
     { name: "15. Права Миранды", action: "miranda" }
 ];
+// ── РЕЕСТР ПУНКТОВ ГЛАВНОГО МЕНЮ ДЛЯ БИНДОВ (читается установщиком) ──────────────
+// Пункты диалога главного меню (showMvdSubMenu). Пункты «Повседневной» берутся из
+// povsednevOptions, здесь их дублировать не нужно.
+// Добавили пункт в showMvdSubMenu — добавьте его сюда и в _menuRunBind,
+// и он появится во вкладке «Бинды» установщика.
+const mainMenuOptions = [
+    { name: "Повседневная (открыть меню)", action: "povsednev" },
+    { name: "Отслеживание (вкл/выкл)",     action: "tracking" },
+    { name: "Auto-cuff (вкл/выкл)",        action: "autocuff" },
+    { name: "Авто-снаряжение (вкл/выкл)",  action: "autograb" },
+    { name: "Напарник",                    action: "naparnick" },
+    { name: "Вызов адвоката",              action: "advmenu" },
+    { name: "Законы",                      action: "laws" },
+];
+// Короткое экранное уведомление для бинда (тот же GameText, что у остальных уведомлений АХК)
+function _menuBindNote(text) {
+    try {
+        var gt = window.interface && window.interface('GameText');
+        if (gt && typeof gt.add === 'function') gt.add(JSON.stringify([3, text, 2500, 0, 0, true, false, 2]));
+    } catch (e) {}
+}
+// Запуск бинда пункта главного меню (пункты «Повседневной» обрабатывает сам keydown).
+// giveLicenseTo === -1 заменяем на undefined — так же, как это делает /dahk без ID
+// (иначе ответ диалога ввода ID отбрасывается проверкой giveLicenseTo !== -1).
+function _menuRunBind(action) {
+    var _m = mainMenuOptions.find(function(o) { return o.action === action; });
+    if (!_m) return;
+    var _target = (giveLicenseTo === -1) ? undefined : giveLicenseTo;
+    var _deny = function() {
+        console.log('[AHK-BIND] "' + action + '" сейчас недоступен');
+        _menuBindNote('~y~АХК~n~~w~Пункт «' + _m.name + '» сейчас недоступен');
+    };
+    switch (action) {
+        case "povsednev":
+            lastMenuType = "povsednev";
+            currentPage = 0;
+            showPovsednevMenuPage(_target);
+            break;
+        case "tracking":
+            if (currentScanId) {
+                stopTracking();
+                _menuBindNote('~w~Отслеживание~n~~r~Выкл');
+            } else {
+                showTrackingInputDialog(_target);
+            }
+            break;
+        case "autocuff":
+            toggleAutoCuff();
+            _menuBindNote('~w~Auto-cuff~n~' + (autoCuffEnabled ? '~g~Вкл' : '~r~Выкл'));
+            break;
+        case "autograb":
+            if (window.AUTO_GRAB !== true) return _deny();
+            toggleAutoGrab();
+            break;
+        case "naparnick":
+            showPartnerMenu(_target);
+            break;
+        case "advmenu":
+            window.openInterface('AdvMenu');
+            break;
+        case "laws":
+            window._duranOpenMode = 'laws';
+            window.openInterface('Zkm');
+            break;
+    }
+}
 const ITEMS_PER_PAGE = 7;
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
 const messageFilters = [
@@ -516,7 +582,7 @@ window.addEventListener('keydown', function(e) {
             if (!_matchesCombo(e, MENU_BINDS[_action])) continue;
             e.preventDefault && e.preventDefault();
             var _opt = povsednevOptions.find(function(o){ return o.action === _action; });
-            if (!_opt) break;
+            if (!_opt) { _menuRunBind(_action); break; }
             currentAction = _action;
             currentMenu = "povsednev"; // FIX: устанавливаем currentMenu чтобы диалог 668 сработал
             // FIX: СОБР-скин (15340) для greeting не требует ID — как в HandlePovsednevCommand

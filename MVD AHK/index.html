@@ -399,8 +399,8 @@
       </div>
       <div class="content" style="padding:16px 20px 16px">
         <div class="info-box" style="margin-bottom:14px">
-          Назначьте кнопки для пунктов меню <b>«Повседневная»</b>. Нажмите <b>⌨</b> справа от нужного пункта, чтобы задать бинд.<br>
-          Значок <b>⏱</b> включает отправку команды <b>/c 60</b> после отыгровки этого пункта — диалог «Точное время» закроется сам через 1.5 сек, чтобы не мешал.
+          Назначьте кнопки для пунктов меню АХК: <b>главное меню</b>, <b>«Повседневная»</b> и <b>выдача лицензий</b>. Нажмите <b>⌨</b> справа от нужного пункта, чтобы задать бинд.<br>
+          Значок <b>⏱</b> (есть только у пунктов «Повседневной») включает отправку команды <b>/c 60</b> после отыгровки этого пункта — диалог «Точное время» закроется сам через 1.5 сек, чтобы не мешал.
         </div>
         <div id="binds-status" style="display:none;font-size:11px;line-height:1.5;margin-bottom:10px"></div>
         <div id="binds-list" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -574,7 +574,15 @@ function buildBindsList(){
   var container=document.getElementById('binds-list');
   if(!container)return;
   container.innerHTML='';
+  var lastGroup=null;
   ALL_MENU_ITEMS.forEach(function(it){
+    if(it.group&&it.group!==lastGroup){
+      lastGroup=it.group;
+      var hdr=document.createElement('div');
+      hdr.style.cssText='font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin:10px 2px 0';
+      hdr.textContent=it.group;
+      container.appendChild(hdr);
+    }
     var bind=menuItemBinds[it.action]||'';
     var row=document.createElement('div');
     row.style.cssText='display:flex;align-items:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:10px 14px;gap:10px;-webkit-app-region:no-drag';
@@ -589,7 +597,7 @@ function buildBindsList(){
     timerBtn.title='После отыгровки слать /c 60 и закрывать диалог "Точное время" через 1.5с';
     timerBtn.innerHTML='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>';
     timerBtn.onclick=function(){toggleMenuTimer(it.action);};
-    right.appendChild(timerBtn);
+    if(it.timer!==false)right.appendChild(timerBtn);
     if(bind){
       var badge=document.createElement('span');
       badge.className='gdlg-bind-badge';
@@ -659,7 +667,12 @@ function loadMenuItems(dept){
   api.get_menu_items(dept).then(function(r){
     if(seq!==_menuItemsSeq)return; // пришёл ответ для структуры, которую уже сменили
     if(r&&r.ok&&r.items&&r.items.length){
-      var items=r.items.map(function(it,i){return {action:it.action,label:(i+1)+'. '+it.name};});
+      var items=[];
+      if(r.groups&&r.groups.length){
+        r.groups.forEach(function(g){g.items.forEach(function(it){items.push({action:it.action,label:it.name,group:g.title,timer:!!it.timer});});});
+      }else{
+        items=r.items.map(function(it){return {action:it.action,label:it.name,timer:true};});
+      }
       _menuItemsByDept[dept]=items;
       _setBindsStatus('');
       _applyMenuItems(items);
