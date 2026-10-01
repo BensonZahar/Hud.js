@@ -34,9 +34,9 @@ from PIL import Image
 #  НАСТРОЙКИ
 # ═══════════════════════════════════════════════════════
 GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
-# Оригинальные Modal.css / Window.css игры — на них построена вкладка «Бинды» в index.html
+# Оригинальные Modal.css / Window.css / Button.css / ScrollableContainer.css игры — на них построена вкладка «Бинды» в index.html
 GAME_UI_RAW   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/AHK%20konst/%D0%A3%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D1%89%D0%B8%D0%BA"
-GAME_UI_FILES = ("Modal.css", "Window.css")
+GAME_UI_FILES = ("Modal.css", "Window.css", "Button.css", "ScrollableContainer.css")
 KEYS_URL      = f"{GITHUB_RAW}/keys.json"
 AHK_URL       = f"{GITHUB_RAW}/LoadAhk.js"
 
