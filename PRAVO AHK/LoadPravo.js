@@ -18,6 +18,47 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 (function() {
+// ── Универсальный матчер хоткеев (по физической клавише e.code, не зависит от раскладки) ──
+var _HK_ALIAS = {up:'arrowup',down:'arrowdown',left:'arrowleft',right:'arrowright',esc:'escape'};
+var _HK_PUNCT = {'-':'minus','=':'equal','[':'bracketleft',']':'bracketright',';':'semicolon',"'":'quote',',':'comma','.':'period','/':'slash','\\':'backslash','`':'backquote'};
+var _HK_BTN = {0:'mouseleft',1:'mousemiddle',2:'mouseright',3:'mouseback',4:'mouseforward'};
+var _hkCache = {};
+function _hkParse(combo) {
+    if (!combo) return null;
+    if (_hkCache[combo]) return _hkCache[combo];
+    var s = String(combo).trim(), parts = s.toLowerCase().split('+').map(function(x){ return x.trim(); }), main = '';
+    if (s.charAt(s.length - 1) === '+') { main = '+'; parts = parts.filter(Boolean); }
+    var h = { alt: parts.indexOf('alt') !== -1, ctrl: parts.indexOf('ctrl') !== -1, shift: parts.indexOf('shift') !== -1, main: main };
+    if (!h.main) { for (var i = 0; i < parts.length; i++) { if (parts[i] !== 'alt' && parts[i] !== 'ctrl' && parts[i] !== 'shift') { h.main = parts[i]; break; } } }
+    return (_hkCache[combo] = h);
+}
+function _hkMainMatch(e, m) {
+    var t = e.type;
+    if (t === 'wheel') return m === (e.deltaY < 0 ? 'wheelup' : 'wheeldown');
+    if (t === 'mousedown' || t === 'mouseup') return m === _HK_BTN[e.button];
+    var code = String(e.code || '').toLowerCase(), key = String(e.key || '').toLowerCase();
+    if (!code || code === 'unidentified') return key === m || key === (_HK_ALIAS[m] || m);
+    if (/^[a-z]$/.test(m))  return code === 'key' + m;
+    if (/^[0-9]$/.test(m))  return code === 'digit' + m;
+    if (m === 'enter')      return code === 'enter' || code === 'numpadenter';
+    if (_HK_ALIAS[m])       return code === _HK_ALIAS[m];
+    if (_HK_PUNCT[m])       return code === _HK_PUNCT[m];
+    return code === m || key === m;   // F1-F24, Numpad*, Space, Tab, Home, Minus, Comma ... (+ старые сохранённые значения)
+}
+function _hkMatch(e, combo) {
+    var h = _hkParse(combo);
+    if (!h || !h.main) return false;
+    if (h.alt !== !!e.altKey || h.ctrl !== !!e.ctrlKey || h.shift !== !!e.shiftKey) return false;
+    return _hkMainMatch(e, h.main);
+}
+// Печатаем в чате/поле ввода — «голые» клавиши не должны срабатывать как бинд
+function _hkTyping(e) {
+    var t = e.target; if (!t || !t.tagName) return false;
+    var editable = t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
+    return editable && !e.altKey && !e.ctrlKey;
+}
+function _matchesCombo(e, combo) { return _hkMatch(e, combo); }
+
 
 // ==================== СТАРТОВОЕ УВЕДОМЛЕНИЕ AHK ====================
 // Показывается при каждом запуске игры — даже если ник не в списке доступа.
@@ -460,227 +501,47 @@ if (AUTO_PASSWORD) {
 loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function() {
     loadScriptFromGitHub(username, repo, folder, filename);
 });
-// ── Регистрация мыши/колеса для MENU_KEY ────────────────────
-// Клавиатурный обработчик MENU_KEY живёт внутри mvdF.js (keydown).
-// Боковые кнопки мыши и колёсико mvdF.js не слушает — добавляем здесь.
+// ── Мышь/колесо для MENU_KEY, GIVELIC_KEY, REISSUE_KEY ───────
+// Клавиатурные обработчики этих хоткеев живут в mvdF.js / pravo.js (keydown, общий матчер _hkMatch).
+// Колесо и кнопки мыши keydown не ловит — регистрируем здесь тем же матчером (строгие модификаторы).
 (function() {
-    if (!MENU_KEY) return;
-
-    var parts = MENU_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
-    var needAlt   = parts.indexOf('alt')   !== -1;
-    var needCtrl  = parts.indexOf('ctrl')  !== -1;
-    var needShift = parts.indexOf('shift') !== -1;
-    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
-    var mainKey   = mainParts[0] || '';
-
-    var matchWheel = null;
-    var matchMouse = null;
-    if      (mainKey === 'wheelup')      { matchWheel = 'up'; }
-    else if (mainKey === 'wheeldown')    { matchWheel = 'down'; }
-    else if (mainKey === 'mousemiddle')  { matchMouse = 1; }
-    else if (mainKey === 'mouseback')    { matchMouse = 3; }
-    else if (mainKey === 'mouseforward') { matchMouse = 4; }
-    else { return; } // обычная клавиша — обрабатывается в mvdF.js, выходим
-
-    function isModMatch(e) {
-        if (needAlt   && !e.altKey)   return false;
-        if (needCtrl  && !e.ctrlKey)  return false;
-        if (needShift && !e.shiftKey) return false;
-        return true;
-    }
-    function openMenuAction() {
-        if (!window._isPravoSkin || !window._isPravoSkin()) return;
-        // sendChatInput доступен после загрузки mvdF.js (после eval в onload xhr)
-        if (typeof window.sendChatInput === 'function') {
-            window.sendChatInput('/dahk');
+    var CLICK_MAX_MS = 400; // удержание дольше = камера GTA, не хоткей
+    function pravoOnly(fn) { return function() { if (window._isPravoSkin && window._isPravoSkin()) fn(); }; }
+    function register(tag, combo, action) {
+        var h = _hkParse(combo);
+        if (!h) return;
+        if (h.main === 'wheelup' || h.main === 'wheeldown') {
+            window.addEventListener('wheel', function(e) {
+                if (!_hkMatch(e, combo)) return;
+                e.preventDefault && e.preventDefault();
+                action();
+            }, { passive: false, capture: true });
+            console.log('[PRAVO ' + tag + '] Колесо зарегистрировано: ' + combo);
+        } else if (h.main === 'mousemiddle' || h.main === 'mouseback' || h.main === 'mouseforward') {
+            var downAt = {};
+            window.addEventListener('mousedown', function(e) { downAt[e.button] = Date.now(); }, true);
+            window.addEventListener('mouseup', function(e) {
+                var t0 = downAt[e.button]; downAt[e.button] = 0;
+                if (!t0 || Date.now() - t0 > CLICK_MAX_MS) return;
+                if (!_hkMatch(e, combo)) return;
+                e.preventDefault && e.preventDefault();
+                action();
+            }, true);
+            console.log('[PRAVO ' + tag + '] Кнопка мыши зарегистрирована: ' + combo + ' (клик ≤ ' + CLICK_MAX_MS + ' мс)');
         }
+        // обычная клавиша — обрабатывается keydown-обработчиком в mvdF.js / pravo.js
     }
-
-    // Колёсико мыши
-    if (matchWheel) {
-        window.addEventListener('wheel', function(e) {
-            if (!isModMatch(e)) return;
-            var dir = e.deltaY < 0 ? 'up' : 'down';
-            if (dir !== matchWheel) return;
-            e.preventDefault && e.preventDefault();
-            openMenuAction();
-        }, { passive: false });
-        console.log('[PRAVO MENU-KEY] Колесо зарегистрировано для открытия меню: ' + MENU_KEY);
-    }
-
-    // Боковые/средняя кнопки мыши
-    if (matchMouse !== null) {
-        var _menuBtnDownAt = 0;
-        var _menuBtnModsOk = false;
-        var CLICK_MAX_MS = 400; // удержание дольше = камера GTA, не меню
-
-        window.addEventListener('mousedown', function(e) {
-            if (e.button !== matchMouse) return;
-            _menuBtnDownAt = Date.now();
-            _menuBtnModsOk = isModMatch(e);
-        });
-        window.addEventListener('mouseup', function(e) {
-            if (e.button !== matchMouse) return;
-            if (!_menuBtnModsOk) return;
-            var held = Date.now() - _menuBtnDownAt;
-            _menuBtnDownAt = 0;
-            _menuBtnModsOk = false;
-            if (held > 0 && held <= CLICK_MAX_MS) {
-                e.preventDefault && e.preventDefault();
-                openMenuAction();
-            }
-        });
-        console.log('[PRAVO MENU-KEY] Кнопка мыши зарегистрирована для открытия меню: button=' +
-                    matchMouse + ' (клик ≤ ' + CLICK_MAX_MS + 'мс)');
-    }
-})();
-
-// ── Регистрация мыши/колеса для GIVELIC_KEY ─────────────────
-// Клавиатурный обработчик GIVELIC_KEY живёт внутри pravo.js (keydown).
-// Мышь и колесо pravo.js не слушает — регистрируем здесь.
-(function() {
-    if (!GIVELIC_KEY) return;
-
-    var parts = GIVELIC_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
-    var needAlt   = parts.indexOf('alt')   !== -1;
-    var needCtrl  = parts.indexOf('ctrl')  !== -1;
-    var needShift = parts.indexOf('shift') !== -1;
-    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
-    var mainKey   = mainParts[0] || '';
-
-    var matchWheel = null;
-    var matchMouse = null;
-    if      (mainKey === 'wheelup')      { matchWheel = 'up'; }
-    else if (mainKey === 'wheeldown')    { matchWheel = 'down'; }
-    else if (mainKey === 'mousemiddle')  { matchMouse = 1; }
-    else if (mainKey === 'mouseback')    { matchMouse = 3; }
-    else if (mainKey === 'mouseforward') { matchMouse = 4; }
-    else { return; } // обычная клавиша — обрабатывается в pravo.js keydown, выходим
-
-    function isModMatch(e) {
-        if (needAlt   && !e.altKey)   return false;
-        if (needCtrl  && !e.ctrlKey)  return false;
-        if (needShift && !e.shiftKey) return false;
-        return true;
-    }
-
-    function doGivelic() {
-        if (!window._isPravoSkin || !window._isPravoSkin()) return;
+    if (MENU_KEY) register('MENU-KEY', MENU_KEY, pravoOnly(function() {
+        // sendChatInput доступен после загрузки mvdF.js
+        if (typeof window.sendChatInput === 'function') window.sendChatInput('/dahk');
+    }));
+    if (GIVELIC_KEY) register('GIVELIC-KEY', GIVELIC_KEY, pravoOnly(function() {
         window.showGiveLicIdInputDialog && window.showGiveLicIdInputDialog();
-    }
-
-    // Колёсико мыши
-    if (matchWheel) {
-        window.addEventListener('wheel', function(e) {
-            if (!isModMatch(e)) return;
-            var dir = e.deltaY < 0 ? 'up' : 'down';
-            if (dir !== matchWheel) return;
-            e.preventDefault && e.preventDefault();
-            doGivelic();
-        }, { passive: false });
-        console.log('[PRAVO GIVELIC-KEY] Колесо зарегистрировано: Wheel' + (matchWheel === 'up' ? 'Up' : 'Down'));
-    }
-
-    // Боковые/средняя кнопки мыши
-    if (matchMouse !== null) {
-        var _gBtnDownAt = 0;
-        var _gBtnModsOk = false;
-        var CLICK_MAX_MS = 400; // удержание дольше = камера GTA, не диалог
-
-        window.addEventListener('mousedown', function(e) {
-            if (e.button !== matchMouse) return;
-            _gBtnDownAt = Date.now();
-            _gBtnModsOk = isModMatch(e);
-        });
-        window.addEventListener('mouseup', function(e) {
-            if (e.button !== matchMouse) return;
-            if (!_gBtnModsOk) return;
-            var held = Date.now() - _gBtnDownAt;
-            _gBtnDownAt = 0;
-            _gBtnModsOk = false;
-            if (held > 0 && held <= CLICK_MAX_MS) {
-                e.preventDefault && e.preventDefault();
-                doGivelic();
-            }
-        });
-        console.log('[PRAVO GIVELIC-KEY] Кнопка мыши зарегистрирована: button=' +
-                    matchMouse + ' (клик ≤ ' + CLICK_MAX_MS + 'мс)');
-    }
-})();
-
-// ── Регистрация мыши/колеса для REISSUE_KEY ─────────────────
-// Клавиатурный обработчик REISSUE_KEY живёт внутри pravo.js (keydown).
-// Мышь и колесо pravo.js не слушает — регистрируем здесь, как у SWAP/EJECT в FSIN.
-(function() {
-    if (!AUTO_REISSUE_LIC || !REISSUE_KEY) return;
-
-    var parts = REISSUE_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
-    var needAlt   = parts.indexOf('alt')   !== -1;
-    var needCtrl  = parts.indexOf('ctrl')  !== -1;
-    var needShift = parts.indexOf('shift') !== -1;
-    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
-    var mainKey   = mainParts[0] || '';
-
-    var matchWheel = null;
-    var matchMouse = null;
-    if      (mainKey === 'wheelup')      { matchWheel = 'up'; }
-    else if (mainKey === 'wheeldown')    { matchWheel = 'down'; }
-    else if (mainKey === 'mousemiddle')  { matchMouse = 1; }
-    else if (mainKey === 'mouseback')    { matchMouse = 3; }
-    else if (mainKey === 'mouseforward') { matchMouse = 4; }
-    else { return; } // обычная клавиша — обрабатывается в pravo.js keydown, выходим
-
-    function isModMatch(e) {
-        if (needAlt   && !e.altKey)   return false;
-        if (needCtrl  && !e.ctrlKey)  return false;
-        if (needShift && !e.shiftKey) return false;
-        return true;
-    }
-
-    // Делегируем в pravo.js — там живёт вся логика + snAdd + __mvdPrevSendChatInput.
-    // Та же схема что у FSIN: LoadFsin.js вызывает window._fsinSwapTaserDeagle().
-    function doReissue() {
-        if (!window._isPravoSkin || !window._isPravoSkin()) return;
+    }));
+    if (AUTO_REISSUE_LIC && REISSUE_KEY) register('REISSUE-KEY', REISSUE_KEY, pravoOnly(function() {
+        // вся логика (snAdd, __mvdPrevSendChatInput) живёт в pravo.js
         window._pravoDoReissue && window._pravoDoReissue();
-    }
-
-    // Колёсико мыши
-    if (matchWheel) {
-        window.addEventListener('wheel', function(e) {
-            if (!isModMatch(e)) return;
-            var dir = e.deltaY < 0 ? 'up' : 'down';
-            if (dir !== matchWheel) return;
-            e.preventDefault && e.preventDefault();
-            doReissue();
-        }, { passive: false });
-        console.log('[PRAVO REISSUE-KEY] Колесо зарегистрировано: Wheel' + (matchWheel === 'up' ? 'Up' : 'Down'));
-    }
-
-    // Боковые/средняя кнопки мыши
-    if (matchMouse !== null) {
-        var _rBtnDownAt = 0;
-        var _rBtnModsOk = false;
-        var CLICK_MAX_MS = 400; // удержание дольше = камера GTA, не перевыдача
-
-        window.addEventListener('mousedown', function(e) {
-            if (e.button !== matchMouse) return;
-            _rBtnDownAt = Date.now();
-            _rBtnModsOk = isModMatch(e);
-        });
-        window.addEventListener('mouseup', function(e) {
-            if (e.button !== matchMouse) return;
-            if (!_rBtnModsOk) return;
-            var held = Date.now() - _rBtnDownAt;
-            _rBtnDownAt = 0;
-            _rBtnModsOk = false;
-            if (held > 0 && held <= CLICK_MAX_MS) {
-                e.preventDefault && e.preventDefault();
-                doReissue();
-            }
-        });
-        console.log('[PRAVO REISSUE-KEY] Кнопка мыши зарегистрирована: button=' +
-                    matchMouse + ' (клик ≤ ' + CLICK_MAX_MS + 'мс, удержание = камера)');
-    }
+    }));
 })();
 
 })()
