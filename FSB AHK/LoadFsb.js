@@ -18,6 +18,47 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 (function() {
+// ── Универсальный матчер хоткеев (по физической клавише e.code, не зависит от раскладки) ──
+var _HK_ALIAS = {up:'arrowup',down:'arrowdown',left:'arrowleft',right:'arrowright',esc:'escape'};
+var _HK_PUNCT = {'-':'minus','=':'equal','[':'bracketleft',']':'bracketright',';':'semicolon',"'":'quote',',':'comma','.':'period','/':'slash','\\':'backslash','`':'backquote'};
+var _HK_BTN = {0:'mouseleft',1:'mousemiddle',2:'mouseright',3:'mouseback',4:'mouseforward'};
+var _hkCache = {};
+function _hkParse(combo) {
+    if (!combo) return null;
+    if (_hkCache[combo]) return _hkCache[combo];
+    var s = String(combo).trim(), parts = s.toLowerCase().split('+').map(function(x){ return x.trim(); }), main = '';
+    if (s.charAt(s.length - 1) === '+') { main = '+'; parts = parts.filter(Boolean); }
+    var h = { alt: parts.indexOf('alt') !== -1, ctrl: parts.indexOf('ctrl') !== -1, shift: parts.indexOf('shift') !== -1, main: main };
+    if (!h.main) { for (var i = 0; i < parts.length; i++) { if (parts[i] !== 'alt' && parts[i] !== 'ctrl' && parts[i] !== 'shift') { h.main = parts[i]; break; } } }
+    return (_hkCache[combo] = h);
+}
+function _hkMainMatch(e, m) {
+    var t = e.type;
+    if (t === 'wheel') return m === (e.deltaY < 0 ? 'wheelup' : 'wheeldown');
+    if (t === 'mousedown' || t === 'mouseup') return m === _HK_BTN[e.button];
+    var code = String(e.code || '').toLowerCase(), key = String(e.key || '').toLowerCase();
+    if (!code || code === 'unidentified') return key === m || key === (_HK_ALIAS[m] || m);
+    if (/^[a-z]$/.test(m))  return code === 'key' + m;
+    if (/^[0-9]$/.test(m))  return code === 'digit' + m;
+    if (m === 'enter')      return code === 'enter' || code === 'numpadenter';
+    if (_HK_ALIAS[m])       return code === _HK_ALIAS[m];
+    if (_HK_PUNCT[m])       return code === _HK_PUNCT[m];
+    return code === m || key === m;   // F1-F24, Numpad*, Space, Tab, Home, Minus, Comma ... (+ старые сохранённые значения)
+}
+function _hkMatch(e, combo) {
+    var h = _hkParse(combo);
+    if (!h || !h.main) return false;
+    if (h.alt !== !!e.altKey || h.ctrl !== !!e.ctrlKey || h.shift !== !!e.shiftKey) return false;
+    return _hkMainMatch(e, h.main);
+}
+// Печатаем в чате/поле ввода — «голые» клавиши не должны срабатывать как бинд
+function _hkTyping(e) {
+    var t = e.target; if (!t || !t.tagName) return false;
+    var editable = t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
+    return editable && !e.altKey && !e.ctrlKey;
+}
+function _matchesCombo(e, combo) { return _hkMatch(e, combo); }
+
 const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
 const SWAP_ENABLED = true; // Включить свап тазер ↔ дигл (установщик может выключить)
@@ -441,12 +482,7 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
         if (needShift && !e.shiftKey) return false;
         return true;
     }
-    function isMatch(e) {
-        if (!isModMatch(e)) return false;
-        if (matchCode) return e.code === matchCode;
-        if (matchKey)  return e.key.toLowerCase() === matchKey;
-        return false;
-    }
+    function isMatch(e) { return !e.repeat && !_hkTyping(e) && _hkMatch(e, EJECT_KEY); }
 
     window.addEventListener('keydown', function(e) {
         if (!isMatch(e)) return;
@@ -534,12 +570,7 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
         if (needShift && !e.shiftKey) return false;
         return true;
     }
-    function isMatch(e) {
-        if (!isModMatch(e)) return false;
-        if (matchCode) return e.code === matchCode;
-        if (matchKey)  return e.key.toLowerCase() === matchKey;
-        return false;
-    }
+    function isMatch(e) { return !e.repeat && !_hkTyping(e) && _hkMatch(e, SWAP_KEY); }
 
     window.addEventListener('keydown', function(e) {
         if (!isMatch(e)) return;
