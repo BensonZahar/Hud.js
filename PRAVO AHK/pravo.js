@@ -855,9 +855,10 @@ window.addEventListener('keydown', function(e) {
 
     // Хоткей авто-перевыдачи лицензии (REISSUE_KEY) — только если AUTO_REISSUE_LIC включён
     if (REISSUE_KEY && (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true)) {
-        if (!e.repeat && !_hkTyping(e) && _hkMatch(e, REISSUE_KEY) && _lastGiveLicData) {
+        if (!e.repeat && !_hkTyping(e) && _hkMatch(e, REISSUE_KEY)) {
             e.preventDefault && e.preventDefault();
-            _pravoReissueLic({ hassle: true }); // мгновенно, либо в первый допустимый момент (антифлуд)
+            // Тот же путь, что у мыши/колеса: если данных ещё нет — покажет подсказку, а не промолчит
+            window._pravoDoReissue && window._pravoDoReissue();
         }
     }
     // Хоткей прямого открытия диалога выдачи лицензии (GIVELIC_KEY)
