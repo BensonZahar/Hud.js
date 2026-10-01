@@ -70,6 +70,15 @@ function normalizeColor(color) {
     if (normalized.length === 8) normalized = normalized.slice(0, 6);
     return '0x' + normalized;
 }
+// Проверка цвета строки чата «как в оригинале».
+// Клиент (index.js → window.onChatMessage) получает цвет строкой «0xRRGGBB», а Hud.js красит ею всё сообщение (#RRGGBB),
+// поэтому сервер задаёт цвет в SendClientMessage(...), и по нему можно отличать системные строки от RP-чата.
+// Если цвета нет вообще (undefined / 000000 — так бывает у системных строк) — судить нельзя, возвращаем true и остаётся проверка по тексту.
+function colorOk(color, ...allowed) {
+    const c = normalizeColor(color);
+    if (!/^0x[0-9A-F]{6}$/.test(c) || c === '0x000000') return true;
+    return allowed.some(a => c === '0x' + a.toUpperCase());
+}
 // Форматирует число с точками как разделителем тысяч: 1000 → 1.000, 100000 → 100.000
 function fmtMoney(n) {
     if (n === null || n === undefined) return '—';
@@ -5416,35 +5425,53 @@ function isTargetingPlayer(msg) {
     // Проверяем наличие в контексте, например "[ID]" или "ID"
     return idFormats.some(format => msg.match(new RegExp(`\\[${format}\\]|\\b${format}\\b`)));
 }
+// Собирает чек PayDay в том же виде, как он приходит в игровой чат (цветовые коды убраны)
+const PAYDAY_CHECK_SEPARATOR = '______________________';
+function buildPayDayCheckText(bodyLines) {
+    const lines = ['   БАНКОВСКИЙ ЧЕК', PAYDAY_CHECK_SEPARATOR, ' ']
+        .concat(bodyLines.filter(Boolean))
+        .concat([PAYDAY_CHECK_SEPARATOR]);
+    return lines.map(l => l.replace(/</g, '&lt;')).join('\n');
+}
 function processSalaryAndBalance(msg) {
     if (!config.paydayNotifications) {
         debugLog('PayDay пропущен: уведомления выкл');
         return;
     }
+    const plainMsg = msg.replace(/\{[A-Fa-f0-9]{6}\}/g, '').trim();
     
-    // Проверка на новые тексты (отрицательные сценарии)
-    if (msg.includes("Для получения зарплаты необходимо находиться в игре минимум 25 минут")) {
-        debugLog(`Обнаружено предупреждение о 25 минутах`);
-        const message = `- PayDay | ${displayName}:\nДля получения зарплаты необходимо находиться в игре минимум 25 минут`;
-        sendToTelegram(message);
+    // Отрицательные сценарии — тот же чек, но с одной строкой от сервера
+    const negativeLines = [
+        "Для получения зарплаты необходимо находиться в игре минимум 25 минут",
+        "Вы не должны находиться на паузе для получения зарплаты",
+        "Для получения опыта необходимо находиться в игре минимум 10 минут"
+    ];
+    const negLine = negativeLines.find(t => msg.includes(t));
+    if (negLine) {
+        debugLog(`Обнаружено предупреждение PayDay: ${negLine}`);
+        sendToTelegram(`- PayDay | ${displayName}:\n${buildPayDayCheckText([negLine])}`);
         config.lastSalaryInfo = null;
         return;
     }
     
-    if (msg.includes("Вы не должны находиться на паузе для получения зарплаты")) {
-        debugLog(`Обнаружено предупреждение о паузе`);
-        const message = `- PayDay | ${displayName}:\nВы не должны находиться на паузе для получения зарплаты`;
-        sendToTelegram(message);
-        config.lastSalaryInfo = null;
-        return;
+    // Строки чека, которые идут ДО «Зарплата:» (TeamWarehouse:GiveWage и OnPayDay) — запоминаем дословно:
+    //  «Ваша организация получила санкции (-N процентов) от перераспределения средств правительства.»
+    //  «Ваша организация получила бонус (+N процентов) от перераспределения средств правительства.»
+    //  «Зарплата не была начислена из-за отсутствия средств в казне правительства.»
+    //  «Админ зарплата: N руб [и N донат-монет]»,  «Премия: N руб»
+    if (/^Ваша организация получила\s*(бонус|санкции)\s*\(/i.test(plainMsg) ||
+        /^Зарплата не была начислена из-за отсутствия средств в казне правительства/i.test(plainMsg)) {
+        config.lastSalaryInfo = config.lastSalaryInfo || {};
+        config.lastSalaryInfo.govLine = plainMsg;
+        debugLog(`[PAYDAY] ${plainMsg}`);
     }
-    
-    if (msg.includes("Для получения опыта необходимо находиться в игре минимум 10 минут")) {
-        debugLog(`Обнаружено предупреждение о 10 минутах для опыта`);
-        const message = `- PayDay | ${displayName}:\nДля получения опыта необходимо находиться в игре минимум 10 минут`;
-        sendToTelegram(message);
-        config.lastSalaryInfo = null;
-        return;
+    if (/^Админ зарплата:\s*[\d.]+\s*руб/.test(plainMsg)) {
+        config.lastSalaryInfo = config.lastSalaryInfo || {};
+        config.lastSalaryInfo.adminLine = plainMsg;
+    }
+    if (/^Премия:\s*[\d.]+\s*руб/.test(plainMsg)) {
+        config.lastSalaryInfo = config.lastSalaryInfo || {};
+        config.lastSalaryInfo.premiumLine = plainMsg;
     }
     
     // Regex для зарплаты с учетом цветовых кодов
@@ -5455,6 +5482,7 @@ function processSalaryAndBalance(msg) {
         debugLog(`Зарплата спарсена: ${salary}`);
         config.lastSalaryInfo = config.lastSalaryInfo || {};
         config.lastSalaryInfo.salary = salary;
+        config.lastSalaryInfo.salaryLine = plainMsg;
         config.lastSalaryInfo.time = getCurrentTimeString();
         debugLog(`Обнаружена зарплата: ${salary} руб`);
         // Для подсчета totalSalary убираем точки
@@ -5470,11 +5498,16 @@ function processSalaryAndBalance(msg) {
         debugLog(`Баланс спарсен: ${balance}`);
         config.lastSalaryInfo = config.lastSalaryInfo || {};
         config.lastSalaryInfo.balance = balance;
+        config.lastSalaryInfo.balanceLine = plainMsg;
         debugLog(`Обнаружен баланс счета: ${balance} руб`);
     }
     
     if (config.lastSalaryInfo && config.lastSalaryInfo.salary && config.lastSalaryInfo.balance) {
-        let message = `+ PayDay | ${displayName}:\nЗарплата: ${config.lastSalaryInfo.salary} ₽\nБанк: ${config.lastSalaryInfo.balance} ₽`;
+        const info = config.lastSalaryInfo;
+        // Полный чек в том же порядке, что и в игре
+        let message = `+ PayDay | ${displayName}:\n` + buildPayDayCheckText([
+            info.govLine, info.adminLine, info.premiumLine, info.salaryLine, info.balanceLine
+        ]);
         
         if (config.afkCycle.active) {
             message += getAFKStatusText();
@@ -5827,7 +5860,7 @@ function initializeChatMonitor() {
         }
 
         // Проверка сообщения о возобновлении работы сервера для AFK
-        if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
+        if (config.afkSettings.active && config.afkCycle.active && (/Сервер возобновит работу в течени[еи] минуты/i.test(msg) || /Сервер возобновит работу в течени[еи] минуты/i.test(normalizedMsg)) && colorOk(i, 'FFFFFF') /* SendClientMessageToAll(0xFFFFFFFF); в сервере написано «в течении» */) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
             if (config.afkCycle.reconnectEnabled) {
                 let restartMessage = `⚡ <b>Автоматически отправлено действие по рестарту (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
@@ -5867,31 +5900,68 @@ function initializeChatMonitor() {
                 sendToTelegram(restartMessage, false, null);
             }
         }
-        if (lowerCaseMessage.includes("зареспавнил вас")) {
+        if (lowerCaseMessage.includes("зареспавнил вас") && colorOk(i, '66CC00')) { // сервер: 0x66CC00FF
             debugLog(`Обнаружен респавн для ${displayName}!`);
             const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`🔄 <b>Вас зареспавнили!! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
         }
-        if (lowerCaseMessage.includes("вы были кикнуты по подозрению в читерстве")) {
+        // Анти-чит: «Вы были кикнуты по подозрению в читерстве [Код #N]» (anticheat.pwn). Цвет: -1 (0xFFFFFFFF) при server_id == 0, иначе через FixKick — 0xFF6600FF.
+        // Старые версии и фермы (farms.pwn, miami_pilot.pwn) шлют без кода и «за подозрение в читерстве».
+        // (msg, а не только normalizedMsg: normalizeToCyrillic портит цифры и латиницу — «3»→«З», «t»→«т»)
+        const _acKickRe = /Вы были кикнуты (?:по подозрению|за подозрение) в читерстве(?:\s*\[Код\s*#(\d+)\])?/i;
+        const acKickMatch = msg.match(_acKickRe) || normalizedMsg.match(_acKickRe);
+        if (acKickMatch && colorOk(i, 'FFFFFF', 'FF6600')) {
             debugLog(`Обнаружен кик анти-читом для ${displayName}!`);
+            window.__kickNotifiedAt = Date.now();
             const replyMarkup = getNotificationReplyMarkup();
-            sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+            sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>${acKickMatch[1] ? '\nКод: #' + acKickMatch[1] : ''}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             setTimeout(() => {
                 performReconnect(1 * 60 * 1000);
             }, 30);
         }
+        // Кик сервером через FixKick: причину сервер шлёт цветом 0xFF6600FF (new.pwn: stock FixKick). Анти-чит и админ-кик обработаны отдельно.
+        // Строки: captcha.pwn, police.pwn, daylight.pwn, new.pwn (AFK-кик, ошибки входа и соединения).
+        if (colorOk(i, 'FF6600') && !acKickMatch && Date.now() - (window.__kickNotifiedAt || 0) > 20000) {
+            const serverKickReasons = [
+                [/Вы были кикнуты за непрохождение защиты от ботов/i, 'Не пройдена защита от ботов'],
+                [/Вы были кикнуты за долгое AFK при конвое/i, 'Долгое AFK при конвое'],
+                [/Вы кикнуты за AFK/i, 'AFK во время события'],
+                [/Превышено максимально допустимое время паузы/i, 'Превышено время паузы (AFK)'],
+                [/Ошибка соединения\.\s*Введите \/q/i, 'Ошибка соединения'],
+                [/Вы сейчас не можете зайти на игровой сервер/i, 'Вход на сервер сейчас недоступен'],
+                [/Ваша версия (?:игры несовместима с сервером|устарела)/i, 'Устаревшая или несовместимая версия игры'],
+                [/Введите\s+\/q/i, 'Кик сервером'] // клиент (index3.js, статус DISCONNECT) реагирует на подстроку «Введите /q»
+            ];
+            const kickHit = serverKickReasons.find(([re]) => re.test(msg) || re.test(normalizedMsg)); // msg первым: «/quit» после normalizeToCyrillic портится
+            if (kickHit) {
+                debugLog(`Кик сервером: ${kickHit[1]}`);
+                window.__kickNotifiedAt = Date.now();
+                window.__kickDisconnectSkipAt = Date.now(); // следующее «Вы были отключены от сервера» — следствие этого кика
+                sendToTelegram(
+                    `🔌 <b>Вас кикнул сервер (${displayName})</b>\nПричина: ${kickHit[1]}\n<code>${msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/</g, '&lt;')}</code>`,
+                    false,
+                    { inline_keyboard: [
+                        [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
+                        [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+                    ] }
+                );
+                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+            }
+        }
         // Обработка посадки в тюрьму администратором
-        const prisonRegex = /Администратор (.+) посадил в тюрьму игрока (.+) на (\d+) мин\. Причина: (.+)/;
+        // Сервер: «Администратор %s посадил в %s игрока %s на %d мин[. Причина: %s]» — %s = тюрьму / КПЗ / Деморган, причина необязательна
+        const prisonRegex = /Администратор\s+(\S+)\s+посадил в\s+(тюрьму|КПЗ|Деморган)\s+игрока\s+(\S+)\s+на\s+(\d+)\s+мин(?:\.\s*Причина:\s*(.+?))?\s*$/;
         const prisonMatch = msg.match(prisonRegex);
-        if (prisonMatch && prisonMatch[2] === config.accountInfo.nickname) {
+        if (prisonMatch && prisonMatch[3] === config.accountInfo.nickname && colorOk(i, 'FF5030')) { // SendClientMessageToAll(0xFF5030FF)
             const adminName = prisonMatch[1];
-            const prisonMinutes = parseInt(prisonMatch[3]);
-            const reason = prisonMatch[4];
+            const jailPlace = prisonMatch[2];
+            const prisonMinutes = parseInt(prisonMatch[4]);
+            const reason = prisonMatch[5] || 'Не указана';
             debugLog(`Обнаружена посадка в тюрьму для ${displayName} на ${prisonMinutes} мин!`);
             const replyMarkup = getNotificationReplyMarkup();
-            sendToTelegram(`🚨 <b>Посадили в тюрьму! (${displayName})</b>\nАдмин: ${adminName}\nВремя: ${prisonMinutes} мин\nПричина: ${reason}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+            sendToTelegram(`🚨 <b>Посадили в ${jailPlace}! (${displayName})</b>\nАдмин: ${adminName}\nВремя: ${prisonMinutes} мин\nПричина: ${reason}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             globalState.isPrison = true; // Флаг для игнора /rec при кике
             setTimeout(() => { globalState.isPrison = false; }, 10000); // Сбрасываем через 10 сек
@@ -5948,6 +6018,32 @@ function initializeChatMonitor() {
             }
         }
 		// МЗ отладочный блок удалён
+        // Досрочное освобождение из тюрьмы.
+        // Админ: «Администратор Nick[ID] выпустил Вас из тюрьмы» (0xFFFFFFFF, new.pwn); сотрудник: «Сотрудник Nick выпустил Вас из тюрьмы.» (prison.pwn, цвет PRISON_COL_INFO — его define в загруженных файлах нет, по цвету не проверяю);
+        // откат админом: «[RB]: Вы были выпущены из тюрьмы» (0x66CC00FF).
+        {
+            const _unjPlain = msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '');
+            const unjailMatch = _unjPlain.match(/(Администратор|Сотрудник)\s+(\S+?)(?:\[(\d+)\])?\s+выпустил\s+Вас\s+из\s+тюрьмы/i);
+            const rbUnjail = /\[RB\]:\s*Вы были выпущены из тюрьмы/i.test(_unjPlain) && colorOk(i, '66CC00');
+            if ((unjailMatch && (unjailMatch[1].toLowerCase() !== 'администратор' || colorOk(i, 'FFFFFF'))) || rbUnjail) {
+                debugLog('[PRISON] Выпустили из тюрьмы досрочно');
+                stopPrisonTimePolling();
+                globalState.inPrison = false;
+                globalState.prisonTimeRequested = false;
+                const unjailWho = unjailMatch
+                    ? `${unjailMatch[1]} ${unjailMatch[2]}${unjailMatch[3] ? ' [ID: ' + unjailMatch[3] + ']' : ''}`
+                    : 'Откат администратором';
+                sendToTelegram(
+                    `🔓 <b>Вас выпустили из тюрьмы! (${displayName})</b>\n${unjailWho}\n<code>${_unjPlain.replace(/</g, '&lt;')}</code>`,
+                    false,
+                    { inline_keyboard: [[
+                        createButton('🔓 Выйти с автр.', `prison_reconnect_${uniqueId}`, 'success'),
+                        createButton('🚪 Выйти с игры', `prison_quit_${uniqueId}`, 'danger')
+                    ]] }
+                );
+                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+            }
+        }
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
             factionColor = factions[config.currentFaction].color;
@@ -5989,19 +6085,21 @@ function initializeChatMonitor() {
             new RegExp('администратор\\s+\\S+\\[\\d+\\]\\s+для\\s+' + myNick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\[', 'i').test(msg);
         // [A] в рации — тихое уведомление без звука и спама
         const isAdminRadioMsg = msg.includes("[A]") && msg.includes("((") && chatRadius === CHAT_RADIUS.RADIO;
+        // Сервер шлёт цели: «Администратор Nick[ID] подбросил Вас». Копия «[A] ... подбросил X[ID]» уходит админам и подбросом для нас не является
+        const isPodbrosMsg = /Администратор\s+\S+\[\d+\]\s+подбросил\s+Вас/i.test(msg) && colorOk(i, 'FFFFFF'); // сервер шлёт 0xFFFFFFFF
         if (isAdminRadioMsg) {
             debugLog('Обнаружен [A] в рации — тихое уведомление');
             sendToTelegram(`📻 <b>Администратор в рации [A] (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, true, null);
         } else if (isAdminPrivateMsg ||
             (msg.includes("[A]") && msg.includes("((")) ||
             /\{FF4444\}\[Уведомление от администратора\] \{FFFFFF\}Администратор .+\[\d+\]:/.test(msg) ||
-            (lowerCaseMessage.includes("подбросил") &&
+            (isPodbrosMsg &&
             (currentTime - config.lastPodbrosTime > config.podbrosCooldown || config.podbrosCounter < 2))) {
             // Игнорируем сообщения от департамента [D] с розовым цветом {FF8877}
             const isDepartmentMessage = msg.includes('[D]') && msg.includes('{FF8877}');
             if (isDepartmentMessage) {
                 debugLog('Сообщение от департамента [D] — игнорируем');
-            } else if (lowerCaseMessage.includes("подбросил")) {
+            } else if (isPodbrosMsg) {
                 config.podbrosCounter++;
                 if (config.podbrosCounter <= 2) {
                     debugLog('Обнаружен подброс!');
@@ -6062,10 +6160,11 @@ function initializeChatMonitor() {
 				radioHandled = true; // рация уже обработана строй-блоком
 			}
 		}
-        if (lowerCaseMessage.indexOf("администратор") !== -1 &&
-            lowerCaseMessage.indexOf("кикнул") !== -1 &&
-            msg.includes(config.accountInfo.nickname)) {
+        // Сервер: «Администратор %s кикнул игрока %s[. Причина: %s]» — реагируем только когда кикнули именно нас, а не когда наш ник просто есть в строке
+        if (config.accountInfo.nickname && colorOk(i, 'FF5030') && // SendClientMessageToAll(0xFF5030FF)
+            new RegExp('Администратор\\s+\\S+\\s+кикнул игрока\\s+' + config.accountInfo.nickname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:[\\s.]|$)').test(msg)) {
             debugLog(`Обнаружен кик ${displayName}!`);
+            window.__kickNotifiedAt = Date.now();
             const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
@@ -6106,24 +6205,41 @@ function initializeChatMonitor() {
                 );
             }
         }
-        // Проверка выговоров (динамически только для определённой фракции)
-        if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
-            const ranks = factions[config.currentFaction].ranks;
-            const rank10 = ranks[10]; // Высший ранг (например, губернатор, глав врач)
-            const rank9 = ranks[9]; // Второй высший (например, вице-губернатор, заместитель глав врача)
-            // Экранируем специальные символы в названиях рангов, если они есть (на всякий случай)
-            const escapedRank10 = rank10.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const escapedRank9 = rank9.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const warningRegex = new RegExp(`(?:${escapedRank10}|${escapedRank9})\\s+([^[]+)\\[(\\d+)\\]\\s+выдал\\s+Вам\\s+Выговор\\s+(\\d+)\\s+из\\s+3\\.\\s+Причина:\\s+(.*)`, 'i');
-            const warningMatch = msg.match(warningRegex);
+        // Выговоры. Сервер шлёт (0xFF6600FF): «<ранг выдающего> <ник>[ID] выдал Вам выговор N из M. Причина: ...» — ранг любой, не только 9-10
+        if (config.warningNotifications && colorOk(i, 'FF6600')) {
+            const warningMatch = msg.match(/(.+?)\s+(\S+)\[(\d+)\]\s+выдал\s+Вам\s+выговор\s+(\d+)\s+из\s+(\d+)\.\s+Причина:\s*(.*)/i);
             if (warningMatch) {
-                debugLog(`Обнаружен выговор от ${warningMatch[1]} в фракции ${config.currentFaction}!`);
-                sendToTelegram(`⚠️ <b>Получен выговор (${displayName}) от ${warningMatch[1]} [ID: ${warningMatch[2]}]:</b>\nВыговор ${warningMatch[3]}/3\nПричина: ${warningMatch[4]}\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0); // Опционально: звук для выговора
+                debugLog(`Обнаружен выговор от ${warningMatch[2]}!`);
+                sendToTelegram(`⚠️ <b>Получен выговор (${displayName}) от ${warningMatch[1]} ${warningMatch[2]} [ID: ${warningMatch[3]}]:</b>\nВыговор ${warningMatch[4]}/${warningMatch[5]}\nПричина: ${warningMatch[6]}\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+            }
+        }
+        // Увольнение из организации. Все четыре варианта сервер шлёт цветом 0xFF6600FF (new.pwn: 41380, 54082, 71285, 75022).
+        // Не зависит от переключателя выговоров: увольнение важнее.
+        if (colorOk(i, 'FF6600')) {
+            let fireInfo = null, fm;
+            if ((fm = msg.match(/Администратор\s+(\S+)\[(\d+)\]\s+уволил\s+Вас\s+из\s+организации\s+"(.+?)"/i))) {
+                fireInfo = { reason: `Уволил администратор ${fm[1]} [ID: ${fm[2]}]`, org: fm[3] };
+            } else if ((fm = msg.match(/(\S+)\[(\d+)\]\s+уволил\s+Вас\s+из\s+организации\s+"(.+?)"/i))) {
+                fireInfo = { reason: `Уволил ${fm[1]} [ID: ${fm[2]}]`, org: fm[3] };
+            } else if (/Вы были уволены из организации\. Достигнут лимит/i.test(msg)) {
+                fireInfo = { reason: 'Лимит выговоров (3 из 3)', org: null };
+            } else if (/Вы были уволены из организации \(расформирование состава\)/i.test(msg)) {
+                fireInfo = { reason: 'Расформирование состава', org: null };
+            }
+            if (fireInfo) {
+                debugLog(`Уволены из организации: ${fireInfo.reason}`);
+                sendToTelegram(
+                    `🚫 <b>Вас уволили из организации (${displayName})</b>\n` +
+                    (fireInfo.org ? `Организация: ${fireInfo.org}\n` : '') +
+                    `${fireInfo.reason}\n<code>${msg.replace(/</g, '&lt;')}</code>`,
+                    false, getNotificationReplyMarkup()
+                );
+                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
             }
         }
         // Новые проверки сообщений в чате
-        if (msg.includes("Потеряно соединение с сервером")) {
+        if (/Потеряно\s+соединение/i.test(msg)) { // клиент (index3.js, CONNECTION_LOST) ловит «Потеряно»
             debugLog('Обнаружено потеря соединения!');
             if (!window.__afterRec5) {
                 sendToTelegram(`❌ Потеряно соединение с сервером (${displayName})`, false, null);
@@ -6131,8 +6247,43 @@ function initializeChatMonitor() {
                 window.__afterRec5 = false; // сброс: следующее "потеряно" уже не от /rec 5
             }
         }
-        // Подождите 15 секунд перед следующим входом (цвет FF6600 — оранжевый, rate-limit сервера)
-        if (lowerCaseMessage.includes("подождите") && lowerCaseMessage.includes("секунд") && lowerCaseMessage.includes("входом на сервер")) {
+        // Статусы окна Connect (index3.js), которых раньше не было: «You are banned» (BANIP), «Недоступный» (UNAVAILABLE_NICK), «свободных мест» (RECONNECT_FULL).
+        // Клиент ищет их подстрокой в чате; цвет задаёт клиент, а не сервер, поэтому по цвету не проверяем. Чтобы не ловить RP-чат и игровые ошибки
+        // (они идут цветами радиусов, в т.ч. CECECE), требуем «неизвестный» радиус чата. Не чаще раза в минуту на каждый тип.
+        if (chatRadius === CHAT_RADIUS.UNKNOWN) {
+            window.__connStatusAt = window.__connStatusAt || {};
+            const _connPlain = msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim();
+            const _connOnce = (key) => {
+                if (Date.now() - (window.__connStatusAt[key] || 0) < 60000) return false;
+                window.__connStatusAt[key] = Date.now();
+                return true;
+            };
+            const _connMarkup = { inline_keyboard: [
+                [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
+                [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+            ] };
+            if (/You are banned/i.test(_connPlain)) {
+                if (_connOnce('banip')) {
+                    debugLog('Обнаружена блокировка по IP (You are banned)');
+                    window.__kickDisconnectSkipAt = Date.now(); // следующее «Вы были отключены» — следствие блокировки
+                    sendToTelegram(`⛔ <b>Отказано в доступе — IP-адрес заблокирован (${displayName})</b>\n<code>${_connPlain.replace(/</g, '&lt;').slice(0, 300)}</code>`, false, _connMarkup);
+                    window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+                }
+            } else if (/Недоступный/.test(_connPlain)) {
+                if (_connOnce('badnick')) {
+                    debugLog('Обнаружен недоступный никнейм');
+                    sendToTelegram(`⚠️ <b>Недоступный никнейм (${displayName})</b>\nНик занят другим игроком или в неверном формате (нужен Name_Surname).\n<code>${_connPlain.replace(/</g, '&lt;').slice(0, 300)}</code>`, false, _connMarkup);
+                }
+            } else if (/свободных мест/i.test(_connPlain) && /очеред|сервер/i.test(_connPlain)) {
+                if (_connOnce('serverfull')) {
+                    const _q = _connPlain.match(/\d+/);
+                    debugLog('Обнаружен полный сервер / очередь');
+                    sendToTelegram(`⏳ <b>Сервер полон (${displayName})</b>${_q ? '\nПозиция в очереди: ' + _q[0] : ''}\n<code>${_connPlain.replace(/</g, '&lt;').slice(0, 300)}</code>`, false, _connMarkup);
+                }
+            }
+        }
+        // Подождите 15 секунд перед следующим входом (rate-limit сервера). В серверной строке «cекунд» написано с ЛАТИНСКОЙ c, поэтому ищем [c|с]екунд
+        if (lowerCaseMessage.includes("подождите") && /[c\u0441]екунд/.test(lowerCaseMessage) && lowerCaseMessage.includes("входом на сервер")) {
             debugLog('Обнаружен rate-limit сервера (15 секунд)!');
             window.__afterRateLimit = true; // Флаг: следующий disconnect — следствие rate-limit, подавить его
             const rateLimitMarkup = {
@@ -6155,6 +6306,10 @@ function initializeChatMonitor() {
                     // Это отключение — прямое следствие rate-limit, уже уведомили выше
                     debugLog('Отключение после rate-limit — повторное уведомление подавлено');
                     window.__afterRateLimit = false; // сброс флага
+                } else if (Date.now() - (window.__kickDisconnectSkipAt || 0) < 20000) {
+                    // Это отключение — следствие кика, о котором уже уведомили выше
+                    debugLog('Отключение после кика сервером — повторное уведомление подавлено');
+                    window.__kickDisconnectSkipAt = 0;
                 } else if (window.__afterAuthDialog) {
                     // Это отключение — уже показано в диалоге авторизации, дубль не нужен
                     debugLog('Отключение после диалога авторизации — повторное уведомление подавлено');
@@ -6166,7 +6321,10 @@ function initializeChatMonitor() {
                             [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
                         ]
                     };
-                    sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>`, false, disconnectMarkup);
+                    // Если в строке есть причина (например «…для освобождения резервного слота администрации.») — показываем её
+                    const _discPlain = msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim();
+                    const _discExtra = _discPlain.length > 40 ? `\n<code>${_discPlain.replace(/</g, '&lt;').slice(0, 300)}</code>` : '';
+                    sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>${_discExtra}`, false, disconnectMarkup);
                 }
             } else {
                 window.__afterRec5 = false; // после /rec 5 не дублируем

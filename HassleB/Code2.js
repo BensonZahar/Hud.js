@@ -538,6 +538,39 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         // Если диалог содержит сообщение об авторизации/отключении — ставим флаг,
         // чтобы подавить дублирующее уведомление "Вы были отключены от сервера"
         const _dlgAllText = (title + ' ' + info + ' ' + contentText).toLowerCase();
+        // Блокировка аккаунта: сервер показывает диалог-сообщение и отключает. Шлём то же уведомление, что и при обычном отключении,
+        // но с текстом причины из диалога. Точный текст — new.pwn (LOGIN_STATE_CHECK_BAN), bans.pwn сам диалог не показывает; условие оставлено общим на случай других версий.
+        if (style === DIALOG_STYLE.MSGBOX &&
+            /(аккаунт[^.]{0,80}(заблокирован|забанен)|(заблокирован|забанен)[^.]{0,80}аккаунт|ip[-\s]?адрес[^.]{0,40}заблокирован)/i.test(_dlgAllText) &&
+            Date.now() - (window.__banNotifiedAt || 0) > 60000) {
+            window.__banNotifiedAt = Date.now();
+            window.__afterAuthDialog = true; // следующее «Вы были отключены от сервера» — следствие бана, второе уведомление не нужно
+            debugLog('[DLG] Обнаружена блокировка аккаунта');
+            // Текст диалога из new.pwn (LOGIN_STATE_CHECK_BAN): «Этот аккаунт заблокирован[ на N дней]», «Ник администратора: …», «Причина блокировки: …», «Дата и время: …»
+            const _banPlain = String(contentText || info || '');
+            const _banAdmin  = (_banPlain.match(/Ник администратора:\s*(.+)/i) || [])[1];
+            const _banReason = (_banPlain.match(/Причина блокировки:\s*(.+)/i) || [])[1];
+            const _banDate   = (_banPlain.match(/Дата (?:и время|блокировки):\s*(.+)/i) || [])[1];
+            const _banDur    = (_banPlain.match(/Длительность блокировки:\s*(.+)/i) || [])[1]; // только у блокировки по IP (authorization.pwn)
+            const _banIsIp   = /ip[-\s]?адрес[^.]{0,40}заблокирован/i.test(_banPlain);
+            const _banDays   = (_banPlain.match(/заблокирован\s+на\s+(\d+)\s+дн/i) || [])[1];
+            const _banInfo = (_banAdmin || _banReason)
+                ? `Срок: ${_banDur ? _banDur.trim() : (_banDays ? _banDays + ' дн.' : 'навсегда')}\n` +
+                  `Админ: ${(_banAdmin || '—').trim().replace(/</g, '&lt;')}\n` +
+                  `Причина: ${(_banReason || '—').trim().replace(/</g, '&lt;')}\n` +
+                  (_banDate ? `Дата и время: ${_banDate.trim()}\n` : '')
+                : '';
+            sendToTelegram(
+                `⛔ <b>${_banIsIp ? 'IP-адрес заблокирован' : 'Аккаунт заблокирован'} — отключение от сервера (${displayName})</b>\n` + _banInfo +
+                `<code>${(title + '\n' + (contentText || info)).trim().slice(0, 800).replace(/</g, '&lt;')}</code>`,
+                false,
+                { inline_keyboard: [
+                    [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
+                    [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+                ] }
+            );
+            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+        }
         if (_dlgAllText.includes('авторизац') || _dlgAllText.includes('отключены от сервера')) {
             window.__afterAuthDialog = true;
             debugLog('[DLG] Диалог авторизации/отключения — флаг __afterAuthDialog установлен');
@@ -1151,9 +1184,9 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
     function _notifyZavod(on) {
         if (typeof window.onChatMessage !== 'function') return;
         if (on) {
-            window.onChatMessage('{999999}ЗАВОД — {33DD77}Включён', '999999FF');
+            window.onChatMessage('{999999}ЗАВОД — {33DD77}Включён', '0x999999');
         } else {
-            window.onChatMessage('{999999}ЗАВОД — {EE4444}Выключён', '999999FF');
+            window.onChatMessage('{999999}ЗАВОД — {EE4444}Выключён', '0x999999');
         }
         setTimeout(function () {
             try {
@@ -1540,7 +1573,7 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
             if (typeof window.onChatMessage === 'function') {
                 window.onChatMessage(
                     `{9999FF}[TRACKER] {FFFFFF}${msg}`,
-                    'FFFFFFFF'
+                    '0xFFFFFF'
                 );
             }
         } catch (e) { /* тихо */ }
