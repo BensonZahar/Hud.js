@@ -34,6 +34,9 @@ from PIL import Image
 #  НАСТРОЙКИ
 # ═══════════════════════════════════════════════════════
 GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
+# Оригинальные Modal.css / Window.css игры — на них построена вкладка «Бинды» в index.html
+GAME_UI_RAW   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/AHK%20konst/%D0%A3%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D1%89%D0%B8%D0%BA"
+GAME_UI_FILES = ("Modal.css", "Window.css")
 KEYS_URL      = f"{GITHUB_RAW}/keys.json"
 AHK_URL       = f"{GITHUB_RAW}/LoadAhk.js"
 
@@ -551,6 +554,19 @@ def fetch_html() -> str:
         # Если index.css не найден/не загрузился — не валим установщик,
         # окно просто откроется без стилей
         pass
+
+    # Оригинальные CSS игры кладём рядом с index.html (подключаются внутри окна «Бинды»).
+    # Сначала папка «AHK konst/Установщик», запасной вариант — та же папка, что и index.html.
+    for name in GAME_UI_FILES:
+        for base in (GAME_UI_RAW, GITHUB_RAW):
+            try:
+                r = requests.get(f"{base}/{name}", timeout=15)
+                r.raise_for_status()
+                with open(os.path.join(tmp_dir, name), "wb") as f:
+                    f.write(r.content)
+                break
+            except Exception:
+                continue
 
     return html_path
 

@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,600;1,700&family=Open+Sans+Condensed:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="index.css">
+<style id="ff-map">@font-face{font-family:'Open Sans';src:local('Open Sans'),local('Segoe UI'),local('Arial'),local('Helvetica'),local('Liberation Sans'),local('DejaVu Sans');font-weight:100 900}</style>
 </head>
 <body>
 <div class="window">
@@ -398,38 +399,20 @@
         <span class="page-title">Бинды</span>
       </div>
       <div class="content" style="padding:16px 20px 16px">
-        <div class="info-box" style="margin-bottom:14px">
+        <div style="display:flex;gap:18px;align-items:flex-start">
+          <div style="flex:1;min-width:0">
+            <div class="game-dialog-header">
+            <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>
+            <span id="binds-hint">Выберите пункт и нажмите Enter — назначить кнопку</span>
+          </div>
+            <div class="info-box" style="margin-bottom:14px">
           Назначьте кнопки для пунктов меню АХК: <b>главное меню</b>, <b>«Повседневная»</b> и <b>выдача лицензий</b>. Выберите пункт в окне (мышью или <b>↑ ↓</b>) и нажмите <b>Enter</b> — или двойной клик, или <b>⌨</b> справа, — чтобы задать бинд. <b>Esc</b> сбрасывает бинд выбранного пункта, <b>A</b> / <b>D</b> листают страницы — как в игровом меню.<br>
           Значок <b>⏱</b> (есть только у пунктов «Повседневной») включает отправку команды <b>/c 60</b> после отыгровки этого пункта — диалог «Точное время» закроется сам через 1.5 сек, чтобы не мешал.
         </div>
         <div id="binds-status" style="display:none;font-size:11px;line-height:1.5;margin-bottom:10px"></div>
-        <div class="game-dialog-wrap">
-          <div class="game-dialog-header">
-            <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>
-            <span id="binds-hint">Выберите пункт и нажмите Enter — назначить кнопку</span>
           </div>
-          <div class="gdlg-wrap" style="width:100%;max-width:520px">
-            <div class="gdlg-inner">
-              <div class="gdlg-pattern"><div class="gdlg-pattern__image" id="binds-pattern"></div></div>
-              <div class="gdlg-content">
-                <div class="gdlg-title" id="binds-title"></div>
-                <div class="gdlg-subtitle" id="binds-subtitle">AHK by konstt</div>
-                <div class="gdlg-list-wrap">
-                  <div class="gdlg-list-scroll" id="binds-list-scroll" style="max-height:330px">
-                    <div class="gdlg-items" id="binds-list"></div>
-                  </div>
-                  <div class="gdlg-scroll-rail" id="binds-rail">
-                    <div class="gdlg-scroll-rail-bg"></div>
-                    <div class="gdlg-scroll-thumb" id="binds-thumb">
-                      <div class="gdlg-scroll-thumb-shadow"></div>
-                      <div class="gdlg-scroll-thumb-deco"><span></span><hr><span></span></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="gdlg-paginate" id="binds-paginate" style="display:none"></div>
-                <div class="gdlg-buttons" id="binds-buttons"></div>
-              </div>
-            </div>
+          <div class="game-dialog-wrap" style="flex:none;margin-bottom:0">
+            <div id="binds-host" class="binds-host" style="display:flex;justify-content:center"></div>
           </div>
         </div>
       </div>
@@ -598,10 +581,41 @@ ALL_MENU_ITEMS.forEach(function(it){menuItemBinds[it.action]='';});
 var menuItemTimers={};
 ALL_MENU_ITEMS.forEach(function(it){menuItemTimers[it.action]=false;});
 
-// ── Вкладка «Бинды»: окно один в один как в игре (Modal.css + Window.css, тот же макет, что у автоснаряжения) ──
+// ── Вкладка «Бинды»: окно собрано из оригинальных Modal.css + Window.css игры (Shadow DOM, разметка как в Window.js) ──
 var BINDS_PER_PAGE=7; // как ITEMS_PER_PAGE в скриптах: «Повседневная» листается по 7 пунктов
+var BINDS_ZOOM=1.05;   // общий масштаб окна (размеры в игре заданы в vh, а окно установщика ниже экрана игры)
 var BINDS_DEPT_TITLES={mvd:'МВД',fsb:'ФСБ',fsin:'ФСИН',pravo:'ПРАВИТЕЛЬСТВО'};
-var _bindsPage=0,_bindsSel=null,_bindsPages=[],_bindsScrollInit=false,_bindsAssets=false;
+var BINDS_EXTRA_CSS="\n*,*::before,*::after{box-sizing:border-box}\n:host{display:block;font-family:'Open Sans',sans-serif;--fallback-font:'Open Sans',sans-serif;color:#fff;-webkit-user-select:none;user-select:none}\np{margin:0}\n/* Modal.css делает .modal полноэкранным (fixed 100vw/100vh) — здесь окно встроено в страницу */\n.modal[data-v-0c90f898]{position:relative;left:auto;top:auto;width:auto;height:auto;display:block;z-index:auto}\n.modal__pattern{background-position:50%;background-repeat:no-repeat;background-size:cover;opacity:.05;transform:rotate(148deg) scale3d(-1,1,1)}\n/* ширина окна — по содержимому, как containerWidth в Window.js */\n.window__content-container[data-v-8a748e31]{position:relative;width:max-content}\n.bd-scroll{max-height:63.4vh;overflow-y:scroll;overflow-x:hidden;scrollbar-width:none}\n.bd-scroll::-webkit-scrollbar{display:none}\n.window-table__item{user-select:none}\n.window-table__col{white-space:nowrap;flex:1 1 auto}\n.window-table__item .bd-right{align-items:center;display:flex;flex-shrink:0;gap:0.74vh;padding-right:1.11vh}\n.bd-ico{align-items:center;background:#ffffff0f;border:0.09vh solid #0000;border-radius:0.37vh;cursor:pointer;display:flex;height:2.59vh;justify-content:center;padding:0;transition:all .15s;width:2.59vh}\n.bd-ico svg{fill:none;height:1.3vh;stroke:#f4f1e166;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;width:1.3vh}\n.bd-ico:hover{background:#f9b70130}\n.bd-ico:hover svg,.bd-ico.on svg{stroke:#f9b701}\n.bd-ico.on{background:#f9b70138;border-color:#f9b70180}\n.bd-ico_clear:hover{background:#e2554430}\n.bd-ico_clear:hover svg{stroke:#e25544}\n.bd-badge{background:#f9b70126;border:0.09vh solid #f9b70166;border-radius:0.37vh;color:#f9b701;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:1.3vh;font-weight:500;padding:0.37vh 0.93vh;white-space:nowrap}\n.bd-badge:hover{background:#f9b70148}\n\n/* --- controls-button (копия Button.css игры из index.css) --- */\n/* ══ controls-button — точная копия Button.css из игры (без изменений) ══ */\n.controls-button{align-items:center;display:flex;height:2.22vh;justify-content:center;position:relative;transition:all .25s ease;z-index:2}\n.controls-button-content{align-items:center;background:#d8d4cc;display:flex;flex:1 1;height:100%;justify-content:center;padding:0 0.74vh;position:relative;transition:all .1s ease;z-index:9;border-radius:0.74vh;box-shadow:0 0.37vh 0.74vh -0.37vh #00000052,0 0.09vh 0.19vh 0 #00000052;overflow:hidden;border:0.09vh solid #0c0a06}\n.controls-button-icon{transition:all .25s ease}\n.controls-button-icon_key{height:0.93vh;margin-right:0.37vh;transition:opacity .25s ease;width:0.93vh}\n.controls-button--text-wrapper{display:flex;flex-direction:column;height:100%;justify-content:center}\n.controls-button--text{align-items:center;color:#010106;display:flex;font-family:\"Open Sans Condensed\",\"Open Sans\",sans-serif;font-size:1.3vh;font-style:italic;font-weight:700;justify-content:center;line-height:69%;text-transform:uppercase;transition:all .25s ease}\n.controls-button--text-border{background-color:#01010640;height:0.19vh;margin-top:0.19vh;width:100%}\n/* Размеры по длине текста (как controls-button_length-N в игре) */\n.controls-button_length-1,.controls-button_length-3{width:2.4vh}\n.controls-button_length-1 .controls-button-content,.controls-button_length-3 .controls-button-content{padding:0}\n.controls-button_length-3{width:3.89vh}\n.controls-button_length-5{width:5.56vh}\n.controls-button_length-5 .controls-button-content{padding:0}\n/* Enter: фиксированная ширина 6.85vh, без padding */\n.controls-button_enter{width:6.85vh}\n.controls-button_enter .controls-button-content{padding:0}\n/* ESC при ховере: красный фон, скрыть текст */\n.controls-button_is-esc.controls-button_is-hovered .controls-button-content,.controls-button_is-esc:hover .controls-button-content{background:#fb2c36}\n.controls-button_is-esc.controls-button_is-hovered .controls-button-icon_key,.controls-button_is-esc:hover .controls-button-icon_key{opacity:0}\n.controls-button_is-esc.controls-button_is-hovered .controls-button--text,.controls-button_is-esc:hover .controls-button--text{opacity:0}\n/* Pressed */\n.controls-button.pressed .controls-button--text-border{display:none}\n.controls-button.pressed .controls-button-content{transform:translateY(0.19vh)}\n.controls-button.pressed .controls-button-shadow{opacity:0}\n/* Hover (убирает border-line снизу текста) */\n.controls-button_with-hover.clickable:hover .controls-button--text-border{display:none}\n.controls-button_with-hover.clickable:hover .controls-button-content{background:#e8e4dc}\n/* Gold / Secondary */\n.controls-button_gold .controls-button-content{background:#ffb110}\n.controls-button_secondary .controls-button-content{background:#44403b}\n.controls-button_secondary .controls-button--text{color:#eeeee6}\n/* Disabled */\n.controls-button_disabled{pointer-events:none}\n.controls-button_disabled .controls-button-shadow{opacity:0}\n.controls-button_disabled .controls-button-content{background:#292524}\n.controls-button_disabled .controls-button--text{color:#eeeee633}\n.controls-button_disabled .controls-button--text-border{display:none}\n/* Shadow */\n.controls-button-shadow{background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.3));border-radius:0 0 0.74vh 0.74vh;bottom:0;left:0;position:absolute;right:0;top:0;z-index:10;pointer-events:none}\n/* Container */\n.controls-button__container{align-items:center;display:flex;margin-right:1.48vh}\n.controls-button__container:last-child{margin-right:0}\n.controls-button__container-text{color:rgba(244,241,225,.6);font-family:\"Open Sans\",sans-serif;font-size:1.11vh;font-weight:600;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.04em;padding-left:0.56vh}\n\n/* Совместимость */\n\n/* --- scroll type 9 --- */\n/* Скролл — точная копия игрового типа 9 (WHITE_BLACK_LINES) */\n.gdlg-scroll-rail{position:absolute;right:0;top:0;bottom:0;width:1.11vh}\n.gdlg-scroll-rail-bg{position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:0.37vh;background:#ffffff1a;border-radius:0.19vh;pointer-events:none}\n/* thumb */\n.gdlg-scroll-thumb{\n  position:absolute;\n  left:50%;transform:translateX(-50%);\n  width:1.11vh;\n  background:linear-gradient(0deg,#bcbcbd,#fff 75%);\n  border-radius:0.19vh;\n  cursor:pointer;\n  min-height:20px;\n  display:flex;align-items:center;justify-content:center;\n}\n.gdlg-scroll-thumb:hover{box-shadow:0 1px 3px rgba(0,0,0,.5)}\n/* тень под thumb как в игре */\n.gdlg-scroll-thumb-shadow{\n  background:#ffffff40;border-radius:0.37vh;\n  bottom:-0.19vh;left:0;position:absolute;right:0;top:0.19vh;z-index:-1;\n  pointer-events:none;\n}\n/* декоративные линии внутри thumb */\n.gdlg-scroll-thumb-deco{\n  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;\n  pointer-events:none;\n  width:100%;\n}\n.gdlg-scroll-thumb-deco hr{\n  width:0.6vh;height:0;border:none;border-top:0.5px solid rgba(0,0,0,.35);margin:1px 0;\n}\n.gdlg-scroll-thumb-deco span{\n  display:block;background:#000;height:0.2vh;width:0.7vh;opacity:.4;\n}\n\n";
+var _bindsPage=0,_bindsSel=null,_bindsPages=[],_bindsScrollInit=false,_bindsAssets=false,_bindsRoot=null;
+var _V='data-v-8a748e31',_VM='data-v-0c90f898';
+function _bq(sel){return _bindsRoot?_bindsRoot.querySelector(sel):null;}
+function _bindsInit(){
+  if(_bindsRoot)return true;
+  var host=document.getElementById('binds-host');
+  if(!host||!host.attachShadow)return false;
+  host.style.zoom=BINDS_ZOOM;
+  _bindsRoot=host.attachShadow({mode:'open'});
+  _bindsRoot.innerHTML=
+    '<link rel="stylesheet" href="Modal.css"><link rel="stylesheet" href="Window.css"><style>'+BINDS_EXTRA_CSS+'</style>'+
+    '<div class="modal modal_violet window text-window" '+_VM+' '+_V+'>'+
+      '<div class="modal-container-wrapper" '+_VM+'><div class="modal-container" '+_VM+'>'+
+        '<div class="modal__pattern-wrapper" '+_VM+'><div class="modal__pattern" id="bd-pattern" '+_VM+'></div></div>'+
+        '<div class="modal__content" '+_VM+'>'+
+          '<div class="modal__title" id="bd-title" '+_VM+'></div>'+
+          '<div class="window__container" '+_V+'>'+
+            '<div class="window__subtitle" '+_V+'>AHK by konstt</div>'+
+            '<div class="window__content-container" '+_V+'>'+
+              '<div class="bd-scroll" id="bd-scroll"><div class="window__content" '+_V+'><div class="window-table" '+_V+'><div class="window-table__items" id="bd-items" '+_V+'></div></div></div></div>'+
+              '<div class="gdlg-scroll-rail" id="bd-rail" style="bottom:1.6vh"><div class="gdlg-scroll-rail-bg"></div><div class="gdlg-scroll-thumb" id="bd-thumb"><div class="gdlg-scroll-thumb-shadow"></div><div class="gdlg-scroll-thumb-deco"><span></span><hr><span></span></div></div></div>'+
+            '</div>'+
+            '<div class="window__paginate" id="bd-pag" '+_V+' style="display:none"></div>'+
+            '<div class="window__buttons" id="bd-btns" '+_V+'></div>'+
+          '</div>'+
+        '</div></div>'+
+      '</div>'+
+    '</div>';
+  return true;
+}
 function _bindsBuildPages(){
   var groups=[];
   ALL_MENU_ITEMS.forEach(function(it){
@@ -644,7 +658,7 @@ function _bindsBtn(kind,keyText,label,disabled,onclick){
   return box;
 }
 function _bindsRenderButtons(){
-  var pager=document.getElementById('binds-paginate'),btns=document.getElementById('binds-buttons');
+  var pager=_bq('#bd-pag'),btns=_bq('#bd-btns');
   if(!pager||!btns)return;
   var n=_bindsPages.length,hasPrev=_bindsPage>0,hasNext=_bindsPage<n-1;
   pager.innerHTML='';
@@ -660,12 +674,12 @@ function _bindsGoPage(d){
   var np=_bindsPage+d;
   if(np<0||np>=_bindsPages.length)return;
   _bindsPage=np;_bindsSel=null;
-  var sc=document.getElementById('binds-list-scroll');if(sc)sc.scrollTop=0;
+  var sc=_bq('#bd-scroll');if(sc)sc.scrollTop=0;
   buildBindsList();
 }
 function _bindsSelect(action){
   _bindsSel=action;
-  Array.prototype.forEach.call(document.querySelectorAll('#binds-list .gdlg-item'),function(r){r.classList.toggle('on',r.getAttribute('data-action')===action);});
+  if(_bindsRoot)Array.prototype.forEach.call(_bindsRoot.querySelectorAll('.window-table__item'),function(r){r.classList.toggle('selected',r.getAttribute('data-action')===action);});
   _bindsRenderButtons();
 }
 function _bindsMove(d){
@@ -673,67 +687,64 @@ function _bindsMove(d){
   var idx=-1;pg.items.forEach(function(it,i){if(it.action===_bindsSel)idx=i;});
   var ni=Math.max(0,Math.min(pg.items.length-1,idx+d));
   _bindsSelect(pg.items[ni].action);
-  var row=document.querySelector('#binds-list .gdlg-item.on');
+  var row=_bq('.window-table__item.selected');
   if(row&&row.scrollIntoView)row.scrollIntoView({block:'nearest'});
 }
+function _bindsIcon(cls,title,svg,onclick){
+  var b=document.createElement('button');
+  b.className='bd-ico'+(cls?' '+cls:'');b.title=title;b.innerHTML=svg;b.onclick=onclick;
+  return b;
+}
 function buildBindsList(){
-  var container=document.getElementById('binds-list');
-  if(!container)return;
+  if(!_bindsInit())return;
+  var container=_bq('#bd-items');
   // Узор заголовка берём у окна автоснаряжения — он один и тот же, дублировать картинку не нужно
   if(!_bindsAssets){
-    var srcPat=document.querySelector('#grab-wrap .gdlg-pattern__image'),dstPat=document.getElementById('binds-pattern');
+    var srcPat=document.querySelector('#grab-wrap .gdlg-pattern__image'),dstPat=_bq('#bd-pattern');
     if(srcPat&&dstPat&&srcPat.style.backgroundImage){dstPat.style.backgroundImage=srcPat.style.backgroundImage;_bindsAssets=true;}
   }
-  var scroll=document.getElementById('binds-list-scroll');
+  var scroll=_bq('#bd-scroll');
   var keepTop=scroll?scroll.scrollTop:0;
   _bindsPages=_bindsBuildPages();
   if(_bindsPage>=_bindsPages.length)_bindsPage=0;
   container.innerHTML='';
   var dept=BINDS_DEPT_TITLES[currentDepartment]||BINDS_DEPT_TITLES.mvd;
-  var titleEl=document.getElementById('binds-title');
+  var titleEl=_bq('#bd-title');
   var pg=_bindsPages[_bindsPage];
   if(titleEl)titleEl.textContent=pg?pg.title:dept;
   var hint=document.getElementById('binds-hint');
-  if(hint)hint.textContent=pg?('Выберите пункт и нажмите Enter — назначить кнопку · '+pg.group+(_bindsPages.length>1?' · стр. '+(_bindsPage+1)+' из '+_bindsPages.length:'')):'Загрузка меню…';
+  if(hint)hint.textContent=pg?(pg.group+(_bindsPages.length>1?' · стр. '+(_bindsPage+1)+' из '+_bindsPages.length:'')):'Загрузка меню…';
   if(pg){
     // по умолчанию выбран первый пункт страницы — как selected:0 в Window.js
     if(!pg.items.some(function(it){return it.action===_bindsSel;}))_bindsSel=pg.items[0].action;
     pg.items.forEach(function(it,idx){
       var bind=menuItemBinds[it.action]||'';
       var row=document.createElement('div');
-      row.className='gdlg-item'+(it.action===_bindsSel?' on':'');
-      row.setAttribute('data-action',it.action);
+      row.className='window-table__item'+(it.action===_bindsSel?' selected':'');
+      row.setAttribute(_V,'');row.setAttribute('data-action',it.action);
       row.onclick=function(){_bindsSelect(it.action);};
       row.ondblclick=function(){_showOverlay('bind:'+it.action);};
-      var col=document.createElement('div');col.className='gdlg-item-col';
-      var p=document.createElement('p');
-      p.textContent=(pg.offset+idx+1)+'. '+it.label.replace(/^\d+\.\s*/,'');
-      col.appendChild(p);row.appendChild(col);
-      var right=document.createElement('div');right.className='gdlg-item-right';
+      var col=document.createElement('div');col.className='window-table__col';col.setAttribute(_V,'');
+      col.textContent=(pg.offset+idx+1)+'. '+it.label.replace(/^\d+\.\s*/,'');
+      row.appendChild(col);
+      var right=document.createElement('div');right.className='bd-right';
       if(it.timer!==false){
-        var timerBtn=document.createElement('button');
-        timerBtn.className='gdlg-timer-btn'+(menuItemTimers[it.action]?' on':'');
-        timerBtn.title='После отыгровки слать /c 60 и закрывать диалог "Точное время" через 1.5с';
-        timerBtn.innerHTML='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>';
-        timerBtn.onclick=function(e){e.stopPropagation();toggleMenuTimer(it.action);};
-        right.appendChild(timerBtn);
+        right.appendChild(_bindsIcon(menuItemTimers[it.action]?'on':'','После отыгровки слать /c 60 и закрывать диалог "Точное время" через 1.5с',
+          '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>',
+          function(e){e.stopPropagation();toggleMenuTimer(it.action);}));
       }
       if(bind){
         var badge=document.createElement('span');
-        badge.className='gdlg-bind-badge';badge.title='Изменить бинд';badge.textContent=_keyDisplayRu(bind);
+        badge.className='bd-badge';badge.title='Изменить бинд';badge.textContent=_keyDisplayRu(bind);
         badge.onclick=function(e){e.stopPropagation();_bindsSelect(it.action);_showOverlay('bind:'+it.action);};
         right.appendChild(badge);
-        var clearBtn=document.createElement('button');
-        clearBtn.className='gdlg-bind-clear';clearBtn.title='Сбросить';
-        clearBtn.innerHTML='<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-        clearBtn.onclick=function(e){e.stopPropagation();clearMenuBind(it.action);};
-        right.appendChild(clearBtn);
+        right.appendChild(_bindsIcon('bd-ico_clear','Сбросить',
+          '<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+          function(e){e.stopPropagation();clearMenuBind(it.action);}));
       }else{
-        var addBtn=document.createElement('button');
-        addBtn.className='gdlg-bind-btn';addBtn.title='Назначить кнопку';
-        addBtn.innerHTML='<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>';
-        addBtn.onclick=function(e){e.stopPropagation();_bindsSelect(it.action);_showOverlay('bind:'+it.action);};
-        right.appendChild(addBtn);
+        right.appendChild(_bindsIcon('','Назначить кнопку',
+          '<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>',
+          function(e){e.stopPropagation();_bindsSelect(it.action);_showOverlay('bind:'+it.action);}));
       }
       row.appendChild(right);
       container.appendChild(row);
@@ -741,7 +752,7 @@ function buildBindsList(){
   }
   _bindsRenderButtons();
   if(scroll)scroll.scrollTop=keepTop;
-  if(!_bindsScrollInit&&typeof initDlgScroll==='function'){_bindsScrollInit=true;initDlgScroll('binds-list-scroll','binds-thumb','binds-rail');}
+  if(!_bindsScrollInit&&typeof initDlgScroll==='function'){_bindsScrollInit=true;initDlgScroll(_bq('#bd-scroll'),_bq('#bd-thumb'),_bq('#bd-rail'));}
 }
 // Клавиши как в игровом окне: ↑/↓ — выбор, A/D — страницы, Enter — назначить, Esc — сбросить.
 // Работает только на вкладке «Бинды» и когда не открыт захват клавиши (его обработчик ставит defaultPrevented).
@@ -1235,9 +1246,9 @@ function doRemove(){var btn=document.getElementById('btn-remove');btn.disabled=t
 
 function initGrabScroll(){initDlgScroll('grab-list-scroll','grab-thumb','grab-rail');}
 function initDlgScroll(listId,thumbId,railId){
-  var el=document.getElementById(listId);
-  var thumb=document.getElementById(thumbId);
-  var rail=document.getElementById(railId);
+  var el=typeof listId==='string'?document.getElementById(listId):listId;
+  var thumb=typeof thumbId==='string'?document.getElementById(thumbId):thumbId;
+  var rail=typeof railId==='string'?document.getElementById(railId):railId;
   if(!el||!thumb||!rail)return;
 
   function updateThumb(){
