@@ -416,3 +416,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .hassle-actions .btn{
   flex:1;
 }
+
+.key-overlay-err{display:none;max-width:360px;text-align:center;font-size:12px;line-height:1.5;color:#ff6b6b;
+  background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.35);border-radius:8px;padding:8px 12px}
+.key-overlay-err.show{display:block}

@@ -434,6 +434,7 @@
     <div class="key-overlay-hint">
       <span>Esc</span><span style="background:none;border:none;padding:0">— отмена</span>
     </div>
+    <div class="key-overlay-err" id="key-overlay-err"></div>
   </div>
   <div class="key-overlay-cancel" id="key-overlay-cancel">Отмена</div>
 </div>
@@ -1064,6 +1065,8 @@ function _keyDisplayRu(combo){
     'PageDown':     'PageDown',
     'CapsLock':     'CapsLock',
     'Tab':          'Tab',
+    'Minus':'-','Equal':'=','BracketLeft':'[','BracketRight':']','Semicolon':';','Quote':"'",
+    'Comma':',','Period':'.','Slash':'/','Backslash':'\\','Backquote':'`','IntlBackslash':'\\ (доп.)',
   };
   return combo.split('+').map(function(p){
     var t=p.trim();
@@ -1071,11 +1074,69 @@ function _keyDisplayRu(combo){
   }).join('+');
 }
 
+// ── Занятые клавиши и конфликты ───────────────────────────────
+// Источник: new.pwn (OnPlayerClientSideKey, KEY_* в OnPlayerKeyStateChange, тексты справки), pravo.js (E, R).
+// В список попали только клавиши, подтверждённые кодом мода. Коды из неподгруженных include (MENU_INTERACTION_KEY,
+// UI_KEY_CODE_ALT_1, CARS_KEY_CODE_SHOW, PHONE_KEY_CODE_UP) здесь не учтены.
+var RESERVED_BARE={ // «голая» клавиша без Alt/Ctrl/Shift — блокируем
+  'F6':'игровой чат','F2':'репорт','F3':'настройки голоса','Z':'анимации','O':'крафт','M':'меню игры (/menu)',
+  'P':'телефон','L':'планшет / сирена','I':'инвентарь','H':'гудок / мойка','Y':'«Да» на предложение','N':'«Нет» на предложение',
+  'E':'взаимодействие (E, ПКМ+E — выдача лицензии)','R':'радиальное меню','C':'присесть',
+  'W':'движение','A':'движение','S':'движение','D':'движение','Space':'прыжок','Enter':'действие / вход',
+  'Comma':'КПП вниз','Period':'КПП вверх'
+};
+var RESERVED_COMBO={'ALT+Y':'инвентарь (Alt+Y)','ALT+F4':'закрытие окна'};
+function _parseCombo(c){
+  var r={alt:false,ctrl:false,shift:false,main:''};
+  if(!c)return r;
+  var parts=String(c).split('+');
+  if(c.charAt(c.length-1)==='+'){r.main='+';parts=parts.filter(Boolean);}
+  parts.forEach(function(p){var t=p.trim(),l=t.toLowerCase();
+    if(l==='alt')r.alt=true;else if(l==='ctrl')r.ctrl=true;else if(l==='shift')r.shift=true;else if(!r.main)r.main=t;});
+  return r;
+}
+function _normCombo(c){var r=_parseCombo(c);return (r.ctrl?'CTRL+':'')+(r.alt?'ALT+':'')+(r.shift?'SHIFT+':'')+r.main.toUpperCase();}
+function _bareKey(main){return main.length===1?main.toUpperCase():main;}
+function _targetName(t){
+  if(t==='swap')return 'Свап тазер ↔ дигл';
+  if(t==='eject')return 'Авто-выброс из авто';
+  if(t==='reissue')return 'Авто-перевыдача лицензии';
+  if(t==='givelic')return 'Быстрая выдача лицензии';
+  if(t==='menu')return 'Открытие меню АХК';
+  if(t&&t.indexOf('bind:')===0){var a=t.slice(5),it=ALL_MENU_ITEMS.find(function(x){return x.action===a;});return 'Бинд: '+(it?it.label:a);}
+  return t;
+}
+function _activeTargets(){
+  var list=[['menu',menuKey]];
+  if(swapEnabled)list.push(['swap',swapKey]);
+  if(ejectEnabled)list.push(['eject',ejectKey]);
+  if(licensorHelperOn&&autoReissueOn)list.push(['reissue',reissueKey]);
+  if(licensorHelperOn&&givelicOn)list.push(['givelic',giveLicKey]);
+  ALL_MENU_ITEMS.forEach(function(it){if(menuItemBinds[it.action])list.push(['bind:'+it.action,menuItemBinds[it.action]]);});
+  return list;
+}
+// → {level:'block'|'warn', msg} или null
+function _checkCombo(combo,target){
+  var r=_parseCombo(combo),n=_normCombo(combo);
+  if(r.main==='MouseLeft'||r.main==='MouseRight')
+    return {level:'block',msg:'Левая и правая кнопки мыши нужны игре (стрельба, прицел, ПКМ+E) — выберите колёсико или боковую кнопку.'};
+  if(RESERVED_COMBO[n])return {level:'block',msg:'Эта комбинация занята: '+RESERVED_COMBO[n]+'.'};
+  var bare=_bareKey(r.main);
+  if(RESERVED_BARE[bare]&&!r.alt&&!r.ctrl&&!r.shift)
+    return {level:'block',msg:'Клавиша '+bare+' занята: '+RESERVED_BARE[bare]+'. Добавьте Alt/Ctrl/Shift или выберите другую.'};
+  var dup=null;
+  _activeTargets().forEach(function(x){if(!dup&&x[0]!==target&&x[1]&&_normCombo(x[1])===n)dup=x[0];});
+  if(dup)return {level:'block',msg:'Уже используется: «'+_targetName(dup)+'». Один хоткей — одно действие.'};
+  return null;
+}
+function _showOverlayErr(msg){var el=document.getElementById('key-overlay-err');if(el){el.textContent=msg;el.classList.add('show');}}
+
 // ── Key-capture overlay logic ──────────────────────────────────
 var _captureTarget=null; // 'swap' | 'menu' | 'bind:action'
 
 function _showOverlay(target){
   _captureTarget=target;
+  var _er=document.getElementById('key-overlay-err');if(_er){_er.textContent='';_er.classList.remove('show');}
   var ov=document.getElementById('key-overlay');
   var title=document.getElementById('key-overlay-title');
   if(target==='swap') title.textContent='Кнопка свапа тазер ↔ дигл';
@@ -1095,6 +1156,8 @@ function _hideOverlay(){
   _captureTarget=null;
 }
 function _applyCapture(combo){
+  var _chk=_checkCombo(combo,_captureTarget);
+  if(_chk&&_chk.level==='block'){_showOverlayErr(_chk.msg);return;}
   if(_captureTarget==='swap'){
     swapKey=combo;
     document.getElementById('f-swap-key').value=_keyDisplayRu(combo);
@@ -1145,6 +1208,7 @@ document.addEventListener('keydown',function(e){
   // Только-модификаторы пропускаем
   var ignored=['Control','Shift','Alt','Meta','AltGraph','Dead'];
   if(ignored.indexOf(e.key)!==-1)return;
+  if(e.metaKey){_showOverlayErr('Клавиша Win не поддерживается.');return;}
   var parts=[];
   if(e.ctrlKey)parts.push('Ctrl');
   if(e.altKey)parts.push('Alt');
@@ -1183,7 +1247,6 @@ document.addEventListener('keydown',function(e){
   else if(e.code==='ScrollLock'){keyName='ScrollLock';}
   else if(e.code==='Pause'){keyName='Pause';}
   // Спец-символы: берём e.key если он читаемый (один символ), иначе e.code
-  else if(e.key&&e.key.length===1){keyName=e.key;}
   else{keyName=e.code;}
   if(!keyName)return;
   parts.push(keyName);
