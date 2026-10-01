@@ -402,6 +402,7 @@
           Назначьте кнопки для пунктов меню <b>«Повседневная»</b>. Нажмите <b>⌨</b> справа от нужного пункта, чтобы задать бинд.<br>
           Значок <b>⏱</b> включает отправку команды <b>/c 60</b> после отыгровки этого пункта — диалог «Точное время» закроется сам через 1.5 сек, чтобы не мешал.
         </div>
+        <div id="binds-status" style="display:none;font-size:11px;line-height:1.5;margin-bottom:10px"></div>
         <div id="binds-list" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
     </div>
@@ -534,6 +535,7 @@ function applyDepartment(dept){
   var lbl=document.getElementById('callsign-lbl');
   if(lbl)lbl.textContent=isMvd?'Позывной ОМОН':'Позывной';
   renderGrabItems(dept);
+  loadMenuItems(dept);
   // Обновляем подсказку на главной
   var infoEl=document.getElementById('info-dept');
   if(infoEl)infoEl.textContent=isMvd?'МВД':(isFsin?'ФСИН':(isPravo?'Правительство':'ФСБ'));
@@ -630,6 +632,46 @@ function getMenuTimerItems(){
   var result=[];
   ALL_MENU_ITEMS.forEach(function(it){if(menuItemTimers[it.action])result.push(it.action);});
   return result;
+}
+// ── Пункты меню «Повседневная» читаются из скрипта структуры (povsednevOptions в pravo.js и т.д.) ──
+// Встроенный ALL_MENU_ITEMS остаётся запасным списком на случай, если скрипт считать не удалось.
+var MENU_ITEMS_FALLBACK=ALL_MENU_ITEMS.slice();
+var _menuItemsByDept={};
+var _menuItemsSeq=0;
+function _setBindsStatus(text,isErr){
+  var el=document.getElementById('binds-status');
+  if(!el)return;
+  el.textContent=text||'';
+  el.style.display=text?'':'none';
+  el.style.color=isErr?'var(--danger)':'var(--text3)';
+}
+function _applyMenuItems(items){
+  ALL_MENU_ITEMS=items;
+  buildBindsList();
+}
+function loadMenuItems(dept){
+  var seq=++_menuItemsSeq;
+  if(_menuItemsByDept[dept]){_setBindsStatus('');_applyMenuItems(_menuItemsByDept[dept]);return;}
+  // Старый установщик без get_menu_items — остаётся встроенный список
+  if(!api||typeof api.get_menu_items!=='function')return;
+  _setBindsStatus('Загрузка пунктов меню из скрипта…',false);
+  _applyMenuItems([]); // не показываем пункты чужой структуры, пока идёт загрузка
+  api.get_menu_items(dept).then(function(r){
+    if(seq!==_menuItemsSeq)return; // пришёл ответ для структуры, которую уже сменили
+    if(r&&r.ok&&r.items&&r.items.length){
+      var items=r.items.map(function(it,i){return {action:it.action,label:(i+1)+'. '+it.name};});
+      _menuItemsByDept[dept]=items;
+      _setBindsStatus('');
+      _applyMenuItems(items);
+    }else{
+      _setBindsStatus('Не удалось считать пункты меню из скрипта'+(r&&r.error?' ('+r.error+')':'')+'. Показан стандартный список — он может не совпадать с реальным.',true);
+      _applyMenuItems(MENU_ITEMS_FALLBACK);
+    }
+  }).catch(function(){
+    if(seq!==_menuItemsSeq)return;
+    _setBindsStatus('Не удалось считать пункты меню из скрипта. Показан стандартный список — он может не совпадать с реальным.',true);
+    _applyMenuItems(MENU_ITEMS_FALLBACK);
+  });
 }
 // Определения предметов автоснаряжения по структурам.
 // Порядок в массиве = порядок пунктов в реальном игровом меню шкафчика (важно для индексов AHK).

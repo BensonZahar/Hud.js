@@ -555,6 +555,82 @@ def fetch_html() -> str:
     return html_path
 
 
+# ═══════════════════════════════════════════════════════
+#  АВТО-СЧИТЫВАНИЕ ПУНКТОВ МЕНЮ ИЗ СКРИПТА СТРУКТУРЫ
+#  (pravo.js и т.п.) — единый источник правды для биндов,
+#  скрытия, порядка и таймера после отыгровок
+# ═══════════════════════════════════════════════════════
+import re as _re
+from urllib.parse import quote as _quote
+
+_MENU_CACHE: dict = {}
+
+def _strip_js_line_comments(text: str) -> str:
+    """Убирает // комментарии (только когда // не внутри строки в кавычках)."""
+    out = []
+    for line in text.split('\n'):
+        in_str, quote_ch, i = False, '', 0
+        while i < len(line):
+            ch = line[i]
+            if in_str:
+                if ch == '\\':
+                    i += 2
+                    continue
+                if ch == quote_ch:
+                    in_str = False
+            else:
+                if ch in ('"', "'", '`'):
+                    in_str, quote_ch = True, ch
+                elif ch == '/' and line[i:i + 2] == '//':
+                    line = line[:i]
+                    break
+            i += 1
+        out.append(line)
+    return '\n'.join(out)
+
+def parse_povsednev_options(js_text: str) -> list:
+    """
+    Достаёт массив povsednevOptions из текста pravo.js и возвращает
+    [{'action': 'greeting', 'name': 'Приветствие', 'needs_id': True}, ...]
+    в том порядке, в котором они объявлены в скрипте.
+    """
+    m = _re.search(r'(?:const|let|var)\s+povsednevOptions\s*=\s*\[', js_text)
+    if not m:
+        return []
+    # вырезаем тело массива по балансу скобок
+    depth, i = 1, m.end()
+    while i < len(js_text) and depth:
+        c = js_text[i]
+        if c == '[':
+            depth += 1
+        elif c == ']':
+            depth -= 1
+        i += 1
+    body = _strip_js_line_comments(js_text[m.end():i - 1])
+    items = []
+    for obj in _re.finditer(r'\{([^{}]*)\}', body):
+        chunk = obj.group(1)
+        a = _re.search(r'action\s*:\s*(["\'])(.+?)\1', chunk)
+        if not a:
+            continue
+        n = _re.search(r'name\s*:\s*(["\'])(.+?)\1', chunk)
+        nid = _re.search(r'needsId\s*:\s*(true|false)', chunk)
+        raw_name = n.group(2) if n else a.group(2)
+        items.append({
+            'action': a.group(2),
+            # убираем нумерацию "1. " — порядок и так задаётся списком
+            'name': _re.sub(r'^\s*\d+\s*[.)]\s*', '', raw_name).strip(),
+            'needs_id': bool(nid and nid.group(1) == 'true'),
+        })
+    return items
+
+def parse_loader_target(loader_text: str):
+    """Из LoadXxx.js берёт папку и имя основного скрипта (const folder / const filename)."""
+    f = _re.search(r"const\s+folder\s*=\s*['\"]([^'\"]+)['\"]", loader_text)
+    n = _re.search(r"const\s+filename\s*=\s*['\"]([^'\"]+)['\"]", loader_text)
+    return (f.group(1) if f else '', n.group(1) if n else '')
+
+
 class InstallerAPI:
     def __init__(self):
         self._saved = load_settings()
@@ -668,6 +744,41 @@ class InstallerAPI:
         else:
             result['code_installed'] = False
         return result
+
+
+    def get_menu_items(self, department: str = 'pravo') -> dict:
+        """
+        Пункты меню «Повседневная» для выбранной структуры — читаются прямо из
+        её основного скрипта на GitHub (povsednevOptions), поэтому список биндов
+        в установщике всегда совпадает с тем, что реально есть в pravo.js.
+        Возвращает {'ok': bool, 'items': [{'action','name','needs_id'}], 'error': str}.
+        """
+        loaders = {
+            'fsb': FSB_AHK_URL, 'fsin': FSIN_AHK_URL,
+            'pravo': PRAVO_AHK_URL, 'mvd': AHK_URL,
+        }
+        dept = department if department in loaders else 'mvd'
+        if dept in _MENU_CACHE:
+            return _MENU_CACHE[dept]
+        try:
+            loader_url = loaders[dept]
+            ts = int(time.time())
+            lt = requests.get(f"{loader_url}?_={ts}", timeout=15)
+            lt.raise_for_status()
+            _folder, filename = parse_loader_target(lt.text)
+            if not filename:
+                return {'ok': False, 'items': [], 'error': 'В загрузчике не найден filename'}
+            script_url = loader_url.rsplit('/', 1)[0] + '/' + _quote(filename)
+            st = requests.get(f"{script_url}?_={ts}", timeout=20)
+            st.raise_for_status()
+            items = parse_povsednev_options(st.text)
+            if not items:
+                return {'ok': False, 'items': [], 'error': 'povsednevOptions не найден в ' + filename}
+            result = {'ok': True, 'items': items, 'error': ''}
+            _MENU_CACHE[dept] = result
+            return result
+        except Exception as e:
+            return {'ok': False, 'items': [], 'error': str(e)}
 
     @staticmethod
     def _fetch_custom_interfaces(department: str = 'mvd') -> list:
