@@ -330,9 +330,15 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
             var _args = arguments;
             setTimeout(function() {
                 _recLastSent = Date.now();
-                if (typeof _orig === 'function') _orig.apply(_self, _args);
-                // Сбрасываем флаг через REC_INFLIGHT_TTL — запас на весь реконнект
-                setTimeout(function() { _recInFlight = false; }, REC_INFLIGHT_TTL);
+                try {
+                    if (typeof _orig === 'function') _orig.apply(_self, _args);
+                } catch (e) {
+                    debugLog('[REC] Ошибка при отправке /rec: ' + e.message);
+                } finally {
+                    // Сбрасываем флаг через REC_INFLIGHT_TTL — запас на весь реконнект.
+                    // finally: при исключении флаг раньше залипал навсегда и ВСЕ следующие /rec молча игнорировались
+                    setTimeout(function() { _recInFlight = false; }, REC_INFLIGHT_TTL);
+                }
             }, REC_DEFER_MS);
 
             return undefined; // call sites не используют возврат /rec
@@ -998,6 +1004,9 @@ const _AL = {
     RETRY_BLOCK_MS: 60000,  // после ошибки пароля авто-вход отключён на это время
     MIN_GAP_MS: 3000,       // защита от спама попытками
     REOPEN_FAIL_MS: 20000,  // окно переоткрыто так быстро после отправки — вход не прошёл
+    SENT_TIMEOUT_MS: 30000, // пароль отправлен, а окно так и не закрылось/не ответило — считаем попытку зависшей
+    CLOSE_COOLDOWN_MS: 8000,// после закрытия окна запасной наблюдатель молчит (DOM окна ещё может быть в разборке)
+    lastClose: 0, attempt: 0, notifiedAttempt: -1, retried: false, sentTimer: null,
     HIDE_CLASS: 'hassle-autologin',
     sent: false, problem: false, manualWindow: false, dead: false,
     blockUntil: 0, lastSend: 0, lastOkNotify: 0,
@@ -1040,6 +1049,7 @@ function _alOnServerProblem(why) {
     const wasSent = _AL.sent;
     _AL.problem = true;
     _AL.blockUntil = Date.now() + _AL.RETRY_BLOCK_MS;
+    clearTimeout(_AL.sentTimer); _AL.sentTimer = null;
     _alShowUI();
     debugLog(`[AUTOLOGIN] ${why} — окно показано`);
     if (wasSent) {
@@ -1104,8 +1114,29 @@ function _alCanAuto() {
 function _alFire() {
     try {
         _AL.sent = true; _AL.problem = false; _AL.lastSend = Date.now();
+        const myAttempt = ++_AL.attempt;
         _alWatchProblems();
         _AL.revealTimer = setTimeout(_alShowUI, _AL.REVEAL_MS);
+        // Watchdog: раньше при «тишине» сервера sent залипал в true навсегда,
+        // и ВСЕ следующие автовходы молча отключались (окно висело, ни ✅, ни ❌).
+        clearTimeout(_AL.sentTimer);
+        _AL.sentTimer = setTimeout(function() {
+            if (_AL.dead || !_AL.sent || _AL.attempt !== myAttempt) return;
+            _AL.sent = false;
+            _alShowUI();
+            const stillOpen = !!document.querySelector('.authorization-field__input[type="password"]');
+            if (stillOpen && !_AL.retried) {
+                _AL.retried = true; // одна повторная попытка, дальше — только вручную
+                debugLog('[AUTOLOGIN] Нет ответа сервера — повторная отправка пароля (1 раз)');
+                _AL.lastSend = 0;
+                _alFallbackCheck();
+            } else {
+                _AL.blockUntil = Date.now() + _AL.RETRY_BLOCK_MS;
+                try {
+                    sendToTelegram(`❌ <b>Автовход завис (${displayName})</b>\nСервер не ответил на пароль за ${Math.round(_AL.SENT_TIMEOUT_MS / 1000)} сек\nНужен ручной вход`, false, null);
+                } catch (e) {}
+            }
+        }, _AL.SENT_TIMEOUT_MS);
         window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', autoLoginConfig.password);
         debugLog(`[AUTOLOGIN][${displayName}] Пароль отправлен мгновенно`);
         // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
@@ -1133,7 +1164,9 @@ function _alFire() {
 // Окно Authorization закрылось после нашей отправки без ошибок → вход прошёл
 function _alOnLoginSuccess() {
     const now = Date.now();
+    if (_AL.notifiedAttempt === _AL.attempt) return; // по этой попытке ✅ уже было
     if (now - _AL.lastOkNotify < 5000) return;
+    _AL.notifiedAttempt = _AL.attempt;
     _AL.lastOkNotify = now;
     sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
     // Уведомление через 3 секунды после успешного входа
@@ -1174,6 +1207,13 @@ function _alBeforeOpen(params) {
         }
         return false;
     }
+    // Свежее открытие окна входа (прошлая отправка была давно) → прошлая попытка мертва
+    if (_AL.sent) {
+        debugLog('[AUTOLOGIN] Протухший флаг sent сброшен при новом открытии окна');
+        _AL.sent = false;
+        clearTimeout(_AL.sentTimer); _AL.sentTimer = null;
+    }
+    _AL.retried = false;
     if (!autoLoginConfig.enabled) { _AL.manualWindow = true; return false; } // окно для ручного входа
     _AL.manualWindow = false;
     if (_alCanAuto()) {
@@ -1215,6 +1255,8 @@ _alHook('closeInterface', function(orig) {
             const wasSent = _AL.sent, hadProblem = _AL.problem;
             _AL.sent = false;
             _AL.manualWindow = false;
+            _AL.lastClose = Date.now();
+            clearTimeout(_AL.sentTimer); _AL.sentTimer = null;
             const r = orig.apply(this, arguments);
             if (_alIsHidden()) _alReleaseWhenGone(); else _alShowUI();
             if (wasSent && !hadProblem) { try { _alOnLoginSuccess(); } catch (e) {} }
@@ -1230,6 +1272,14 @@ _alHook('closeInterface', function(orig) {
 function _alFallbackCheck() {
     if (_AL.dead || _AL.sent) return;
     if (!document.querySelector('.authorization-field__input[type="password"]')) return;
+    // Окно уже закрыто движком, а его DOM ещё не убран/анимируется — это НЕ новое окно.
+    // Раньше именно здесь пароль отправлялся повторно сразу после входа (→ двойной ✅, залипший sent).
+    try { if (window.getInterfaceStatus && !window.getInterfaceStatus('Authorization')) return; } catch (e) {}
+    if (Date.now() - _AL.lastClose < _AL.CLOSE_COOLDOWN_MS) {
+        clearTimeout(_AL.cooldownTimer);
+        _AL.cooldownTimer = setTimeout(_alFallbackCheck, _AL.CLOSE_COOLDOWN_MS + 100); // перепроверим после паузы
+        return;
+    }
     if (!autoLoginConfig.enabled) { _AL.manualWindow = true; return; }
     if (_AL.manualWindow || !_alCanAuto()) return;
     _alHideUI();
@@ -1250,6 +1300,7 @@ window.__hassleAL = {
         try { _AL.fallbackObs && _AL.fallbackObs.disconnect(); } catch (e) {}
         try { _AL.errObs && _AL.errObs.disconnect(); } catch (e) {}
         clearTimeout(_AL.revealTimer);
+        clearTimeout(_AL.sentTimer); clearTimeout(_AL.cooldownTimer);
         try { document.documentElement.classList.remove(_AL.HIDE_CLASS); } catch (e) {}
         try { _AL.styleEl && _AL.styleEl.remove(); } catch (e) {}
         ['interface', 'closeInterface'].forEach(function(p) {
