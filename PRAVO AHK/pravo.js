@@ -222,7 +222,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.9 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -4985,7 +4985,10 @@ function _patchOptions() {
     try {
         var c = window.App && window.App.components && window.App.components.MainMenu;
         if (!c || !c.options) return;
-        c.__rHud = c.options.hideHud; c.__rChat = c.options.hideChat;
+        if (!c.__pravoOptPatched) {
+            c.__rHud = c.options.hideHud; c.__rChat = c.options.hideChat;
+            c.__pravoOptPatched = true;
+        }
         c.options.hideHud = false; c.options.hideChat = false;
     } catch(e) {}
 }
@@ -4995,6 +4998,7 @@ function _restoreOptions() {
         if (!c || !c.options) return;
         if (c.__rHud  !== undefined) c.options.hideHud  = c.__rHud;
         if (c.__rChat !== undefined) c.options.hideChat = c.__rChat;
+        c.__pravoOptPatched = false;
     } catch(e) {}
 }
 
@@ -5071,12 +5075,41 @@ function _hideForceOff() {
 }
 // Текущий «уступатель» активного считывания (ставится в _begin, снимается в _finish)
 var _activeYield = null;
-// Вызывается патчем openInterface, когда MainMenu открывает НЕ загрузчик (сервер: /mn, /gps, M...):
-// считывание немедленно сворачивается и меню показывается как обычно.
-window._pravoProfileYield = function() {
-    _hideForceOff();
-    try { if (_activeYield) _activeYield(); } catch(e) {}
+function _flushTeardownCbs() {
+    _tearing = false;
+    var l = _teardownCbs; _teardownCbs = [];
+    for (var i = 0; i < l.length; i++) { try { l[i](); } catch(e) {} }
+}
+// Колбэки, которые ждут окончательного закрытия невидимого меню
+var _teardownCbs = [];
+var _tearing = false;   // _finish уже вызван, закрытие невидимого меню ещё не закончено
+
+// Освободить меню: свернуть невидимое считывание, закрыть его меню (и на сервере тоже, если opts.server),
+// снять правило-невидимку и ТОЛЬКО ПОТОМ продолжить (резолв промиса).
+//   opts.server = true  — действие игрока (M, /gps, /menu…): серверу надо сказать «закрыто», иначе
+//                         MainMenu:Open вернёт false (состояние MAIN_MENU_CURRENT_TYPE_INTERFACE «залипло»);
+//   opts.server = false — меню открыл сам сервер (SHOW_INTERFACE): его состояние не трогаем.
+window._pravoProfileYield = function(opts) {
+    return new Promise(function(resolve) {
+        if (!_activeYield) {
+            if (_tearing) _teardownCbs.push(resolve); else resolve();
+            return;
+        }
+        _activeYield(opts || {}, resolve);
+    });
 };
+
+// Игрок жмёт M, пока идёт невидимое считывание: освобождаем меню ДО того, как клавиша уйдёт на сервер
+try {
+    if (window.__pravoMmKeyHook) window.removeEventListener('keydown', window.__pravoMmKeyHook, true);
+    window.__pravoMmKeyHook = function(e) {
+        try {
+            if (!_activeYield || e.repeat || e.keyCode !== 77 || window.inputFocus) return;
+            window._pravoProfileYield({ server: true });
+        } catch(err) {}
+    };
+    window.addEventListener('keydown', window.__pravoMmKeyHook, true);
+} catch(e) {}
 
 // ── Открыт ли какой-то другой интерфейс? ──
 // openInterface() прячет текущий верхний интерфейс (PauseMenu, диалог, телефон...) и потом
@@ -5153,12 +5186,13 @@ function loadPlayerProfile(callback) {
     console.log('[Profile] 🔄 Загрузка данных персонажа через MainMenu...');
 
     var _done = false, _wd = null, _poll = null;
-    var _wasOpen = false, _yielded = false, _began = false;
+    var _wasOpen = false, _yielded = false, _began = false, _yieldNoServer = false, _tornDownAll = false;
     var _openP = null; // промис игрового openInterface (он async: ждёт импорт стора)
 
     function _finish(d) {
         if (_done) return;
         _done = true;
+        _tearing = true;
         _activeYield = null;
         window._pravoOwnOpen = false;
         if (_wd)   { clearTimeout(_wd);   _wd = null; }
@@ -5188,13 +5222,14 @@ function loadPlayerProfile(callback) {
             _tornDown = true;
 
             if (!_wasOpen && _began) {
-                // 1) серверу — «меню закрыто» (мимо проверки чата)
-                _srvSend('MainMenu_OnPlayerCloseInterface');
+                // 1) серверу — «меню закрыто» (мимо проверки чата).
+                //    Если меню открыл сам сервер — его состояние не трогаем.
+                if (!_yieldNoServer) _srvSend('MainMenu_OnPlayerCloseInterface');
                 // 2) закрываем интерфейс на клиенте
                 try { window.closeInterface('MainMenu'); } catch(e) {}
                 // 3) страховка: если событие потерялось или сервер выставил состояние позже —
                 // повторяем, но только если игрок сам меню не открыл
-                setTimeout(function() {
+                if (!_yielded) setTimeout(function() {
                     try {
                         if (!window._mvdProfileLoading && !window.getInterfaceStatus('MainMenu')) {
                             _srvSend('MainMenu_OnPlayerCloseInterface');
@@ -5205,9 +5240,17 @@ function loadPlayerProfile(callback) {
             _restoreOptions();
             _restorePatch();
             _kbRestore();
-            if (!_wasOpen) _hideOff(); else _hideForceOff();
             _fetching = false;
             window._mvdProfileLoading = false; // разблокируем патч вкладки
+            _tornDownAll = true;
+            if (_yielded) {
+                // Освободили меню: даём Vue размонтировать старое, снимаем невидимку и только потом
+                // продолжаем (команда игрока / открытие от сервера) — чтобы новое меню не оказалось скрытым.
+                setTimeout(function() { _hideForceOff(); _flushTeardownCbs(); }, 60);
+            } else {
+                if (!_wasOpen) _hideOff(); else _hideForceOff();
+                _flushTeardownCbs();
+            }
 
             // Повтор при неудаче (15с, 30с, 45с) — без callback, чтобы не вызвать его дважды
             if (!result && _yielded) {
@@ -5246,11 +5289,13 @@ function loadPlayerProfile(callback) {
         _patchOptions();
         _applyPatch();
 
-        // Если меню откроет кто-то другой (сервер: /mn, /gps) — сразу сворачиваемся и ничего не прячем
-        _activeYield = function() {
-            if (_done) return;
+        // Игрок/сервер хочет открыть меню — сворачиваем невидимое считывание и освобождаем меню
+        _activeYield = function(opts, done) {
+            if (typeof done === 'function') _teardownCbs.push(done);
+            if (_tornDownAll) { _flushTeardownCbs(); return; }
+            if (_done) return;                 // _finish уже идёт — колбэки вызовет teardown
             _yielded = true;
-            _wasOpen = true;   // трактуем как «меню открыто не нами»: не закрываем, не переключаем вкладку
+            _yieldNoServer = !(opts && opts.server);
             _finish(null);
         };
 
@@ -5339,6 +5384,17 @@ function waitForApp(cb, attempts) {
 waitForApp(function() {
     var _origSendChatInput = window.sendChatInput;
     window.sendChatInput = function(cmd) {
+        // Команда открывает серверное меню (/gps, /menu…), а невидимое считывание профиля ещё держит
+        // «меню открыто» на сервере → MainMenu:Open вернёт false и игрок увидит пустоту/ничего.
+        // Освобождаем меню (серверу шлём «закрыто» раньше команды) и только потом отправляем команду.
+        if (typeof cmd === 'string' && window._mvdProfileLoading && typeof window._pravoProfileYield === 'function'
+            && /^\/(gps|menu|mn|map|stats|donate|quests|tasks|report|settings|store|rewards|battlepass|bp)(\s|$)/i.test(cmd.trim())) {
+            var _self = this, _args = arguments;
+            window._pravoProfileYield({ server: true }).then(function() {
+                try { _origSendChatInput.apply(_self, _args); } catch(e) {}
+            });
+            return;
+        }
         if (typeof cmd === 'string') {
             var trimmed = cmd.trim().toLowerCase();
             if (trimmed === '/mmenu') {
@@ -5422,29 +5478,35 @@ function _serverPickedTab(params) {
 function applyMainMenuTabPatch() {
     var _origOI = window.openInterface;
     window.openInterface = function(name, params) {
-        // MainMenu открывает кто-то кроме загрузчика профиля (сервер: /mn, /gps, M…) —
-        // немедленно сворачиваем невидимое считывание, иначе меню откроется прозрачным и пустым.
-        if (name === 'MainMenu' && !window._pravoOwnOpen && typeof window._pravoProfileYield === 'function') {
-            try { window._pravoProfileYield(); } catch(e) {}
+        var self = this, args = arguments;
+        function go() {
+            var result = _origOI.apply(self, args);
+            if (name === 'MainMenu' && !window._mvdProfileLoading && !_serverPickedTab(params)) {
+                // Vue-компонент монтируется асинхронно — ждём его появления (до ~1 сек), а не бьём вслепую
+                var tries = 0;
+                (function selectStats() {
+                    try {
+                        if (window._mvdProfileLoading) return; // началось считывание профиля — оно само выберет вкладку
+                        var mm = window.interface && window.interface('MainMenu');
+                        if (mm && typeof mm.selectTab === 'function') {
+                            // переключаем только с дефолтной «Карты»; если вкладка уже сменилась (сервер/игрок) — не перебиваем
+                            if (mm.currentTabName === undefined || mm.currentTabName === 'Map') mm.selectTab('Statistics');
+                            return;
+                        }
+                    } catch(e) {}
+                    if (++tries < 12) setTimeout(selectStats, 80);
+                })();
+            }
+            return result;
         }
-        var result = _origOI.apply(this, arguments);
-        if (name === 'MainMenu' && !window._mvdProfileLoading && !_serverPickedTab(params)) {
-            // Vue-компонент монтируется асинхронно — ждём его появления (до ~1 сек), а не бьём вслепую
-            var tries = 0;
-            (function selectStats() {
-                try {
-                    if (window._mvdProfileLoading) return; // началось считывание профиля — оно само выберет вкладку
-                    var mm = window.interface && window.interface('MainMenu');
-                    if (mm && typeof mm.selectTab === 'function') {
-                        // переключаем только с дефолтной «Карты»; если вкладка уже сменилась (сервер/игрок) — не перебиваем
-                        if (mm.currentTabName === undefined || mm.currentTabName === 'Map') mm.selectTab('Statistics');
-                        return;
-                    }
-                } catch(e) {}
-                if (++tries < 12) setTimeout(selectStats, 80);
-            })();
+        // MainMenu открыл НЕ загрузчик (сервер: SHOW_INTERFACE), а невидимое меню загрузчика ещё живо —
+        // оригинальный openInterface молча выйдет (getInterfaceStatus уже true) и меню останется пустым/невидимым.
+        // Поэтому сначала освобождаем (состояние сервера не трогаем — он уже выставил своё), потом открываем.
+        if (name === 'MainMenu' && !window._pravoOwnOpen && window._mvdProfileLoading
+            && typeof window._pravoProfileYield === 'function') {
+            return window._pravoProfileYield({ server: false }).then(go);
         }
-        return result;
+        return go();
     };
     console.log('[PRAVO] Патч MainMenu→Персонаж активен (вкладку от сервера не трогает)');
 }
