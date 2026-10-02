@@ -2737,3 +2737,92 @@ if (document.readyState === 'loading') {
 }
 })();
 // ==================== END INVITE AUTO-FILL v4 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
+
+// ==================== BUBBLE SPY (ТЕСТ) / ПЕРЕХВАТ ПУЗЫРЕЙ НАД ГОЛОВОЙ ====================
+// Диагностика: выводит в чат каждый пузырь над головой, который сервер шлёт клиенту
+// (window.setPlayerChatBubble из index.js). Нужна, чтобы проверить: приходит ли сигнал
+// «игрок открыл чат» как пузырь с текстом.
+//
+// Как работает на Хасле:
+//  • index.js определяет window.setPlayerChatBubble = (id, text, color, dist, time) => {...}
+//    и вызывает её сервер через window — поэтому обёртка подхватывается сразу.
+//  • Обёртка ставится с ожиданием: если функции ещё нет (скрипт загрузился раньше index.js)
+//    или её переопределили позже — сторож каждые 1.5 с перевешивает перехват.
+//  • В чат строка выводится напрямую через window.onChatMessage (цвет в формате '0xRRGGBB',
+//    как требует index.js: t.slice(2) → HUD красит как #RRGGBB). Мимо window.OnChatAddMessage,
+//    поэтому отладочные строки НЕ попадают в разбор чата бота (Telegram, KAC и т.д.).
+//  • На Хасле (мобильный клиент) консоли нет — вкл/выкл командами в чате игры:
+//        /bubble_off   — выключить вывод пузырей в чат
+//        /bubble_on    — включить обратно
+//    (или window.PRAVO_BUBBLE_DEBUG = false, если есть доступ к консоли)
+(function () {
+    if (window.__pravoBubbleSpyLoaded) return;
+    window.__pravoBubbleSpyLoaded = true;
+    if (window.PRAVO_BUBBLE_DEBUG === undefined) window.PRAVO_BUBBLE_DEBUG = true;
+
+    function _bubbleSay(text) {
+        try {
+            if (typeof window.onChatMessage === 'function') {
+                window.onChatMessage(text, '0xFFCC00');
+            }
+        } catch (e) {}
+    }
+
+    // Фигурные скобки в тексте пузыря заменяем, чтобы чат не принял их за цветовой код {RRGGBB}
+    // или кнопку {btn:..}, иначе строка отобразится искажённой.
+    function _bubbleSafe(v) {
+        return String(v).replace(/\{/g, '(').replace(/\}/g, ')');
+    }
+
+    // Цвет в моде задан как 0xRRGGBBAA (например 0xFF0000FF) — показываем в том же виде,
+    // чтобы пузырь можно было сразу сопоставить с вызовом SetPlayerBubble в моде.
+    function _bubbleColor(c) {
+        if (typeof c === 'number') return '0x' + (c >>> 0).toString(16).toUpperCase().padStart(8, '0');
+        return String(c);
+    }
+
+    function _bubbleWrap() {
+        var cur = window.setPlayerChatBubble;
+        if (typeof cur !== 'function' || cur.__pravoBubbleSpy) return;
+        var orig = cur;
+        var spy = function (id, text, color, dist, time) {
+            try {
+                if (window.PRAVO_BUBBLE_DEBUG) {
+                    var line = 'id=' + id + ' | "' + _bubbleSafe(text) + '" | color=' + _bubbleColor(color) +
+                               ' | dist=' + dist + ' | time=' + time;
+                    console.log('[PRAVO-BUBBLE] ' + line);
+                    _bubbleSay('{FFCC00}[BUBBLE] {FFFFFF}' + line);
+                }
+            } catch (e) {}
+            return orig.apply(this, arguments);
+        };
+        spy.__pravoBubbleSpy = true;
+        window.setPlayerChatBubble = spy;
+        console.log('[PRAVO-BUBBLE] ✅ перехват пузырей установлен (PRAVO_BUBBLE_DEBUG=' + window.PRAVO_BUBBLE_DEBUG + ')');
+    }
+
+    _bubbleWrap();
+    setInterval(_bubbleWrap, 1500);
+
+    // ── Хук sendChatInput — /bubble_on и /bubble_off ──────────
+    var _bubbleOrigChat = window.sendChatInput;
+    window.sendChatInput = function (input) {
+        if (typeof input === 'string') {
+            var cmd = input.trim().toLowerCase();
+            if (cmd === '/bubble_on') {
+                window.PRAVO_BUBBLE_DEBUG = true;
+                _bubbleSay('{FFCC00}[BUBBLE] {33DD77}Вывод пузырей в чат включён');
+                return; // не отправляем на сервер
+            }
+            if (cmd === '/bubble_off') {
+                window.PRAVO_BUBBLE_DEBUG = false;
+                _bubbleSay('{FFCC00}[BUBBLE] {EE4444}Вывод пузырей в чат выключен');
+                return;
+            }
+        }
+        return (typeof _bubbleOrigChat === 'function')
+            ? _bubbleOrigChat.apply(this, arguments)
+            : undefined;
+    };
+})();
+// ==================== END BUBBLE SPY ====================
