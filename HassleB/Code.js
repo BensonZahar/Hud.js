@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗа'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -244,8 +244,8 @@ const config = {
             level:       null,   // level.value            — уровень
             xpCurrent:   null,   // level.score.current    — текущий опыт
             xpTarget:    null,   // level.score.target     — опыт до след. уровня
-            cash:        null,   // не приходит из MainMenu — наличные берутся из Vuex (getPlayerMoneyFromStore)
-            bank:        null,   // не приходит из MainMenu — банк берётся из Vuex (getPlayerMoneyFromStore)
+            cash:        null,   // Vuex player/money     — наличные (не из MainMenu)
+            bank:        null,   // Vuex player/bankMoney — банковский счёт (не из MainMenu)
             phone:       null,   // contacts.phone.value   — номер телефона
             simBalance:  null,   // contacts.simBalance    — баланс SIM
             stamina:     null,   // physicalStats.stamina  — выносливость %
@@ -545,6 +545,9 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 
             if (_isMock(org)) return null;
 
+            var _money = { money: null, bankMoney: null };
+            try { var _m = getPlayerMoneyFromStore(); if (_m) _money = _m; } catch(e) {}
+
             return {
                 rank:        org.rangName   || null,
                 rankNum:     org.rang       || null,
@@ -554,9 +557,9 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 xpCurrent:   (lvl.score || {}).current || null,
                 xpTarget:    (lvl.score || {}).target  || null,
                 // Наличные и банк сервер в статистике НЕ присылает (about[0] = законопослушность,
-                // about[1] = ранг преступности) — актуальные значения берутся из Vuex store.
-                cash:        null,
-                bank:        null,
+                // about[1] = ранг преступности) — берём из Vuex store (player/money, player/bankMoney).
+                cash:        _money.money,
+                bank:        _money.bankMoney,
                 phone:       (ct.phone      || {}).value      || null,
                 simBalance:  (ct.simBalance || {}).value      || null,
                 stamina:     (ph.stamina    || {}).value      || null,
@@ -7453,26 +7456,39 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 // Автоматическая проверка выговоров через /find после загрузки профиля.
 // Алгоритм:
 //  1. Ждём загрузки профиля (config.accountInfo.profile.loaded === true)
-//  2. Отправляем /find (без ника — открывается диалог со списком игроков)
-//  3. Перехватываем диалог TABLIST_HEADERS с заголовком "В игре:"
-//     — НЕ пропускаем его в Telegram (тихий режим)
+//  2. Отправляем /find (без ника — сервер присылает диалог со списком игроков)
+//  3. Перехватываем диалог TABLIST_HEADERS с заголовком "В игре:" и НЕ отдаём его игре:
+//     диалог не попадает в Vue → ничего не рисуется (нет fade, курсора, скрытия ников),
+//     нечему «залипать». Отвечаем серверу событиями напрямую (как в Code2.js для «Точное время»).
 //  4. Ищем строку с нашим ником
-//     — Нашли → сохраняем X/3, закрываем диалог, обновляем сообщение
-//     — Не нашли → листаем на следующую страницу через OnMultiDialogClickNavigButton
+//     — Нашли → сохраняем X/3, закрываем диалог событием, обновляем сообщение
+//     — Не нашли → листаем: OnMultiDialogClickNavigButton(1, dialogID, priority) — ровно как
+//       это делает Window.js (onPaginateButton). Последняя страница определяется по флагу
+//       «есть следующая» (openParams[7]), а не по количеству строк.
 //  5. Если прошли все страницы и не нашли → выговоры = 0/3
+//  6. Если страница не пришла за 6 сек — повторяем /find (до 2 раз), потом прерываем.
 // ==============================================================
 
 (function () {
     'use strict';
+
+    const MAX_PAGES        = 60;     // страховка от бесконечного листания
+    const PAGE_TIMEOUT_MS  = 6000;   // ждём очередную страницу не дольше
+    const MAX_FIND_RETRIES = 2;      // сколько раз повторяем /find, если диалог не пришёл
+    const TOTAL_TIMEOUT_MS = 30000;  // общий предохранитель
 
     // ── Состояние ────────────────────────────────────────────────
     const warnCheck = {
         active:      false,
         nickname:    null,
         pageIndex:   0,       // Текущая страница (0-based)
-        lastCount:   -1,      // Кол-во строк на прошлой странице (-1 = ещё не было)
-        dialogId:    null,
-        timeout:     null
+        pages:       0,       // Сколько страниц уже получено
+        lastCount:   -1,      // Кол-во строк на прошлой странице (запасной признак последней)
+        dialogId:    null,    // id последнего полученного диалога
+        priority:    0,       // priority последнего диалога (3-й аргумент addDialogInQueue)
+        retries:     0,
+        timeout:     null,
+        pageTimer:   null
     };
 
     // ── Утилиты ──────────────────────────────────────────────────
@@ -7490,32 +7506,64 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         else console.log(msg);
     }
 
-    // ── Отправить событие навигации — листнуть страницу вперёд ──
-    function _navNext() {
-        try {
-            const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
-                ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
-            window.sendClientEventHandle(evtType, 'OnMultiDialogClickNavigButton',
-                1, warnCheck.pageIndex, 0);
-            _log(`[WARN] → Следующая страница (pageIndex=${warnCheck.pageIndex})`);
-            warnCheck.pageIndex++;
-        } catch (e) {
-            _log('[WARN] Ошибка навигации: ' + e.message);
-            _abort();
-        }
+    function _send(...args) {
+        const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+            ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
+        window.sendClientEventHandle(evtType, ...args);
     }
 
-    // ── Закрыть диалог /find через серверный ответ ────────────────
-    function _closeDialog(dialogId) {
+    function _clearTimers() {
+        if (warnCheck.timeout)   { clearTimeout(warnCheck.timeout);   warnCheck.timeout   = null; }
+        if (warnCheck.pageTimer) { clearTimeout(warnCheck.pageTimer); warnCheck.pageTimer = null; }
+    }
+
+    // ── Закрыть диалог на сервере (клиентского диалога нет — только событие) ──
+    function _respondClose(dialogId) {
+        if (dialogId === null || dialogId === undefined) return;
         try {
-            const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
-                ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
-            window.sendClientEventHandle(evtType, 'OnDialogResponse', dialogId, 0, -1, '');
-            _log('[WARN] Диалог /find закрыт');
+            _send('OnDialogResponse', dialogId, 0, -1, '');
+            _log('[WARN] Диалог /find закрыт (id=' + dialogId + ')');
         } catch (e) {
             _log('[WARN] Ошибка закрытия диалога: ' + e.message);
         }
-        try { window.closeLastDialog(); } catch (e) {}
+    }
+
+    // ── Таймер ожидания страницы: если диалог не пришёл — повторяем /find ──
+    function _armPageTimer() {
+        if (warnCheck.pageTimer) clearTimeout(warnCheck.pageTimer);
+        warnCheck.pageTimer = setTimeout(function () {
+            warnCheck.pageTimer = null;
+            if (!warnCheck.active) return;
+            if (warnCheck.retries < MAX_FIND_RETRIES) {
+                warnCheck.retries++;
+                _log('[WARN] ↻ Страница не пришла за ' + (PAGE_TIMEOUT_MS / 1000) + ' сек — повторяем /find (' + warnCheck.retries + '/' + MAX_FIND_RETRIES + ')');
+                // Если на сервере остался открытый диалог — закрываем, иначе /find может не пройти
+                _respondClose(warnCheck.dialogId);
+                warnCheck.dialogId  = null;
+                warnCheck.pageIndex = 0;
+                warnCheck.pages     = 0;
+                warnCheck.lastCount = -1;
+                try { sendChatInput('/find'); } catch (e) { _log('[WARN] Ошибка отправки /find: ' + e.message); _abort(); return; }
+                _armPageTimer();
+            } else {
+                _log('[WARN] Страница так и не пришла — прерываем');
+                _abort();
+            }
+        }, PAGE_TIMEOUT_MS);
+    }
+
+    // ── Листнуть страницу вперёд — как Window.js: (кнопка, dialogID, priority) ──
+    function _navNext(dialogId, priority) {
+        try {
+            _send('OnMultiDialogClickNavigButton', 1, dialogId, priority || 0);
+            _log('[WARN] → Следующая страница (после id=' + dialogId + ', страница ' + (warnCheck.pageIndex + 1) + ')');
+            warnCheck.pageIndex++;
+            _armPageTimer();
+        } catch (e) {
+            _log('[WARN] Ошибка навигации: ' + e.message);
+            _respondClose(dialogId);
+            _abort();
+        }
     }
 
     // ── Найти выговоры в строке ────────────────────────────────────
@@ -7530,10 +7578,13 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     }
 
     // ── Обработать страницу /find ──────────────────────────────────
-    function _processPage(dialogId, rawContent) {
+    // hasNext: true/false из openParams[7] или null, если сервер флаг не прислал
+    function _processPage(dialogId, priority, rawContent, hasNext) {
         const contentStr = Array.isArray(rawContent)
             ? rawContent.join('<n>') : String(rawContent || '');
         const allRows = contentStr.split('<n>').map(_strip).filter(Boolean);
+
+        warnCheck.pages++;
 
         if (allRows.length === 0) {
             _log('[WARN] Пустой диалог /find — завершаем с 0 выговоров');
@@ -7543,12 +7594,13 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
         // Первая строка — заголовок колонок (Имя | Должность | Телефон)
         const dataRows = allRows.slice(1);
-        _log(`[WARN] Страница ${warnCheck.pageIndex}: ${dataRows.length} строк`);
+        _log('[WARN] Страница ' + warnCheck.pageIndex + ': ' + dataRows.length + ' строк, следующая: ' + (hasNext === null ? '?' : hasNext));
 
         const targetNick = (warnCheck.nickname || '').trim();
-        // RegExp: строка должна начинаться с нашего ника (возможно с номером "N. ")
+        // Ник должен стоять в начале строки (возможно с номером "N. ") или после разделителя —
+        // иначе «Ivan_Petrov[» совпадёт с «xIvan_Petrov[».
         const re = new RegExp(
-            '(?:^\\d+\\.\\s*)?' +
+            '(?:^|[^A-Za-z0-9_])(?:\\d+\\.\\s*)?' +
             targetNick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
             '\\[',
             'i'
@@ -7556,7 +7608,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
         for (const row of dataRows) {
             if (re.test(row)) {
-                _log(`[WARN] ✅ Найден: "${row}"`);
+                _log('[WARN] ✅ Найден: "' + row + '"');
                 const warnData = _parseWarnings(row);
                 const cur = warnData ? warnData.current : 0;
                 const max = warnData ? warnData.max     : 3;
@@ -7565,27 +7617,36 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             }
         }
 
-        // Не нашли — проверяем последняя ли это страница
-        const isFinalPage = (warnCheck.lastCount >= 0 && dataRows.length < warnCheck.lastCount)
-                         || dataRows.length === 0;
+        // Не нашли — последняя ли это страница?
+        let isFinalPage;
+        if (hasNext === null) {
+            // Запасной признак (старый): страница короче предыдущей
+            isFinalPage = (warnCheck.lastCount >= 0 && dataRows.length < warnCheck.lastCount) || dataRows.length === 0;
+        } else {
+            isFinalPage = !hasNext;
+        }
         warnCheck.lastCount = dataRows.length;
 
         if (isFinalPage) {
             _log('[WARN] Последняя страница, ник не найден → 0 выговоров');
             _finalize(dialogId, 0, 3);
+        } else if (warnCheck.pages >= MAX_PAGES) {
+            _log('[WARN] Превышен лимит страниц (' + MAX_PAGES + ') — прерываем');
+            _respondClose(dialogId);
+            _abort();
         } else {
-            _navNext();
+            _navNext(dialogId, priority);
         }
     }
 
     // ── Сохранить результат, закрыть диалог, обновить приветствие ─
     function _finalize(dialogId, current, max) {
-        if (warnCheck.timeout) { clearTimeout(warnCheck.timeout); warnCheck.timeout = null; }
+        _clearTimers();
         warnCheck.active   = false;
         window._warnCheckActive = false;
         warnCheck.dialogId = null;
 
-        _closeDialog(dialogId);
+        _respondClose(dialogId);
 
         const p = config.accountInfo.profile;
         if (p) {
@@ -7593,7 +7654,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             p.maxWarnings     = max;
             p.warningsChecked = true;
         }
-        _log(`[WARN] Выговоры: ${current}/${max} — сохранено в профиль`);
+        _log('[WARN] Выговоры: ' + current + '/' + max + ' — сохранено в профиль');
 
         setTimeout(function () {
             if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(true);
@@ -7602,7 +7663,9 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
     // ── Прервать проверку (таймаут/ошибка) ───────────────────────
     function _abort() {
-        if (warnCheck.timeout) { clearTimeout(warnCheck.timeout); warnCheck.timeout = null; }
+        _clearTimers();
+        // Если на сервере остался открытый диалог — закрываем (клиентского нет, но сервер ждёт ответ)
+        _respondClose(warnCheck.dialogId);
         warnCheck.active   = false;
         window._warnCheckActive = false;
         warnCheck.dialogId = null;
@@ -7627,27 +7690,37 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             _log('[WARN] Проверка уже идёт — пропускаем');
             return;
         }
+        // Не мешаем невидимой загрузке профиля через MainMenu
+        if (window._hassleProfileLoading) {
+            _log('[WARN] Идёт загрузка профиля — повторим через 1.5 сек');
+            setTimeout(startWarningCheck, 1500);
+            return;
+        }
 
         warnCheck.active    = true;
         window._warnCheckActive = true;
         warnCheck.nickname  = nick;
         warnCheck.pageIndex = 0;
+        warnCheck.pages     = 0;
         warnCheck.lastCount = -1;
         warnCheck.dialogId  = null;
+        warnCheck.priority  = 0;
+        warnCheck.retries   = 0;
 
-        // Аварийный таймаут 30 секунд
+        // Общий предохранитель
         warnCheck.timeout = setTimeout(function () {
-            _log('[WARN] ⏰ Таймаут 30 сек — прерываем');
+            _log('[WARN] ⏰ Общий таймаут ' + (TOTAL_TIMEOUT_MS / 1000) + ' сек — прерываем');
             _abort();
-        }, 30000);
+        }, TOTAL_TIMEOUT_MS);
 
-        // Отправляем /find БЕЗ ника — откроется диалог со списком всех игроков
-        // В этом диалоге ищем наш ник
-        _log(`[WARN] Отправляем /find (ищем ник: ${nick})`);
+        // Отправляем /find БЕЗ ника — сервер пришлёт диалог со списком всех игроков
+        _log('[WARN] Отправляем /find (ищем ник: ' + nick + ')');
         try { sendChatInput('/find'); } catch (e) {
             _log('[WARN] Ошибка отправки /find: ' + e.message);
             _abort();
+            return;
         }
+        _armPageTimer();
     }
 
     // ── Перехват addDialogInQueue (поверх существующего патча DIALOG MONITOR v2) ─
@@ -7660,36 +7733,39 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 : undefined;
         }
 
+        let parsed = null, dialogId = null, style = null, title = '';
         try {
             if (dialogParams && typeof dialogParams === 'string') {
-                const parsed   = JSON.parse(dialogParams.trim());
-                const dialogId = parseInt(parsed[0], 10);
-                const style    = parseInt(parsed[1], 10);
-                const title    = _strip(parsed[2] || '');
-
-                // style=5 = TABLIST_HEADERS; заголовок /find содержит "В игре:"
-                if (style === 5 && /в игре/i.test(title)) {
-                    _log(`[WARN] Перехвачен /find диалог id=${dialogId}, title="${title}"`);
-                    warnCheck.dialogId = dialogId;
-
-                    // Регистрируем в Vue (оригинальная игровая функция), но НЕ в Telegram
-                    // FIX: _dlgOrigAddDialogInQueue не существовал → диалог не попадал в Vue-очередь
-                    //      и closeLastDialog() не мог его убрать корректно.
-                    //      Используем _warnPrevAddDialog (оригинальный addDialogInQueue до нашего патча).
-                    const gameResult = typeof _warnPrevAddDialog === 'function'
-                        ? _warnPrevAddDialog.call(this, dialogParams, content, priority)
-                        : undefined;
-
-                    // Асинхронно (чтобы Vue успел отрисовать) парсим содержимое
-                    setTimeout(function () {
-                        _processPage(dialogId, content);
-                    }, 80);
-
-                    return gameResult;
-                }
+                parsed   = JSON.parse(dialogParams.trim());
+                dialogId = parseInt(parsed[0], 10);
+                style    = parseInt(parsed[1], 10);
+                title    = _strip(parsed[2] || '');
             }
         } catch (e) {
-            _log('[WARN] Ошибка патча addDialogInQueue: ' + e.message);
+            _log('[WARN] Ошибка разбора параметров диалога: ' + e.message);
+        }
+
+        // style=5 = TABLIST_HEADERS; заголовок /find содержит "В игре:"
+        if (parsed && style === 5 && /в игре/i.test(title)) {
+            _log('[WARN] Перехвачен /find диалог id=' + dialogId + ', title="' + title + '"');
+            warnCheck.dialogId = dialogId;
+            warnCheck.priority = priority || 0;
+            if (warnCheck.pageTimer) { clearTimeout(warnCheck.pageTimer); warnCheck.pageTimer = null; }
+
+            // openParams[7] — есть ли следующая страница (так же читает Window.js: paginate[1])
+            const hasNext = (parsed.length > 7) ? !!parsed[7] : null;
+
+            try {
+                _processPage(dialogId, priority || 0, content, hasNext);
+            } catch (e) {
+                _log('[WARN] Ошибка обработки страницы: ' + e.message);
+                _respondClose(dialogId);
+                _abort();
+            }
+
+            // Игре диалог НЕ отдаём: не рисуется, не меняет курсор/ники/радар,
+            // не закрывает чужой открытый диалог (addDialogInQueue без priority делает closeLastDialog).
+            return;
         }
 
         return _warnPrevAddDialog
