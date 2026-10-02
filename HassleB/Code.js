@@ -244,8 +244,8 @@ const config = {
             level:       null,   // level.value            — уровень
             xpCurrent:   null,   // level.score.current    — текущий опыт
             xpTarget:    null,   // level.score.target     — опыт до след. уровня
-            cash:        null,   // about[0].value         — наличные
-            bank:        null,   // about[1].value         — банковский счёт
+            cash:        null,   // не приходит из MainMenu — наличные берутся из Vuex (getPlayerMoneyFromStore)
+            bank:        null,   // не приходит из MainMenu — банк берётся из Vuex (getPlayerMoneyFromStore)
             phone:       null,   // contacts.phone.value   — номер телефона
             simBalance:  null,   // contacts.simBalance    — баланс SIM
             stamina:     null,   // physicalStats.stamina  — выносливость %
@@ -377,43 +377,74 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 (function() {
     'use strict';
     var _fetching  = false;
-    var _origCursor = null, _origLabel = null, _patchActive = false, _obs = null;
+    var _patchActive = false;
+    var _styleEl = null;
+    var STYLE_ID = 'hassle-mm-hide-style';
     // Счётчик повторов хранится в globalState — доступен снаружи IIFE
     if (!globalState.profileRetry) globalState.profileRetry = 0;
 
-    // ── Скрываем курсор меню и ники не пропадают ──
+    // ── Лечим «залипший» патч от прошлой перезагрузки скрипта ──
+    try {
+        if (window._hassleOrig_setCursorStatus)    { window.setCursorStatus    = window._hassleOrig_setCursorStatus;    delete window._hassleOrig_setCursorStatus; }
+        if (window._hassleOrig_setDrawLabelStatus) { window.setDrawLabelStatus = window._hassleOrig_setDrawLabelStatus; delete window._hassleOrig_setDrawLabelStatus; }
+        var _oldStyle = document.getElementById(STYLE_ID);
+        if (_oldStyle && _oldStyle.parentNode) _oldStyle.parentNode.removeChild(_oldStyle);
+    } catch(e) {}
+
+    // ── Курсор меню и ники не трогаем ──
     function _applyPatch() {
+        if (_patchActive) return;
         _patchActive = true;
-        _origCursor = window.setCursorStatus;
-        _origLabel  = window.setDrawLabelStatus;
+        if (!window._hassleOrig_setCursorStatus)    window._hassleOrig_setCursorStatus    = window.setCursorStatus;
+        if (!window._hassleOrig_setDrawLabelStatus) window._hassleOrig_setDrawLabelStatus = window.setDrawLabelStatus;
+        var oc = window._hassleOrig_setCursorStatus;
+        var ol = window._hassleOrig_setDrawLabelStatus;
         window.setCursorStatus = function(name, status, allow) {
             if (_patchActive && name === 'MainMenu') {
                 try { if (typeof engine !== 'undefined') engine.trigger('SetCursorStatus', false, true); } catch(e) {}
                 return;
             }
-            return _origCursor && _origCursor.apply(this, arguments);
+            return oc && oc.apply(this, arguments);
         };
         window.setDrawLabelStatus = function(s) {
             if (_patchActive && !s) return; // блокируем скрытие ников
-            return _origLabel && _origLabel.apply(this, arguments);
+            return ol && ol.apply(this, arguments);
         };
     }
     function _restorePatch() {
         _patchActive = false;
-        if (_origCursor) window.setCursorStatus = _origCursor;
-        if (_origLabel)  { window.setDrawLabelStatus = _origLabel; try { _origLabel.call(window, true); } catch(e) {} }
+        var ol = window._hassleOrig_setDrawLabelStatus;
+        if (window._hassleOrig_setCursorStatus) { window.setCursorStatus = window._hassleOrig_setCursorStatus; delete window._hassleOrig_setCursorStatus; }
+        if (ol) { window.setDrawLabelStatus = ol; delete window._hassleOrig_setDrawLabelStatus; try { ol.call(window, true); } catch(e) {} }
     }
 
-    // ── Прячем DOM главного меню через MutationObserver (без мерцания) ──
-    function _hideMenu() {
-        if (_obs) { _obs.disconnect(); _obs = null; }
-        _obs = new MutationObserver(function() {
-            var el = document.querySelector('.main-menu');
-            if (el) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; _obs.disconnect(); _obs = null; }
-        });
-        _obs.observe(document.documentElement, { childList: true, subtree: true });
+    // ── Прячем меню CSS-правилом ЕЩЁ ДО открытия ──
+    // Раньше прятали через MutationObserver уже после появления .main-menu —
+    // между вставкой в DOM и opacity:0 мог пройти кадр (мерцание), а CSS-анимация
+    // появления вообще перебивает inline-opacity. Правило с !important работает с 1-го кадра.
+    function _hideOn() {
+        try {
+            if (document.getElementById(STYLE_ID)) return;
+            _styleEl = document.createElement('style');
+            _styleEl.id = STYLE_ID;
+            _styleEl.textContent = '.main-menu{opacity:0!important;visibility:hidden!important;pointer-events:none!important;animation:none!important;transition:none!important;}';
+            (document.head || document.documentElement).appendChild(_styleEl);
+        } catch(e) {}
     }
-    function _unobserve() { if (_obs) { _obs.disconnect(); _obs = null; } }
+    // Снимаем правило только когда меню реально размонтировано (иначе вспышка при закрытии)
+    function _hideOff() {
+        var t0 = Date.now();
+        (function tick() {
+            var gone = true;
+            try { gone = !document.querySelector('.main-menu'); } catch(e) {}
+            if (gone || Date.now() - t0 > 1200) {
+                try { var el = document.getElementById(STYLE_ID); if (el && el.parentNode) el.parentNode.removeChild(el); } catch(e) {}
+                _styleEl = null;
+                return;
+            }
+            setTimeout(tick, 50);
+        })();
+    }
 
     // ── Отключаем hideHud/hideChat чтобы меню не ломало интерфейс ──
     function _patchOptions() {
@@ -433,9 +464,69 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
         } catch(e) {}
     }
 
-    // ── Проверка: это mock-данные сервера или уже реальные? ──
+    // ── Сервер хранит «меню открыто на вкладке N» (MAIN_MENU_CURRENT_TYPE_INTERFACE). ──
+    // MainMenu:OnPlayerChangeTab (main_menu.pwn) при совпадении вкладки делает return false
+    // и НЕ шлёт данные. Если прошлое закрытие меню не дошло до сервера (closeInterface без
+    // sendCloseEvent), сервер «помнит» Statistics — и профиль не приходит НИКОГДА.
+    // Поэтому перед своим открытием принудительно сбрасываем это состояние.
+    function _srvResetMenuState() {
+        try { if (typeof window.sendClientEvent === 'function') window.sendClientEvent(0, 'MainMenu_OnPlayerCloseInterface'); } catch(e) {}
+    }
+    function _srvAskStats(mm) {
+        try {
+            var idx = 1; // MAIN_MENU_TAB_STATISTICS
+            try {
+                if (mm && mm.tabs && mm.tabs.findIndex) {
+                    var ti = mm.tabs.findIndex(function(t) { return t && t.name === 'Statistics'; });
+                    if (ti >= 0) idx = ti;
+                }
+            } catch(e) {}
+            window.sendClientEvent(0, 'MainMenu_OnPlayerCloseInterface');
+            window.sendClientEvent(0, 'MainMenu_OnPlayerChangeTab', idx);
+        } catch(e) {}
+    }
+
+    // ── showInterface/hideInterface дёргают Hud.setKeyButtonsDisplay(false/true) —
+    // экранные кнопки управления (мобильный Hassle) на секунду пропадают и появляются.
+    // На время невидимой загрузки глушим этот вызов.
+    var _kbHud = null, _kbOrig = null;
+    function _kbSuppress() {
+        try {
+            var h = window.interface && window.interface('Hud');
+            if (h && typeof h.setKeyButtonsDisplay === 'function' && !_kbOrig) {
+                _kbHud = h; _kbOrig = h.setKeyButtonsDisplay;
+                h.setKeyButtonsDisplay = function() {};
+            }
+        } catch(e) {}
+    }
+    function _kbRestore() {
+        try { if (_kbHud && _kbOrig) _kbHud.setKeyButtonsDisplay = _kbOrig; } catch(e) {}
+        _kbHud = null; _kbOrig = null;
+    }
+
+    // ── Открыт ли какой-то другой интерфейс? ──
+    // openInterface() прячет текущий верхний интерфейс (PauseMenu, диалог, телефон...)
+    // и потом заново показывает его при закрытии — это и есть видимое мерцание.
+    // Поэтому ждём, пока другие интерфейсы закроются.
+    function _otherInterfaceOpen() {
+        try {
+            if (window.blockInterfaces) return true;
+            if (typeof window.getOpenedControllableInterfaces === 'function') {
+                var list = window.getOpenedControllableInterfaces() || [];
+                var mm = window.interface('MainMenu');
+                for (var i = 0; i < list.length; i++) {
+                    if (list[i] && list[i] !== mm) return true;
+                }
+            }
+        } catch(e) {}
+        return false;
+    }
+
+    // ── Проверка: это mock-данные (заглушка из MainMenu.js) или уже реальные? ──
+    // Заглушка: rang 2 / «Officer» / «Police departament» / bgName «org-2».
+    // Проверяем все признаки сразу, чтобы не отбросить реальные данные.
     function _isMock(org) {
-        return !org || org.rangName === 'Officer' || org.title === 'Police departament';
+        return !org || (org.rangName === 'Officer' && org.title === 'Police departament' && org.bgName === 'org-2');
     }
 
     // ── Извлекаем все поля из mm.statistics ──
@@ -462,8 +553,10 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 level:       lvl.value      || null,
                 xpCurrent:   (lvl.score || {}).current || null,
                 xpTarget:    (lvl.score || {}).target  || null,
-                cash:        (ab[0] || {}).value       || null,
-                bank:        (ab[1] || {}).value       || null,
+                // Наличные и банк сервер в статистике НЕ присылает (about[0] = законопослушность,
+                // about[1] = ранг преступности) — актуальные значения берутся из Vuex store.
+                cash:        null,
+                bank:        null,
                 phone:       (ct.phone      || {}).value      || null,
                 simBalance:  (ct.simBalance || {}).value      || null,
                 stamina:     (ph.stamina    || {}).value      || null,
@@ -503,17 +596,16 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
         }
 
         _fetching = true;
-        window._hassleProfileLoading = true;
         debugLog('[Profile] 🔄 Загружаем профиль через MainMenu...');
 
-        var _done = false, _wd = null;
+        var _done = false, _wd = null, _poll = null;
         var _wasOpen = false;
-        try { _wasOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
 
         function _finish(data) {
             if (_done) return;
             _done = true;
-            if (_wd) { clearTimeout(_wd); _wd = null; }
+            if (_wd)   { clearTimeout(_wd);   _wd = null; }
+            if (_poll) { clearInterval(_poll); _poll = null; }
 
             if (!_wasOpen) {
                 try {
@@ -525,7 +617,8 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
             }
             _restoreOptions();
             _restorePatch();
-            _unobserve();
+            _kbRestore();
+            if (!_wasOpen) _hideOff();
             _fetching = false;
             window._hassleProfileLoading = false;
 
@@ -555,44 +648,87 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
             if (callback) callback(data ? config.accountInfo.profile : null);
         }
 
-        // Аварийный предохранитель 8 сек
-        _wd = setTimeout(function() {
-            debugLog('[Profile] ⏰ Watchdog — завершаем принудительно');
-            _finish(null);
-        }, 8000);
-
-        _patchOptions();
-        _applyPatch();
-        if (!_wasOpen) _hideMenu();
-
-        if (!_wasOpen) {
-            try { window.openInterface('MainMenu'); }
-            catch(e) { _finish(null); return; }
-        }
-
-        setTimeout(function() {
+        function _begin() {
             if (_done) return;
-            var mm = window.interface('MainMenu');
-            if (!mm) { _finish(null); return; }
-            try { if (typeof mm.selectTab === 'function') mm.selectTab('Statistics'); } catch(e) {}
+            try { _wasOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+            window._hassleProfileLoading = true;
 
-            var attempts = 0, lastKey = null, stable = 0;
-            var poll = setInterval(function() {
-                if (_done) { clearInterval(poll); return; }
-                attempts++;
+            // Аварийный предохранитель: 20 сек на сам запуск+чтение
+            // (раньше было 8 сек — на лагающем сервере/мобиле не хватало)
+            _wd = setTimeout(function() {
+                debugLog('[Profile] ⏰ Watchdog — завершаем принудительно');
+                _finish(null);
+            }, 20000);
+
+            _patchOptions();
+            _applyPatch();
+
+            if (!_wasOpen) {
+                _hideOn(); // правило-невидимка ДО открытия
+                _kbSuppress();
+                _srvResetMenuState(); // сервер не должен «помнить» старую вкладку
+                try { window.openInterface('MainMenu'); }
+                catch(e) { _finish(null); return; }
+            }
+
+            var t0 = Date.now(), reopened = false, selected = false;
+            var askedAt = 0, asks = 0, lastKey = null, stable = 0;
+
+            // Один опрос вместо «слепой» паузы 600мс: ждём монтирования компонента,
+            // выбираем вкладку, переспрашиваем сервер если данные не пришли.
+            _poll = setInterval(function() {
+                if (_done) { clearInterval(_poll); return; }
+
+                var mm = null;
+                try { mm = window.interface('MainMenu'); } catch(e) {}
+
+                if (!mm) {
+                    // Компонент ещё не смонтирован (openInterface асинхронный) — ждём, а не сдаёмся.
+                    // Если за 1.5с интерфейс так и не открылся (его заблокировали) — пробуем ещё раз.
+                    if (!_wasOpen && !reopened && Date.now() - t0 > 1500) {
+                        var st = false;
+                        try { st = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+                        if (!st) { reopened = true; try { window.openInterface('MainMenu'); } catch(e) {} }
+                    }
+                    return;
+                }
+
+                if (!selected) {
+                    selected = true;
+                    askedAt = Date.now();
+                    // Если игрок сам держит меню открытым — не переключаем ему вкладку
+                    if (!_wasOpen) { try { if (typeof mm.selectTab === 'function') mm.selectTab('Statistics'); } catch(e) {} }
+                }
+
                 var d = _extract(mm);
                 if (d) {
                     var key = (d.rank || '') + '|' + (d.orgTitle || '') + '|' + (d.level || '');
                     if (key === lastKey) { stable++; } else { lastKey = key; stable = 1; }
                 } else {
                     lastKey = null; stable = 0;
+                    // Данные не пришли — повторно просим сервер (до 3 раз, раз в 3 сек)
+                    if (asks < 3 && Date.now() - askedAt > 3000) {
+                        asks++; askedAt = Date.now();
+                        debugLog('[Profile] ↻ Данные не пришли, повторный запрос серверу (' + asks + '/3)');
+                        // mm.sendServerEvent('Statistics') тут не годится: сервер уже считает вкладку открытой
+                        // и вернёт false без данных. Сначала сброс, потом смена вкладки.
+                        if (!_wasOpen) _srvAskStats(mm);
+                    }
                 }
-                if ((d && stable >= 2) || attempts >= 35) {
-                    clearInterval(poll);
-                    setTimeout(function() { _finish(d || null); }, 150);
+                if (d && stable >= 2) {
+                    clearInterval(_poll); _poll = null;
+                    setTimeout(function() { _finish(d); }, 100);
                 }
-            }, 200);
-        }, 600);
+            }, 150);
+        }
+
+        // Перед открытием ждём, пока закроются другие интерфейсы (PauseMenu, диалоги и т.д.),
+        // иначе игра прячет их и показывает заново — это мерцание. Максимум 20 сек.
+        (function waitFree(tries) {
+            if (_done) return;
+            if (!_otherInterfaceOpen() || tries >= 40) { _begin(); return; }
+            setTimeout(function() { waitFree(tries + 1); }, 500);
+        })(0);
     }
 
     // ── Отправляем карточку профиля в Telegram после загрузки ──
