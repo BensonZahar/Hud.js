@@ -2738,203 +2738,404 @@ if (document.readyState === 'loading') {
 })();
 // ==================== END INVITE AUTO-FILL v4 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
 
-// ==================== BUBBLE SPY (ТЕСТ) / PLAYER SPY — ВСЁ, ЧТО СВЯЗАНО С ИГРОКАМИ ====================
-// Диагностика: выводит в чат (жёлтым) всё, что сервер присылает клиенту про игроков.
-// Нужна, чтобы понять, как сервер сигнализирует о действиях игроков (в т.ч. «игрок открыл чат»).
-//
-// Что перехватывается (функции из index.js Хасла; сервер вызывает их через window):
-//   bubble  — setPlayerChatBubble(id, text, color, dist, time)           пузыри над головой
-//   players — onUpdatePlayersList(list), updatePlayers(), updatePlayerList(),
-//             attachSound3DToPlayer(...)                                  список игроков, звук на игроке
-//   voice   — setVoiceChatPlayer(id, volume), resetVoiceChatPlayers(),
-//             onVoiceRecordChange(key, state), startVoiceRecord(), stopVoiceRecord()   голос
-//   ui      — openInterface(name, params) только для Interactions / PlayersOnline / Invite
-//             (список имён: window.PRAVO_SPY_UI)                          меню взаимодействия с игроком
-//   self    — setPlayerNickName / Level / PassedHours / Money / BankMoney / Donate / CasinoChips /
-//             CasePoints / MaxCasePoints / SkinId / Notification / VipStatus / Oxygen / ConnectedStatus
-//             (состояние СВОЕГО персонажа; по умолчанию ВЫКЛ, чтобы не засорять чат)
-//
-// Управление командами в чате игры (на сервер они не уходят; на Хасле консоли нет):
-//   /pspy                    — показать, какие группы включены
-//   /pspy <группа> on|off    — включить/выключить группу: bubble players voice ui self
-//   /pspy all on|off         — все группы сразу
-//   /bubble_on, /bubble_off  — как раньше, только пузыри
-//   (или window.PRAVO_BUBBLE_DEBUG = false / window.PRAVO_SPY.voice = false, если есть консоль)
-//
-// Защита: не более 10 строк в секунду (остальные считаются и выводятся итоговой строкой),
-// длинные значения обрезаются, фигурные скобки в данных заменяются на круглые.
-// Строки идут напрямую через window.onChatMessage — мимо window.OnChatAddMessage,
-// поэтому в разбор чата бота (Telegram, KAC и т.д.) не попадают.
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: PHONE & OFFERS (звонки, SMS, предложения)       ║
+// ║  Формат строк взят из серверных phone.pwn / offer.pwn.   ║
+// ║  • Входящий звонок  → кнопки «Ответить (/p)» «Сбросить (/h)»
+// ║  • SMS от игрока    → кнопка «Ответить SMS» (/sms номер текст)
+// ║  • SMS банка/оператора → тихо, без кнопок                ║
+// ║  • Предложения (рукопожатие, документы, сделки, свадьба, ║
+// ║    приглашения…)   → кнопки «Принять (/yes)» «Отклонить (/no)»
+// ║  • Кнопки в Telegram: Функции → «Звонки / SMS» и         ║
+// ║    «Предложения» (этот аккаунт / все аккаунты)           ║
+// ║  • По умолчанию — ВКЛ                                    ║
+// ║  Вставляется в КОНЕЦ Code2.js (после остальных модулей). ║
+// ╚══════════════════════════════════════════════════════════╝
+// START PHONE & OFFERS MODULE //
 (function () {
-    if (window.__pravoPlayerSpyLoaded) return;
-    window.__pravoPlayerSpyLoaded = true;
+    'use strict';
 
-    if (window.PRAVO_BUBBLE_DEBUG === undefined) window.PRAVO_BUBBLE_DEBUG = true;
-    if (!window.PRAVO_SPY) window.PRAVO_SPY = { players: true, voice: true, ui: true, self: false };
-    if (!window.PRAVO_SPY_UI) window.PRAVO_SPY_UI = ['Interactions', 'PlayersOnline', 'Invite'];
+    if (config.phoneNotifications === undefined) config.phoneNotifications = true;
+    if (config.offerNotifications === undefined) config.offerNotifications = true;
 
-    var GROUPS = ['bubble', 'players', 'voice', 'ui', 'self'];
+    const FLAGS = {
+        phone: { cfg: 'phoneNotifications', title: '📞 Звонки / SMS',  bcast: 'toggle_phone' },
+        offer: { cfg: 'offerNotifications', title: '🤝 Предложения',   bcast: 'toggle_offer' }
+    };
 
-    function _isOn(group) {
-        return group === 'bubble' ? window.PRAVO_BUBBLE_DEBUG !== false : !!window.PRAVO_SPY[group];
+    // ── утилиты ─────────────────────────────────────────────────
+    function clean(s) {
+        return String(s)
+            .replace(/\{btn:[^}]*\}/g, '')          // кнопки чата
+            .replace(/\{v:([^}]*)\}/g, '$1')        // «безопасное» имя
+            .replace(/\{[0-9A-Fa-f]{6}\}/g, '')     // цвета
+            .replace(/\s+/g, ' ')
+            .trim();
     }
-    function _setGroup(group, val) {
-        if (group === 'bubble') window.PRAVO_BUBBLE_DEBUG = val;
-        else window.PRAVO_SPY[group] = val;
+    function sessionLog(s) {
+        try { if (typeof addSessionLog === 'function') addSessionLog(s); } catch (e) {}
     }
-
-    // ── вывод в чат (с ограничением частоты) ──────────────────
-    var _win = { start: 0, count: 0, dropped: 0 };
-    function _rawSay(text) {
+    function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function sound() {
+        try { window.playSound('https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3', false, 1.0); } catch (e) {}
+    }
+    const _recent = {};
+    function once(key) {
+        const now = Date.now();
+        if (_recent[key] && now - _recent[key] < 3000) return false;
+        _recent[key] = now;
+        return true;
+    }
+    function btn(text, data) { return { text: text, callback_data: data }; }
+    function baseRows() {
         try {
-            if (typeof window.onChatMessage === 'function') window.onChatMessage(text, '0xFFCC00');
-        } catch (e) {}
+            const m = getNotificationReplyMarkup();
+            return (m && m.inline_keyboard) || [];
+        } catch (e) { return []; }
     }
-    function _say(text) {
-        var now = Date.now();
-        if (now - _win.start >= 1000) {
-            if (_win.dropped > 0) _rawSay('{FFCC00}[SPY] {999999}пропущено строк за секунду: ' + _win.dropped);
-            _win.start = now; _win.count = 0; _win.dropped = 0;
+
+    // Отправить сообщение с кнопками и запомнить его id (чтобы потом снять кнопки)
+    function sendWithButtons(html, keyboard, silent) {
+        const rec = { html: html, msgs: [], done: false };
+        config.chatIds.forEach(function (chatId) {
+            tgApi('sendMessage', {
+                chat_id: chatId, text: html, parse_mode: 'HTML',
+                disable_notification: !!silent,
+                reply_markup: JSON.stringify(keyboard)
+            }, function (data) {
+                if (data && data.result) rec.msgs.push({ chatId: chatId, messageId: data.result.message_id });
+            });
+        });
+        return rec;
+    }
+    function finish(rec, note) {
+        if (!rec || rec.done) return;
+        rec.done = true;
+        rec.msgs.forEach(function (m) { editMessageText(m.chatId, m.messageId, rec.html + '\n\n' + note, null); });
+    }
+
+    // ── Звонки и SMS ────────────────────────────────────────────
+    //  phone.pwn:1471  «Входящий звонок | Номер: %d {FFCD00}| Вызывает %s …»  (цвет 3399FF)
+    //  phone.pwn:2214  «SMS: %s | Отправитель: %s [т.%d] …»                   (цвет FFFF00)
+    //  phone.pwn:2247  «SMS: … | Получатель: …» — наше собственное, пропускаем
+    let activeCall = null;
+
+    function handlePhone(msg) {
+        if (!config.phoneNotifications) return;
+
+        let m = msg.match(/^Входящий звонок \| Номер: (\d+) \| Вызывает (.+)$/);
+        if (m) {
+            if (!once('call:' + m[1])) return;
+            const caller = m[2].trim();
+            sessionLog('📞 Звонок от ' + caller + ' (т.' + m[1] + ')');
+            if (activeCall) finish(activeCall, '⏭ <i>Новый звонок</i>');
+            activeCall = sendWithButtons(
+                '📞 <b>Входящий звонок (' + displayName + ')</b>\n👤 ' + esc(caller) +
+                '\n📱 Номер: <code>' + esc(m[1]) + '</code>',
+                { inline_keyboard: [[btn('📞 Ответить (/p)', 'phn_p_' + uniqueId), btn('📵 Сбросить (/h)', 'phn_h_' + uniqueId)]].concat(baseRows()) },
+                false
+            );
+            sound();
+            return;
         }
-        if (_win.count >= 10) { _win.dropped++; return; }
-        _win.count++;
-        _rawSay(text);
-    }
 
-    // ── форматирование значений ───────────────────────────────
-    // {…} в тексте чат принял бы за цветовой код {RRGGBB} или кнопку {btn:..}
-    function _safe(v) { return String(v).replace(/\{/g, '(').replace(/\}/g, ')'); }
-    function _cut(s, max) { s = String(s); return s.length > max ? s.slice(0, max) + '…' : s; }
-    function _val(v, max) {
-        if (v === undefined) return 'undefined';
-        if (v === null) return 'null';
-        if (typeof v === 'string') return '"' + _cut(_safe(v), max) + '"';
-        if (typeof v === 'object' || typeof v === 'function') {
-            try { return _cut(_safe(JSON.stringify(v)), max); } catch (e) { return _cut(_safe(String(v)), max); }
+        // звонок завершён / отклонён / не отвечен — убираем кнопки
+        if (activeCall && /^(Звонок окончен|Вы отклонили входящий вызов)/.test(msg)) {
+            finish(activeCall, '☎️ <i>' + esc(msg) + '</i>');
+            activeCall = null;
+            return;
         }
-        return _safe(v);
-    }
-    // цвет в моде задан как 0xRRGGBBAA — показываем так же, чтобы сверять с SetPlayerBubble в new.pwn
-    function _color(c) {
-        if (typeof c === 'number') return '0x' + (c >>> 0).toString(16).toUpperCase().padStart(8, '0');
-        return _safe(c);
-    }
-    function _args(a, max) {
-        var out = [];
-        for (var i = 0; i < a.length; i++) out.push(_val(a[i], max));
-        return out.join(', ');
-    }
 
-    // ── форматтеры отдельных функций: вернуть строку или null (не логировать) ──
-    function _fBubble(a) {
-        return 'id=' + a[0] + ' | "' + _cut(_safe(a[1]), 120) + '" | color=' + _color(a[2]) +
-               ' | dist=' + a[3] + ' | time=' + a[4];
-    }
-    function _fPlayersList(a) {
-        var e = a[0];
-        if (e && typeof e === 'object') {
-            var keys = [];
-            try { keys = Object.keys(e).slice(0, 8); } catch (x) {}
-            return 'count=' + e.count + ' | keys=' + keys.join('/') + ' | ' + _val(e, 160);
-        }
-        return _args(a, 160);
-    }
-    function _fOpen(a) {
-        var name = a[0];
-        if (window.PRAVO_SPY_UI.indexOf(name) === -1) return null; // чужие интерфейсы не трогаем
-        return _safe(name) + (a.length > 1 ? ' | params=' + _val(a[1], 200) : '');
-    }
-
-    // [функция, группа, метка в чате, форматтер (необязательно)]
-    var T = [
-        ['setPlayerChatBubble',    'bubble',  'BUBBLE',  _fBubble],
-        ['onUpdatePlayersList',    'players', 'PLAYERS', _fPlayersList],
-        ['updatePlayers',          'players', 'PLAYERS'],
-        ['updatePlayerList',       'players', 'PLAYERS'],
-        ['attachSound3DToPlayer',  'players', 'PLAYERS'],
-        ['setVoiceChatPlayer',     'voice',   'VOICE'],
-        ['resetVoiceChatPlayers',  'voice',   'VOICE'],
-        ['onVoiceRecordChange',    'voice',   'VOICE'],
-        ['startVoiceRecord',       'voice',   'VOICE'],
-        ['stopVoiceRecord',        'voice',   'VOICE'],
-        ['openInterface',          'ui',      'UI',      _fOpen],
-        ['setPlayerNickName',      'self',    'SELF'],
-        ['setPlayerLevel',         'self',    'SELF'],
-        ['setPlayerPassedHours',   'self',    'SELF'],
-        ['setPlayerMoney',         'self',    'SELF'],
-        ['setPlayerBankMoney',     'self',    'SELF'],
-        ['setPlayerDonate',        'self',    'SELF'],
-        ['setPlayerCasinoChips',   'self',    'SELF'],
-        ['setPlayerCasePoints',    'self',    'SELF'],
-        ['setMaxPlayerCasePoints', 'self',    'SELF'],
-        ['setPlayerSkinId',        'self',    'SELF'],
-        ['setPlayerNotification',  'self',    'SELF'],
-        ['setPlayerVipStatus',     'self',    'SELF'],
-        ['setPlayerOxygen',        'self',    'SELF'],
-        ['setPlayerConnectedStatus', 'self',  'SELF']
-    ];
-
-    function _log(t, a) {
-        var body = t[3] ? t[3](a) : (t[0] + '(' + _args(a, 120) + ')');
-        if (body === null) return;
-        if (t[3] && t[1] !== 'bubble') body = t[0] + ' | ' + body;
-        console.log('[PRAVO-SPY] ' + t[2] + ' ' + body);
-        _say('{FFCC00}[' + t[2] + '] {FFFFFF}' + _cut(body, 300));
-    }
-
-    // ── обёртка: ставится с ожиданием и перевешивается, если функцию переопределили ──
-    // _inflight защищает от двойного лога, если чей-то хук обернул наш (внутренний вызов молчит)
-    var _inflight = {};
-    function _wrap(t) {
-        var name = t[0], orig = window[name];
-        if (typeof orig !== 'function' || orig.__pravoSpy) return;
-        var spy = function () {
-            var outer = !_inflight[name];
-            _inflight[name] = (_inflight[name] || 0) + 1;
-            try { if (outer && _isOn(t[1])) _log(t, arguments); } catch (e) {}
-            try { return orig.apply(this, arguments); }
-            finally { _inflight[name]--; }
-        };
-        spy.__pravoSpy = true;
-        spy.__pravoOrig = orig;
-        window[name] = spy;
-    }
-    function _wrapAll() { for (var i = 0; i < T.length; i++) _wrap(T[i]); }
-
-    _wrapAll();
-    setInterval(_wrapAll, 1500);
-    console.log('[PRAVO-SPY] ✅ перехват установлен. Группы: bubble=' + _isOn('bubble') +
-        ' players=' + _isOn('players') + ' voice=' + _isOn('voice') + ' ui=' + _isOn('ui') + ' self=' + _isOn('self'));
-
-    // ── Хук sendChatInput — /pspy, /bubble_on, /bubble_off ───
-    function _status() {
-        var s = [];
-        for (var i = 0; i < GROUPS.length; i++) s.push(GROUPS[i] + '=' + (_isOn(GROUPS[i]) ? '{33DD77}вкл{FFFFFF}' : '{EE4444}выкл{FFFFFF}'));
-        return s.join('  ');
-    }
-    var _origChat = window.sendChatInput;
-    window.sendChatInput = function (input) {
-        if (typeof input === 'string') {
-            var parts = input.trim().toLowerCase().split(/\s+/);
-            var cmd = parts[0];
-            if (cmd === '/bubble_on' || cmd === '/bubble_off') {
-                _setGroup('bubble', cmd === '/bubble_on');
-                _rawSay('{FFCC00}[SPY] {FFFFFF}' + _status());
+        if (/^SMS: /.test(msg) && !/\| Получатель:/.test(msg)) {
+            m = msg.match(/^SMS: (.*) \| Отправитель: (.+?) \[т\.(\d+)\]$/);
+            if (m) {
+                const text = m[1], sender = m[2].trim(), phone = m[3];
+                const isService = /^(Оператор|Банк)$/i.test(sender);
+                // «набор» в жёлтых SMS ловит модуль SOBESED — не дублируем
+                if (config.sobesNotifications && /набор/i.test(text)) return;
+                if (!once('sms:' + phone + ':' + text)) return;
+                sessionLog('✉️ SMS от ' + sender);
+                const html = (isService ? '🏦' : '✉️') + ' <b>SMS (' + displayName + ')</b>\n👤 ' + esc(sender) +
+                             '  📱 <code>' + esc(phone) + '</code>\n💬 <code>' + esc(text) + '</code>';
+                if (isService) {
+                    sendToTelegram(html, true, null);
+                } else {
+                    sendWithButtons(html,
+                        { inline_keyboard: [[btn('✉️ Ответить SMS', 'phn_sms_' + phone + '_' + uniqueId)]].concat(baseRows()) },
+                        false);
+                    sound();
+                }
                 return;
             }
-            if (cmd === '/pspy') {
-                var g = parts[1], v = parts[2];
-                if (g && (v === 'on' || v === 'off')) {
-                    var on = v === 'on';
-                    if (g === 'all') { for (var i = 0; i < GROUPS.length; i++) _setGroup(GROUPS[i], on); }
-                    else if (GROUPS.indexOf(g) !== -1) _setGroup(g, on);
-                    else { _rawSay('{FFCC00}[SPY] {EE4444}нет группы «' + _safe(g) + '». Есть: ' + GROUPS.join(', ') + ', all'); return; }
-                }
-                _rawSay('{FFCC00}[SPY] {FFFFFF}' + _status());
-                return; // не отправляем на сервер
+            m = msg.match(/^SMS: (.*) \| Отправитель: (.+)$/);   // банк / оператор без номера
+            if (m && once('sms:' + m[2] + ':' + m[1])) {
+                sendToTelegram('🏦 <b>SMS (' + displayName + ')</b>\n👤 ' + esc(m[2]) + '\n💬 <code>' + esc(m[1]) + '</code>', true, null);
             }
         }
-        return (typeof _origChat === 'function') ? _origChat.apply(this, arguments) : undefined;
+    }
+
+    // ── Предложения ─────────────────────────────────────────────
+    //  offer.pwn: SendClientMessage(to_player, 0x3399FFFF, fmt_str); принять — /yes, отказать — /no.
+    //  Время на решение 15 с, покупка личного ТС — 40 с.
+    const OFFER_COLOR = '0x3399FF';
+    const OFFER_RE = /(предлагает|протягивает|просит вас о помощи|хочет показать|хочет продать|хочет записать|попросил вас предъявить|запрашивает разрешение)/i;
+    const OFFER_SKIP_RE = /^(Вы |Входящий звонок|Ставка )/;
+    const OFFER_RISKY_RE = /(руб|рублей|жениться|замуж|руку и сердце|вступить|лидером|на контроль|смен\w* пол|на свободу|наркотик)/i;
+    let pendingOffer = null;
+
+    function offerTimeoutMs(text) { return /купить транспорт/i.test(text) ? 40000 : 15000; }
+
+    function closeOffer(note) {
+        if (!pendingOffer) return;
+        const p = pendingOffer; pendingOffer = null;
+        if (p.timer) clearTimeout(p.timer);
+        finish(p.rec, note);
+    }
+
+    function showOffer(text) {
+        if (!once('offer:' + text)) return;
+        closeOffer('⏭ <i>Заменено новым предложением</i>');
+        const risky = OFFER_RISKY_RE.test(text);
+        const html =
+            '🤝 <b>Вам предлагают (' + displayName + ')</b>\n<code>' + esc(text) + '</code>\n' +
+            (risky ? '⚠️ <i>В предложении деньги или важные последствия — подумайте</i>\n' : '') +
+            '⏱ <i>На решение ' + Math.round(offerTimeoutMs(text) / 1000) + ' сек</i>';
+        const cur = { text: text, rec: null, timer: null };
+        cur.rec = sendWithButtons(html, {
+            inline_keyboard: [[btn('✅ Принять (/yes)', 'offer_yes_' + uniqueId), btn('❌ Отклонить (/no)', 'offer_no_' + uniqueId)]].concat(baseRows())
+        }, false);
+        pendingOffer = cur;
+        sessionLog('🤝 Предложение: ' + text.slice(0, 60));
+        sound();
+        cur.timer = setTimeout(function () {
+            if (pendingOffer === cur) closeOffer('⌛ <i>Время на решение истекло</i>');
+        }, offerTimeoutMs(text) + 500);
+    }
+
+    function handleOffer(msg, colorArg) {
+        if (!config.offerNotifications) return;
+        if (pendingOffer && /Время на принятие решения истекло|отозвал свое предложение/i.test(msg)) {
+            closeOffer('⌛ <i>' + esc(msg) + '</i>');
+            return;
+        }
+        if (normalizeColor(colorArg) !== OFFER_COLOR) return;
+        if (OFFER_SKIP_RE.test(msg) || !OFFER_RE.test(msg)) return;
+        showOffer(msg);
+    }
+
+    // ── Хук чата (переживает перезапись в initializeChatMonitor — как в SOBESED) ──
+    function onChat(raw, colorArg) {
+        const msg = clean(raw);
+        try { handlePhone(msg); } catch (e) { debugLog('[PHONE] ошибка: ' + e.message); }
+        try { handleOffer(msg, colorArg); } catch (e) { debugLog('[OFFER] ошибка: ' + e.message); }
+    }
+    function installChatHook() {
+        const cur = window.OnChatAddMessage;
+        if (typeof cur === 'function' && !cur.__phnWrapped) {
+            const wrapped = function (e, colorArg, t) {
+                cur.call(this, e, colorArg, t);
+                onChat(String(e), colorArg);
+            };
+            wrapped.__phnWrapped = true;
+            window.OnChatAddMessage = wrapped;
+            debugLog('[PHONE/OFFER] ✅ Хук OnChatAddMessage установлен');
+        }
+    }
+    installChatHook();
+    if (typeof initializeChatMonitor === 'function' && !initializeChatMonitor.__phnPatched) {
+        const origInit = initializeChatMonitor;
+        const patched = function () {
+            const res = origInit.apply(this, arguments);
+            installChatHook();
+            return res;
+        };
+        patched.__phnPatched = true;
+        initializeChatMonitor = patched;
+    }
+
+    // ── Нажатия кнопок ──────────────────────────────────────────
+    function handleButton(cq) {
+        const data = cq.data, chatId = cq.message.chat.id, messageId = cq.message.message_id;
+        answerCallbackQuery(cq.id);
+
+        // предложения
+        if (data.indexOf('offer_yes_') === 0 || data.indexOf('offer_no_') === 0) {
+            const accept = data.indexOf('offer_yes_') === 0;
+            if (!pendingOffer) {
+                editMessageText(chatId, messageId, '⌛ <b>Предложение уже неактуально</b> (' + esc(displayName) + ')', null);
+                return;
+            }
+            const p = pendingOffer;
+            sendChatInput(accept ? '/yes' : '/no');
+            closeOffer(accept ? '✅ <b>Принято</b> — отправлено /yes' : '❌ <b>Отклонено</b> — отправлено /no');
+            if (accept && OFFER_RISKY_RE.test(p.text)) {
+                sendToTelegram('ℹ️ <i>Если игра попросит подтверждение — диалог придёт отдельным сообщением (' + displayName + ')</i>', true, null);
+            }
+            return;
+        }
+
+        // звонок
+        if (data.indexOf('phn_p_') === 0 || data.indexOf('phn_h_') === 0) {
+            const answer = data.indexOf('phn_p_') === 0;
+            sendChatInput(answer ? '/p' : '/h');
+            if (activeCall) { finish(activeCall, answer ? '✅ <b>Ответили</b> — отправлено /p' : '📵 <b>Сброшено</b> — отправлено /h'); activeCall = null; }
+            else editMessageText(chatId, messageId, (answer ? '✅ Отправлено /p' : '📵 Отправлено /h') + ' (' + esc(displayName) + ')', null);
+            return;
+        }
+
+        // ответ на SMS: просим ввести текст (force_reply)
+        if (data.indexOf('phn_sms_') === 0) {
+            const rest = data.slice('phn_sms_'.length);           // «номер_uid»
+            const phone = rest.split('_')[0];
+            _abortPollSafe();
+            sendToTelegram(
+                '✉️ <b>Введите SMS для т.' + esc(phone) + '</b> (' + esc(displayName) + '):\n' +
+                '<i>до 66 символов — уйдёт как /sms ' + esc(phone) + ' ваш_текст</i>\n' +
+                '🔑 PHN_UID: ' + uniqueId, false, { force_reply: true });
+            return;
+        }
+
+        // меню включения/выключения: ntf_<ключ>_<шаг>_<uid>
+        const m = data.match(/^ntf_(phone|offer)_(scope|action_local|action_global|on_local|on_global|off_local|off_global)_(.+)$/);
+        if (m) handleToggleMenu(m[1], m[2], m[3], chatId, messageId);
+    }
+    function _abortPollSafe() {
+        try { if (typeof _abortPollAndRestartFast === 'function') _abortPollAndRestartFast(); } catch (e) {}
+    }
+
+    function isMine(data) {
+        if (data.indexOf('offer_') === 0 || data.indexOf('phn_') === 0) return data.endsWith('_' + uniqueId);
+        const m = data.match(/^ntf_(?:phone|offer)_(?:scope|action_local|action_global|on_local|on_global|off_local|off_global)_(.+)$/);
+        return !!m && m[1] === uniqueId;
+    }
+    function isOurCallback(data) {
+        return typeof data === 'string' && /^(offer_(yes|no)_|phn_(p|h|sms)_|ntf_(phone|offer)_)/.test(data);
+    }
+
+    // ── Меню «Функции» → тумблеры ───────────────────────────────
+    function handleToggleMenu(key, step, uid, chatId, messageId) {
+        const f = FLAGS[key];
+        if (step === 'scope') {
+            editMessageText(chatId, messageId, '<b>' + f.title + '</b>\n\nДля кого применить изменения?', {
+                inline_keyboard: [
+                    [createButton('👤 Для этого аккаунта', 'ntf_' + key + '_action_local_' + uid, 'primary'),
+                     createButton('👥 Для всех аккаунтов', 'ntf_' + key + '_action_global_' + uid, 'primary')],
+                    [createButton('⬅️ Вернуться назад', 'show_functions_' + uid)]
+                ]
+            });
+            return;
+        }
+        if (step === 'action_local' || step === 'action_global') {
+            const scope = step === 'action_global' ? 'global' : 'local';
+            const on = config[f.cfg];
+            editMessageText(chatId, messageId,
+                '<b>' + f.title + '</b>\nСейчас: ' + (on ? '🟢 ВКЛ' : '🔴 ВЫКЛ') +
+                '\nСкоуп: ' + (scope === 'global' ? '👥 все аккаунты' : '👤 ' + displayName), {
+                inline_keyboard: [
+                    [createButton('🔔 ВКЛ', 'ntf_' + key + '_on_' + scope + '_' + uid, 'success'),
+                     createButton('🔕 ВЫКЛ', 'ntf_' + key + '_off_' + scope + '_' + uid, 'danger')],
+                    [createButton('⬅️ Вернуться назад', 'ntf_' + key + '_scope_' + uid)]
+                ]
+            });
+            return;
+        }
+        const isOn = step.indexOf('on_') === 0;
+        const scope = step.slice(step.indexOf('_') + 1);
+        config[f.cfg] = isOn;
+        if (scope === 'global') {
+            handleGlobalBroadcastCommand(f.bcast, isOn ? 'on' : 'off');
+            broadcastGlobalCommand(f.bcast, isOn ? 'on' : 'off');
+        } else {
+            sendToTelegram((isOn ? '🔔' : '🔕') + ' <b>' + f.title + ' ' + (isOn ? 'ВКЛ' : 'ВЫКЛ') + ' для ' + displayName + '</b>', false, null);
+        }
+        sendWelcomeMessage(true);
+    }
+
+    // Кнопки в меню «Функции» (вставляем строки перед «Вернуться назад»)
+    if (typeof showFunctionsMenu === 'function' && !showFunctionsMenu.__phnPatched) {
+        const origShow = showFunctionsMenu;
+        const patchedShow = function () {
+            const origEdit = editMessageReplyMarkup;
+            editMessageReplyMarkup = function (chatId, messageId, markup) {
+                try {
+                    if (markup && Array.isArray(markup.inline_keyboard)) {
+                        const uid = uniqueId;
+                        const rows = markup.inline_keyboard;
+                        const add = [
+                            [createButton(FLAGS.phone.title + ' ' + (config.phoneNotifications ? '🟢' : '🔴'), 'ntf_phone_scope_' + uid, config.phoneNotifications ? 'success' : 'danger')],
+                            [createButton(FLAGS.offer.title + ' ' + (config.offerNotifications ? '🟢' : '🔴'), 'ntf_offer_scope_' + uid, config.offerNotifications ? 'success' : 'danger')]
+                        ];
+                        rows.splice(Math.max(0, rows.length - 1), 0, ...add);
+                    }
+                } catch (e) {}
+                return origEdit.apply(this, arguments);
+            };
+            try { return origShow.apply(this, arguments); }
+            finally { editMessageReplyMarkup = origEdit; }
+        };
+        patchedShow.__phnPatched = true;
+        showFunctionsMenu = patchedShow;
+    }
+
+    // Глобальные команды broadcast (как toggle_sobes)
+    const origGlobal = handleGlobalBroadcastCommand;
+    handleGlobalBroadcastCommand = function (cmd, val, fromBroadcast) {
+        for (const key in FLAGS) {
+            if (cmd === FLAGS[key].bcast) {
+                const isOn = val === 'on';
+                config[FLAGS[key].cfg] = isOn;
+                showScreenNotification('Hassle', '[Global] ' + FLAGS[key].title.replace(/^\S+\s/, '') + ' ' + (isOn ? 'ВКЛ' : 'ВЫКЛ'));
+                sendToTelegram((isOn ? '🔔' : '🔕') + ' <b>' + FLAGS[key].title + ' ' + (isOn ? 'ВКЛ' : 'ВЫКЛ') + ' (' + displayName + ')</b>', true, null);
+                if (fromBroadcast) sendWelcomeMessage(true);
+                return;
+            }
+        }
+        return origGlobal(cmd, val, fromBroadcast);
     };
+
+    // ── processUpdates: наши кнопки и ответ на SMS ──────────────
+    const origProcess = processUpdates;
+    processUpdates = function (updates) {
+        const rest = [];
+        for (const u of updates) {
+            const cq = u.callback_query;
+            if (cq && isOurCallback(cq.data) && config.chatIds.includes(String(cq.message.chat.id))) {
+                config.lastUpdateId = u.update_id;
+                setSharedLastUpdateId(config.lastUpdateId);
+                if (isMine(cq.data)) {
+                    try { handleButton(cq); } catch (e) { debugLog('[PHONE/OFFER] callback error: ' + e.message); }
+                } else {
+                    answerCallbackQuery(cq.id);
+                }
+                continue;
+            }
+            // ответ (reply) на запрос «Введите SMS…»
+            const mm = u.message;
+            if (mm && mm.reply_to_message && mm.text && config.chatIds.includes(String(mm.chat.id))) {
+                const rt = mm.reply_to_message.text || '';
+                if (rt.indexOf('PHN_UID: ' + uniqueId) !== -1) {
+                    config.lastUpdateId = u.update_id;
+                    setSharedLastUpdateId(config.lastUpdateId);
+                    const pm = rt.match(/т\.(\d+)/);
+                    const text = mm.text.trim().slice(0, 66);
+                    if (pm && text) {
+                        try {
+                            sendChatInput('/sms ' + pm[1] + ' ' + text);
+                            sendToTelegram('✅ <b>SMS отправлено (' + displayName + ')</b>\n📱 <code>' + esc(pm[1]) + '</code>\n💬 <code>' + esc(text) + '</code>', false, null);
+                        } catch (e) {
+                            sendToTelegram('❌ <b>Не удалось отправить SMS (' + displayName + '):</b>\n<code>' + esc(e.message) + '</code>', false, null);
+                        }
+                    }
+                    continue;
+                }
+            }
+            rest.push(u);
+        }
+        if (rest.length) origProcess(rest);
+    };
+
+    debugLog('[PHONE/OFFER] Загружен. Звонки/SMS: ' + (config.phoneNotifications ? 'ВКЛ' : 'ВЫКЛ') +
+             ' | Предложения: ' + (config.offerNotifications ? 'ВКЛ' : 'ВЫКЛ'));
 })();
-// ==================== END BUBBLE SPY / PLAYER SPY ====================
+// END PHONE & OFFERS MODULE //
