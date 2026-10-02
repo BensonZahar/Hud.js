@@ -2743,6 +2743,9 @@ if (document.readyState === 'loading') {
 // ║  MODULE: PHONE & OFFERS (звонки, SMS, предложения)       ║
 // ║  Формат строк взят из серверных phone.pwn / offer.pwn.   ║
 // ║  • Входящий звонок  → кнопки «Ответить (/p)» «Сбросить (/h)»
+// ║  • После ответа сообщение остаётся: «Положить трубку (/h)»,
+// ║    реплики собеседника «[Тел]» пересылаются, реплаем можно ответить
+// ║  • Ответ/сброс в игре сам обновляет сообщение в Telegram
 // ║  • SMS от игрока    → кнопка «Ответить SMS» (/sms номер текст)
 // ║  • SMS банка/оператора → тихо, без кнопок                ║
 // ║  • Предложения (рукопожатие, документы, сделки, свадьба, ║
@@ -2819,9 +2822,109 @@ if (document.readyState === 'loading') {
     //  phone.pwn:1471  «Входящий звонок | Номер: %d {FFCD00}| Вызывает %s …»  (цвет 3399FF)
     //  phone.pwn:2214  «SMS: %s | Отправитель: %s [т.%d] …»                   (цвет FFFF00)
     //  phone.pwn:2247  «SMS: … | Получатель: …» — наше собственное, пропускаем
+    //  phone.pwn:1690  «Вы ответили на звонок %s»            (0xDD90FF) — ответили (кнопкой, /p или в телефоне)
+    //  phone.pwn:1693  «%s ответил на Ваш звонок»            (0xDD90FF) — ответили на наш звонок
+    //  phone.pwn:2627  «[Тел] %s: %s»                        (0xFFFF00) — реплика собеседника во время разговора
+    //  phone.pwn:1725+ «Звонок окончен» / «Вы отклонили входящий вызов» — конец (кто бы ни сбросил)
+    //  new.pwn:17552   пока идёт разговор, ЛЮБОЙ обычный текст из чата уходит собеседнику как «[Тел]»
+    // activeCall = { rec, state:'ringing'|'talking', caller, number, outgoing, hanging, lines[], lastLine }
     let activeCall = null;
+    const TEL_COLOR = '0xFFFF00';
+    const MAX_TEL_LEN = 83;            // new.pwn:17541 — длиннее сервер не принимает
 
-    function handlePhone(msg) {
+    function ownNick() {
+        try { return String((config.accountInfo && config.accountInfo.nickname) || '').replace(/_/g, ' ').trim().toLowerCase(); }
+        catch (e) { return ''; }
+    }
+    function callTitle(c) { return c.outgoing ? 'Исходящий звонок' : (c.state === 'ringing' ? 'Входящий звонок' : 'Звонок'); }
+    function callHtml(c, status) {
+        return '📞 <b>' + callTitle(c) + ' (' + displayName + ')</b>\n👤 ' + esc(c.caller) +
+               (c.number ? '\n📱 Номер: <code>' + esc(c.number) + '</code>' : '') + (status ? '\n' + status : '');
+    }
+    function talkKeyboard(withReply) {
+        const row = withReply
+            ? [btn('✍️ Ответить', 'phn_r_' + uniqueId), btn('📵 Положить (/h)', 'phn_h_' + uniqueId)]
+            : [btn('📵 Положить трубку (/h)', 'phn_h_' + uniqueId)];
+        return { inline_keyboard: [row].concat(baseRows()) };
+    }
+    // сменить текст/кнопки уже отправленного сообщения (keyboard = null — убрать кнопки)
+    function editCard(rec, html, keyboard) {
+        if (!rec) return;
+        rec.html = html;
+        rec.msgs.forEach(function (m) { editMessageText(m.chatId, m.messageId, html, keyboard); });
+    }
+    function stripButtons(rec) {
+        if (!rec) return;
+        rec.msgs.forEach(function (m) { editMessageText(m.chatId, m.messageId, rec.html, null); });
+    }
+    function endCall(note) {
+        const c = activeCall;
+        if (!c) return;
+        activeCall = null;
+        if (c.timer) clearTimeout(c.timer);
+        stripButtons(c.lastLine);
+        finish(c.rec, note);
+    }
+    // звонок принят → то же сообщение остаётся с кнопкой «Положить трубку»
+    function startTalking(name, outgoing) {
+        let c = activeCall;
+        if (!c) {   // бот не видел начала звонка (перезапуск и т.п.) — создаём карточку разговора
+            c = activeCall = { rec: null, state: 'talking', caller: name, number: '', outgoing: !!outgoing, hanging: false, lines: [], lastLine: null };
+            sessionLog('📞 Разговор с ' + name);
+            c.rec = sendWithButtons(callHtml(c, '🟢 <i>Идёт разговор</i>'), talkKeyboard(false), true);
+            return;
+        }
+        c.state = 'talking';
+        c.hanging = false;
+        if (c.timer) { clearTimeout(c.timer); c.timer = null; }
+        if (name) c.caller = name;
+        sessionLog('📞 Разговор с ' + c.caller);
+        editCard(c.rec, callHtml(c, '🟢 <i>Идёт разговор — отвечайте реплаем на сообщения собеседника</i>'), talkKeyboard(false));
+    }
+    // реплика собеседника → отдельное сообщение (приходит уведомлением) с кнопками
+    function addLine(c, sender, text) {
+        const key = sender + ':' + text, now = Date.now();
+        if (c.lastKey === key && now - c.lastKeyAt < 1500) return;   // защита от двойного вызова хука
+        c.lastKey = key; c.lastKeyAt = now;
+        stripButtons(c.lastLine);
+        const rec = sendWithButtons('💬 <b>' + esc(sender) + '</b> (' + esc(displayName) + ')\n<code>' + esc(text) + '</code>', talkKeyboard(true), false);
+        c.lastLine = rec;
+        c.lines.push(rec);
+        sessionLog('💬 [Тел] ' + sender + ': ' + text.slice(0, 40));
+        sound();
+    }
+    function isCallMessage(c, chatId, messageId) {
+        if (!c) return false;
+        const all = [c.rec].concat(c.lines);
+        return all.some(function (r) {
+            return r && r.msgs.some(function (m) { return String(m.chatId) === String(chatId) && m.messageId === messageId; });
+        });
+    }
+    // текст из Telegram → собеседнику (обычное сообщение в чат игры, мод превратит его в «[Тел]»)
+    function sendCallText(text) {
+        const c = activeCall;
+        if (!c || c.state !== 'talking') {
+            sendToTelegram('⚠️ <b>Сейчас нет разговора (' + esc(displayName) + ')</b> — сообщение не отправлено', false, null);
+            return;
+        }
+        if (!text) return;
+        if (/^[\/!]/.test(text)) {
+            sendToTelegram('⚠️ <b>Не отправлено (' + esc(displayName) + ')</b>: текст не должен начинаться с / или !', false, null);
+            return;
+        }
+        if (text.length > MAX_TEL_LEN) {
+            sendToTelegram('⚠️ <b>Слишком длинно (' + esc(displayName) + ')</b>: ' + text.length + ' из ' + MAX_TEL_LEN + ' символов — сократите', false, null);
+            return;
+        }
+        try {
+            sendChatInput(text);
+            sendToTelegram('➡️ <b>Вы (' + esc(displayName) + '):</b> <code>' + esc(text) + '</code>', true, null);
+        } catch (e) {
+            sendToTelegram('❌ <b>Не удалось отправить (' + esc(displayName) + '):</b>\n<code>' + esc(e.message) + '</code>', false, null);
+        }
+    }
+
+    function handlePhone(msg, colorArg) {
         if (!config.phoneNotifications) return;
 
         let m = msg.match(/^Входящий звонок \| Номер: (\d+) \| Вызывает (.+)$/);
@@ -2829,10 +2932,10 @@ if (document.readyState === 'loading') {
             if (!once('call:' + m[1])) return;
             const caller = m[2].trim();
             sessionLog('📞 Звонок от ' + caller + ' (т.' + m[1] + ')');
-            if (activeCall) finish(activeCall, '⏭ <i>Новый звонок</i>');
-            activeCall = sendWithButtons(
-                '📞 <b>Входящий звонок (' + displayName + ')</b>\n👤 ' + esc(caller) +
-                '\n📱 Номер: <code>' + esc(m[1]) + '</code>',
+            if (activeCall) endCall('⏭ <i>Новый звонок</i>');
+            const c = activeCall = { rec: null, state: 'ringing', caller: caller, number: m[1], outgoing: false, hanging: false, lines: [], lastLine: null };
+            c.rec = sendWithButtons(
+                callHtml(c, ''),
                 { inline_keyboard: [[btn('📞 Ответить (/p)', 'phn_p_' + uniqueId), btn('📵 Сбросить (/h)', 'phn_h_' + uniqueId)]].concat(baseRows()) },
                 false
             );
@@ -2840,10 +2943,32 @@ if (document.readyState === 'loading') {
             return;
         }
 
-        // звонок завершён / отклонён / не отвечен — убираем кнопки
+        // ответили (кнопкой в Telegram, /p или прямо в телефоне в игре) — сообщение остаётся, появляется «Положить трубку»
+        if (normalizeColor(colorArg) === '0xDD90FF') {
+            m = msg.match(/^Вы ответили на звонок (.+)$/);
+            if (m) { startTalking(m[1].trim(), false); return; }
+            m = msg.match(/^(.+) ответил на Ваш звонок$/);
+            if (m) { startTalking(m[1].trim(), true); return; }
+        }
+
+        // конец звонка: сбросил я (в игре или кнопкой), сбросил собеседник, отклонили
         if (activeCall && /^(Звонок окончен|Вы отклонили входящий вызов)/.test(msg)) {
-            finish(activeCall, '☎️ <i>' + esc(msg) + '</i>');
-            activeCall = null;
+            endCall(activeCall.state === 'talking' ? '☎️ <i>Звонок окончен</i>' : '☎️ <i>' + esc(msg) + '</i>');
+            return;
+        }
+        if (activeCall && activeCall.state === 'ringing' && /^Нет входящих вызовов/.test(msg)) {
+            endCall('⌛ <i>Звонок уже завершён</i>');
+            return;
+        }
+
+        // реплика собеседника во время разговора (жёлтая; серая — это эхо моих слов и чужие разговоры рядом)
+        m = msg.match(/^\[Тел\] (.+?): (.*)$/);
+        if (m && normalizeColor(colorArg) === TEL_COLOR) {
+            const sender = m[1].trim();
+            if (sender.replace(/_/g, ' ').toLowerCase() === ownNick()) return;
+            if (!activeCall) startTalking(sender, false);
+            else if (activeCall.state !== 'talking') startTalking(activeCall.caller, activeCall.outgoing);
+            addLine(activeCall, sender, m[2]);
             return;
         }
 
@@ -2927,7 +3052,7 @@ if (document.readyState === 'loading') {
     // ── Хук чата (переживает перезапись в initializeChatMonitor — как в SOBESED) ──
     function onChat(raw, colorArg) {
         const msg = clean(raw);
-        try { handlePhone(msg); } catch (e) { debugLog('[PHONE] ошибка: ' + e.message); }
+        try { handlePhone(msg, colorArg); } catch (e) { debugLog('[PHONE] ошибка: ' + e.message); }
         try { handleOffer(msg, colorArg); } catch (e) { debugLog('[OFFER] ошибка: ' + e.message); }
     }
     function installChatHook() {
@@ -2975,12 +3100,36 @@ if (document.readyState === 'loading') {
             return;
         }
 
-        // звонок
+        // звонок: ответить / положить трубку
         if (data.indexOf('phn_p_') === 0 || data.indexOf('phn_h_') === 0) {
             const answer = data.indexOf('phn_p_') === 0;
+            const c = activeCall;
             sendChatInput(answer ? '/p' : '/h');
-            if (activeCall) { finish(activeCall, answer ? '✅ <b>Ответили</b> — отправлено /p' : '📵 <b>Сброшено</b> — отправлено /h'); activeCall = null; }
-            else editMessageText(chatId, messageId, (answer ? '✅ Отправлено /p' : '📵 Отправлено /h') + ' (' + esc(displayName) + ')', null);
+            if (!c) {   // бот потерял состояние (перезапуск) — команда всё равно ушла
+                editMessageText(chatId, messageId, (answer ? '✅ Отправлено /p' : '📵 Отправлено /h') + ' (' + esc(displayName) + ')', null);
+                return;
+            }
+            if (answer) {
+                // не убираем кнопки: сервер ответит «Вы ответили на звонок …» → startTalking()
+                if (c.state === 'ringing') editCard(c.rec, callHtml(c, '⏳ <i>Отправлено /p — жду соединения…</i>'), talkKeyboard(false));
+            } else {
+                c.hanging = true;
+                stripButtons(c.lastLine);
+                editCard(c.rec, callHtml(c, '📵 <i>Отправлено /h…</i>'), null);
+                if (c.timer) clearTimeout(c.timer);
+                // обычно раньше придёт «Звонок окончен» из чата; это — страховка
+                c.timer = setTimeout(function () { if (activeCall === c) endCall('📵 <b>Сброшено</b> — отправлено /h'); }, 4000);
+            }
+            return;
+        }
+
+        // «✍️ Ответить» собеседнику: просим ввести текст (force_reply)
+        if (data.indexOf('phn_r_') === 0) {
+            _abortPollSafe();
+            sendToTelegram(
+                '✍️ <b>Ответ собеседнику (' + esc(displayName) + ')</b>\n' +
+                '<i>до ' + MAX_TEL_LEN + ' символов — уйдёт в телефонный разговор. Можно и просто ответить реплаем на любое сообщение звонка.</i>\n' +
+                '🔑 TEL_UID: ' + uniqueId, false, { force_reply: true });
             return;
         }
 
@@ -3010,7 +3159,7 @@ if (document.readyState === 'loading') {
         return !!m && m[1] === uniqueId;
     }
     function isOurCallback(data) {
-        return typeof data === 'string' && /^(offer_(yes|no)_|phn_(p|h|sms)_|ntf_(phone|offer)_)/.test(data);
+        return typeof data === 'string' && /^(offer_(yes|no)_|phn_(p|h|r|sms)_|ntf_(phone|offer)_)/.test(data);
     }
 
     // ── Меню «Функции» → тумблеры ───────────────────────────────
@@ -3109,6 +3258,17 @@ if (document.readyState === 'loading') {
                     answerCallbackQuery(cq.id);
                 }
                 continue;
+            }
+            // реплай в разговор: на «✍️ Ответить» или на любое сообщение текущего звонка → собеседнику
+            const tm = u.message;
+            if (tm && tm.reply_to_message && tm.text && config.chatIds.includes(String(tm.chat.id))) {
+                const isPrompt = (tm.reply_to_message.text || '').indexOf('TEL_UID: ' + uniqueId) !== -1;
+                if (isPrompt || isCallMessage(activeCall, tm.chat.id, tm.reply_to_message.message_id)) {
+                    config.lastUpdateId = u.update_id;
+                    setSharedLastUpdateId(config.lastUpdateId);
+                    sendCallText(tm.text.trim());
+                    continue;
+                }
             }
             // ответ (reply) на запрос «Введите SMS…»
             const mm = u.message;
