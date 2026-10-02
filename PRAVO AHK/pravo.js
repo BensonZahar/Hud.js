@@ -5054,6 +5054,30 @@ function _kbRestore() {
     _kbHud = null; _kbOrig = null;
 }
 
+// ── Игрок уже в игре (заспавнился)? Как в Code.js: player/isPlayerConnected ──
+// До спавна сервер профиль не отдаёт, а невидимое меню висит все 20 сек watchdog'а
+// и перехватывает /mn, /gps (они открываются прозрачными и пустыми).
+function _isConnected() {
+    try {
+        var v = window.App && window.App.$store && window.App.$store.getters['player/isPlayerConnected'];
+        return !!v;
+    } catch(e) { return false; }
+}
+
+// Мгновенно снимаем правило-невидимку (без ожидания размонтирования)
+function _hideForceOff() {
+    try { var el = document.getElementById(STYLE_ID); if (el && el.parentNode) el.parentNode.removeChild(el); } catch(e) {}
+    _styleEl = null;
+}
+// Текущий «уступатель» активного считывания (ставится в _begin, снимается в _finish)
+var _activeYield = null;
+// Вызывается патчем openInterface, когда MainMenu открывает НЕ загрузчик (сервер: /mn, /gps, M...):
+// считывание немедленно сворачивается и меню показывается как обычно.
+window._pravoProfileYield = function() {
+    _hideForceOff();
+    try { if (_activeYield) _activeYield(); } catch(e) {}
+};
+
 // ── Открыт ли какой-то другой интерфейс? ──
 // openInterface() прячет текущий верхний интерфейс (PauseMenu, диалог, телефон...) и потом
 // заново показывает при закрытии — это и есть видимое мерцание. Поэтому ждём, пока они закроются.
@@ -5129,12 +5153,14 @@ function loadPlayerProfile(callback) {
     console.log('[Profile] 🔄 Загрузка данных персонажа через MainMenu...');
 
     var _done = false, _wd = null, _poll = null;
-    var _wasOpen = false;
+    var _wasOpen = false, _yielded = false, _began = false;
     var _openP = null; // промис игрового openInterface (он async: ждёт импорт стора)
 
     function _finish(d) {
         if (_done) return;
         _done = true;
+        _activeYield = null;
+        window._pravoOwnOpen = false;
         if (_wd)   { clearTimeout(_wd);   _wd = null; }
         if (_poll) { clearInterval(_poll); _poll = null; }
 
@@ -5161,7 +5187,7 @@ function loadPlayerProfile(callback) {
             if (_tornDown) return;
             _tornDown = true;
 
-            if (!_wasOpen) {
+            if (!_wasOpen && _began) {
                 // 1) серверу — «меню закрыто» (мимо проверки чата)
                 _srvSend('MainMenu_OnPlayerCloseInterface');
                 // 2) закрываем интерфейс на клиенте
@@ -5179,12 +5205,15 @@ function loadPlayerProfile(callback) {
             _restoreOptions();
             _restorePatch();
             _kbRestore();
-            if (!_wasOpen) _hideOff();
+            if (!_wasOpen) _hideOff(); else _hideForceOff();
             _fetching = false;
             window._mvdProfileLoading = false; // разблокируем патч вкладки
 
             // Повтор при неудаче (15с, 30с, 45с) — без callback, чтобы не вызвать его дважды
-            if (!result && _profileRetry < 3) {
+            if (!result && _yielded) {
+                // Меню открыл игрок/сервер — это не неудача: пробуем позже, не тратя попытки
+                setTimeout(function() { loadPlayerProfile(null); }, 15000);
+            } else if (!result && _profileRetry < 3) {
                 _profileRetry++;
                 console.log('[Profile] 🔄 Повтор через ' + (_profileRetry * 15) + 'с (попытка ' + _profileRetry + '/3)');
                 setTimeout(function() { loadPlayerProfile(null); }, _profileRetry * 15000);
@@ -5204,6 +5233,7 @@ function loadPlayerProfile(callback) {
 
     function _begin() {
         if (_done) return;
+        _began = true;
         try { _wasOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
         window._mvdProfileLoading = true; // блокируем патч вкладки пока читаем профиль
 
@@ -5216,12 +5246,21 @@ function loadPlayerProfile(callback) {
         _patchOptions();
         _applyPatch();
 
+        // Если меню откроет кто-то другой (сервер: /mn, /gps) — сразу сворачиваемся и ничего не прячем
+        _activeYield = function() {
+            if (_done) return;
+            _yielded = true;
+            _wasOpen = true;   // трактуем как «меню открыто не нами»: не закрываем, не переключаем вкладку
+            _finish(null);
+        };
+
         if (!_wasOpen) {
             _hideOn();             // правило-невидимка ДО открытия
             _kbSuppress();
             _srvResetMenuState();  // сервер не должен «помнить» старую вкладку
-            try { _openP = window.openInterface('MainMenu'); }
-            catch(e) { _finish(null); return; }
+            try { window._pravoOwnOpen = true; _openP = window.openInterface('MainMenu'); }
+            catch(e) { window._pravoOwnOpen = false; _finish(null); return; }
+            window._pravoOwnOpen = false;
         }
 
         var t0 = Date.now(), reopened = false, selected = false;
@@ -5241,7 +5280,7 @@ function loadPlayerProfile(callback) {
                 if (!_wasOpen && !reopened && Date.now() - t0 > 1500) {
                     var st = false;
                     try { st = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
-                    if (!st) { reopened = true; try { _openP = window.openInterface('MainMenu'); } catch(e) {} }
+                    if (!st) { reopened = true; try { window._pravoOwnOpen = true; _openP = window.openInterface('MainMenu'); } catch(e) {} window._pravoOwnOpen = false; }
                 }
                 return;
             }
@@ -5278,11 +5317,17 @@ function loadPlayerProfile(callback) {
 
     // Перед открытием ждём, пока закроются другие интерфейсы (PauseMenu, диалоги и т.д.),
     // иначе игра прячет их и показывает заново — это мерцание. Максимум 20 сек.
-    (function waitFree(tries) {
+    // До спавна (player/isPlayerConnected) не стартуем вообще — как в Code.js.
+    (function waitFree(busyTries, spawnTries) {
         if (_done) return;
-        if (!_otherInterfaceOpen() || tries >= 40) { _begin(); return; }
-        setTimeout(function() { waitFree(tries + 1); }, 500);
-    })(0);
+        if (!_isConnected()) {
+            if (spawnTries < 1200) { setTimeout(function() { waitFree(busyTries, spawnTries + 1); }, 500); return; }
+            // 10 минут без спавна — не держим очередь вечно
+            _finish(null); return;
+        }
+        if (!_otherInterfaceOpen() || busyTries >= 40) { _begin(); return; }
+        setTimeout(function() { waitFree(busyTries + 1, spawnTries); }, 500);
+    })(0, 0);
 }
 
 // ── Команда /mmenu для принудительного обновления данных ──
@@ -5323,9 +5368,15 @@ waitForApp(function() {
     // Запускаем loadPlayerProfile сразу после готовности App — невидимо для
     // игрока — чтобы к первому /dahk данные уже лежали в window._pravoRank /
     // _mvdFirstName / _mvdLastName и MvdMenu открывалось мгновенно.
-    setTimeout(function() {
+    (function waitSpawnThenPreload() {
         if (window._pravoFirstName && window._pravoLastName && window._pravoRank) return;
-        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+        if (!_isConnected()) { setTimeout(waitSpawnThenPreload, 500); return; }
+        console.log('[Profile] 🎮 Спавн подтверждён — предзагрузка профиля через 3 сек');
+        setTimeout(preloadNow, 3000);
+    })();
+    function preloadNow() {
+        if (window._pravoFirstName && window._pravoLastName && window._pravoRank) return;
+        console.log('[Profile] 🔄 Фоновая предзагрузка профиля после спавна...');
         loadPlayerProfile(function(data) {
             if (data && data.orgRangName) {
                 console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._pravoFirstName||'') + ' ' + (window._pravoLastName||''));
@@ -5341,7 +5392,7 @@ waitForApp(function() {
                 console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
             }
         });
-    }, 1500);
+    }
 });
 
 window._pravoLoadPlayerProfile = loadPlayerProfile;
@@ -5371,6 +5422,11 @@ function _serverPickedTab(params) {
 function applyMainMenuTabPatch() {
     var _origOI = window.openInterface;
     window.openInterface = function(name, params) {
+        // MainMenu открывает кто-то кроме загрузчика профиля (сервер: /mn, /gps, M…) —
+        // немедленно сворачиваем невидимое считывание, иначе меню откроется прозрачным и пустым.
+        if (name === 'MainMenu' && !window._pravoOwnOpen && typeof window._pravoProfileYield === 'function') {
+            try { window._pravoProfileYield(); } catch(e) {}
+        }
         var result = _origOI.apply(this, arguments);
         if (name === 'MainMenu' && !window._mvdProfileLoading && !_serverPickedTab(params)) {
             // Vue-компонент монтируется асинхронно — ждём его появления (до ~1 сек), а не бьём вслепую
