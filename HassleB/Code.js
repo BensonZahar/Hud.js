@@ -317,6 +317,7 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 
             _recInFlight = true;
             window.__afterRec5 = true;
+            window.__lastRecAt = Date.now();   // для подавления «кика» сразу после нашего /rec
 
             // Сбрасываем HP-стейт — следующий тик после спавна только запишет baseline
             if (typeof globalState !== 'undefined') {
@@ -5939,15 +5940,24 @@ function initializeChatMonitor() {
                 debugLog(`Кик сервером: ${kickHit[1]}`);
                 window.__kickNotifiedAt = Date.now();
                 window.__kickDisconnectSkipAt = Date.now(); // следующее «Вы были отключены от сервера» — следствие этого кика
-                sendToTelegram(
-                    `🔌 <b>Вас кикнул сервер (${displayName})</b>\nПричина: ${kickHit[1]}\n<code>${msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/</g, '&lt;')}</code>`,
-                    false,
-                    { inline_keyboard: [
-                        [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
-                        [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
-                    ] }
-                );
-                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+                // Общий кик («Введите /q», ошибка соединения) пока мы сами стоим на авторизации
+                // (автовход выключен: строй / PayDay / кнопка «на авторизацию») или только что отправили /rec —
+                // это обычное поведение сервера, а не событие. Конкретные причины (AFK, защита от ботов, версия) шлём всегда.
+                const _genericKick = kickHit[1] === 'Кик сервером' || kickHit[1] === 'Ошибка соединения';
+                const _holdingAuth = !autoLoginConfig.enabled || (Date.now() - (window.__lastRecAt || 0) < 30000);
+                if (_genericKick && _holdingAuth) {
+                    debugLog('Кик на авторизации (ожидание/реконнект) — уведомление пропущено');
+                } else {
+                    sendToTelegram(
+                        `🔌 <b>Вас кикнул сервер (${displayName})</b>\nПричина: ${kickHit[1]}\n<code>${msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/</g, '&lt;')}</code>`,
+                        false,
+                        { inline_keyboard: [
+                            [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
+                            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+                        ] }
+                    );
+                    window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+                }
             }
         }
         // Обработка посадки в тюрьму администратором
