@@ -4963,43 +4963,21 @@ function restoreMainMenuOptions() {
 // Это полностью исключает мерцание (setInterval с 50мс давал 0-50мс окно,
 // за которое браузер успевал нарисовать кадр с видимым меню).
 var _profileObserver = null;
-var _profileHideStyleEl = null;
-var _profileHideTimer = null;
 
-// Скрытие работает в две ступени, обе срабатывают ДО первой отрисовки кадра:
-//  1) CSS-правило с !important по атрибуту data-pravo-hide (его Vue не перезаписывает
-//     при патче class/style, в отличие от инлайн-стилей);
-//  2) MutationObserver ставит этот атрибут на корень .main-menu в микротаске сразу после
-//     вставки в DOM (микротаски выполняются раньше paint).
-// Observer живёт до конца чтения (раньше отключался после первого найденного элемента
-// и не ловил пересозданный корень). Правило трогает только помеченный элемент, поэтому
-// после закрытия оно безопасно: меню, открытое игроком, помечено не будет.
 function applyProfileStyles(skipHiding) {
     removeProfileStyles();
     if (skipHiding) return; // Меню уже открыто игроком — не трогаем его
 
-    try {
-        if (_profileHideTimer) { clearTimeout(_profileHideTimer); _profileHideTimer = null; }
-        var old = document.getElementById('mvd-profile-styles');
-        if (old && old.parentNode) old.parentNode.removeChild(old);
-        var st = document.createElement('style');
-        st.id = 'mvd-profile-styles';
-        st.textContent = '.main-menu[data-pravo-hide]{opacity:0!important;visibility:hidden!important;' +
-                         'pointer-events:none!important;transition:none!important;animation:none!important}';
-        (document.head || document.documentElement).appendChild(st);
-        _profileHideStyleEl = st;
-    } catch(e) {}
-
-    function hideRoot() {
-        var el = document.querySelector('.main-menu:not([data-pravo-hide])');
+    _profileObserver = new MutationObserver(function() {
+        var el = document.querySelector('.main-menu');
         if (el) {
-            el.setAttribute('data-pravo-hide', '1');
-            el.style.setProperty('opacity', '0', 'important');
-            el.style.setProperty('pointer-events', 'none', 'important');
+            el.style.opacity = '0';
+            el.style.pointerEvents = 'none';
+            _profileObserver.disconnect();
+            _profileObserver = null;
         }
-    }
-    hideRoot(); // на случай, если корень уже есть в DOM
-    _profileObserver = new MutationObserver(hideRoot);
+    });
+    // subtree:true — ловим вложенные добавления; childList:true — добавление узлов
     _profileObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
 
@@ -5008,16 +4986,9 @@ function removeProfileStyles() {
         _profileObserver.disconnect();
         _profileObserver = null;
     }
-    // Помеченный корень убирает closeInterface() вместе с атрибутом. CSS-правило оставляем
-    // ещё на 2 с, чтобы leave-анимация закрытия не показала меню, и только потом удаляем.
-    if (_profileHideStyleEl) {
-        var el = _profileHideStyleEl;
-        _profileHideStyleEl = null;
-        _profileHideTimer = setTimeout(function() {
-            _profileHideTimer = null;
-            try { if (el.parentNode) el.parentNode.removeChild(el); } catch(e) {}
-        }, 2000);
-    }
+    // ВАЖНО: инлайн-стили НЕ убираем намеренно!
+    // closeInterface() удалит DOM-элемент вместе с ними.
+    // Следующее openInterface() создаст чистый элемент без инлайн-стилей.
 }
 
 // ── Извлечение данных из профиля ──
@@ -5272,50 +5243,17 @@ window._pravoLoadPlayerProfile = loadPlayerProfile;
 // ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
 
 // ==================== ПАТЧ: MainMenu открывается сразу на «Персонаж» ====================
-// Вкладку «Персонаж» принудительно выбираем ТОЛЬКО если меню открылось после нажатия M.
-// Любое другое открытие (/gps, /menu, квесты, магазин и т.д.) идёт с вкладкой, которую
-// выбрал сервер — раньше патч перебивал её на Statistics и ломал /gps (карта).
-// По умолчанию ВЫКЛЮЧЕНО: сервер сам открывает «Персонаж» на M (OnPlayerClientSideKey →
-// cmd::menu → MainMenu:Open(MAIN_MENU_TAB_STATISTICS)), так что патч не нужен.
-// Поставь true, только если на другом сервере M открывает не «Персонаж».
-var MAINMENU_FORCE_STATS_AFTER_M = false;
-var MAINMENU_M_TAP_WINDOW_MS = 2500;
+// Когда игрок нажимает M (или любой другой код открывает MainMenu напрямую),
+// автоматически переключаем на вкладку Statistics («Персонаж»).
+// Пока работает loadPlayerProfile (_mvdProfileLoading = true) — патч пассивен,
+// чтобы не мешать невидимому считыванию данных.
 (function() {
 'use strict';
-
-// Клиент шлёт серверу OnPlayerClientSideKey(77) при тапе M — запоминаем момент.
-function hookMKeyTap() {
-    if (window._pravoMKeyHooked || typeof window.sendClientEvent !== 'function') return;
-    window._pravoMKeyHooked = true;
-    var _origSCE = window.sendClientEvent;
-    window.sendClientEvent = function() {
-        try {
-            for (var i = 0; i < arguments.length - 1; i++) {
-                if (arguments[i] === 'OnPlayerClientSideKey') {
-                    if (Number(arguments[i + 1]) === (window.KEY_CODE_M || 77)) window._pravoMTapAt = Date.now();
-                    break;
-                }
-            }
-        } catch (e) {}
-        return _origSCE.apply(this, arguments);
-    };
-}
-
-function shouldForceStatistics() {
-    if (!MAINMENU_FORCE_STATS_AFTER_M) return false;
-    var t = window._pravoMTapAt || 0;
-    if (Date.now() - t > MAINMENU_M_TAP_WINDOW_MS) return false;
-    window._pravoMTapAt = 0; // одно нажатие M — одно переключение
-    return true;
-}
-
 function applyMainMenuTabPatch() {
-    hookMKeyTap();
     var _origOI = window.openInterface;
     window.openInterface = function(name) {
         var result = _origOI.apply(this, arguments);
-        // Пока работает loadPlayerProfile (_mvdProfileLoading) патч пассивен
-        if (name === 'MainMenu' && !window._mvdProfileLoading && shouldForceStatistics()) {
+        if (name === 'MainMenu' && !window._mvdProfileLoading) {
             // Небольшая задержка: Vue-компонент должен смонтироваться
             setTimeout(function() {
                 try {
@@ -5328,7 +5266,7 @@ function applyMainMenuTabPatch() {
         }
         return result;
     };
-    console.log('[PRAVO] Патч MainMenu→Персонаж активен (только после M)');
+    console.log('[PRAVO] Патч MainMenu→Персонаж активен');
 }
 
 // Ждём готовности App (openInterface и window.interface могут появиться позже)
