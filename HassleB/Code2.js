@@ -2738,91 +2738,203 @@ if (document.readyState === 'loading') {
 })();
 // ==================== END INVITE AUTO-FILL v4 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
 
-// ==================== BUBBLE SPY (ТЕСТ) / ПЕРЕХВАТ ПУЗЫРЕЙ НАД ГОЛОВОЙ ====================
-// Диагностика: выводит в чат каждый пузырь над головой, который сервер шлёт клиенту
-// (window.setPlayerChatBubble из index.js). Нужна, чтобы проверить: приходит ли сигнал
-// «игрок открыл чат» как пузырь с текстом.
+// ==================== BUBBLE SPY (ТЕСТ) / PLAYER SPY — ВСЁ, ЧТО СВЯЗАНО С ИГРОКАМИ ====================
+// Диагностика: выводит в чат (жёлтым) всё, что сервер присылает клиенту про игроков.
+// Нужна, чтобы понять, как сервер сигнализирует о действиях игроков (в т.ч. «игрок открыл чат»).
 //
-// Как работает на Хасле:
-//  • index.js определяет window.setPlayerChatBubble = (id, text, color, dist, time) => {...}
-//    и вызывает её сервер через window — поэтому обёртка подхватывается сразу.
-//  • Обёртка ставится с ожиданием: если функции ещё нет (скрипт загрузился раньше index.js)
-//    или её переопределили позже — сторож каждые 1.5 с перевешивает перехват.
-//  • В чат строка выводится напрямую через window.onChatMessage (цвет в формате '0xRRGGBB',
-//    как требует index.js: t.slice(2) → HUD красит как #RRGGBB). Мимо window.OnChatAddMessage,
-//    поэтому отладочные строки НЕ попадают в разбор чата бота (Telegram, KAC и т.д.).
-//  • На Хасле (мобильный клиент) консоли нет — вкл/выкл командами в чате игры:
-//        /bubble_off   — выключить вывод пузырей в чат
-//        /bubble_on    — включить обратно
-//    (или window.PRAVO_BUBBLE_DEBUG = false, если есть доступ к консоли)
+// Что перехватывается (функции из index.js Хасла; сервер вызывает их через window):
+//   bubble  — setPlayerChatBubble(id, text, color, dist, time)           пузыри над головой
+//   players — onUpdatePlayersList(list), updatePlayers(), updatePlayerList(),
+//             attachSound3DToPlayer(...)                                  список игроков, звук на игроке
+//   voice   — setVoiceChatPlayer(id, volume), resetVoiceChatPlayers(),
+//             onVoiceRecordChange(key, state), startVoiceRecord(), stopVoiceRecord()   голос
+//   ui      — openInterface(name, params) только для Interactions / PlayersOnline / Invite
+//             (список имён: window.PRAVO_SPY_UI)                          меню взаимодействия с игроком
+//   self    — setPlayerNickName / Level / PassedHours / Money / BankMoney / Donate / CasinoChips /
+//             CasePoints / MaxCasePoints / SkinId / Notification / VipStatus / Oxygen / ConnectedStatus
+//             (состояние СВОЕГО персонажа; по умолчанию ВЫКЛ, чтобы не засорять чат)
+//
+// Управление командами в чате игры (на сервер они не уходят; на Хасле консоли нет):
+//   /pspy                    — показать, какие группы включены
+//   /pspy <группа> on|off    — включить/выключить группу: bubble players voice ui self
+//   /pspy all on|off         — все группы сразу
+//   /bubble_on, /bubble_off  — как раньше, только пузыри
+//   (или window.PRAVO_BUBBLE_DEBUG = false / window.PRAVO_SPY.voice = false, если есть консоль)
+//
+// Защита: не более 10 строк в секунду (остальные считаются и выводятся итоговой строкой),
+// длинные значения обрезаются, фигурные скобки в данных заменяются на круглые.
+// Строки идут напрямую через window.onChatMessage — мимо window.OnChatAddMessage,
+// поэтому в разбор чата бота (Telegram, KAC и т.д.) не попадают.
 (function () {
-    if (window.__pravoBubbleSpyLoaded) return;
-    window.__pravoBubbleSpyLoaded = true;
-    if (window.PRAVO_BUBBLE_DEBUG === undefined) window.PRAVO_BUBBLE_DEBUG = true;
+    if (window.__pravoPlayerSpyLoaded) return;
+    window.__pravoPlayerSpyLoaded = true;
 
-    function _bubbleSay(text) {
+    if (window.PRAVO_BUBBLE_DEBUG === undefined) window.PRAVO_BUBBLE_DEBUG = true;
+    if (!window.PRAVO_SPY) window.PRAVO_SPY = { players: true, voice: true, ui: true, self: false };
+    if (!window.PRAVO_SPY_UI) window.PRAVO_SPY_UI = ['Interactions', 'PlayersOnline', 'Invite'];
+
+    var GROUPS = ['bubble', 'players', 'voice', 'ui', 'self'];
+
+    function _isOn(group) {
+        return group === 'bubble' ? window.PRAVO_BUBBLE_DEBUG !== false : !!window.PRAVO_SPY[group];
+    }
+    function _setGroup(group, val) {
+        if (group === 'bubble') window.PRAVO_BUBBLE_DEBUG = val;
+        else window.PRAVO_SPY[group] = val;
+    }
+
+    // ── вывод в чат (с ограничением частоты) ──────────────────
+    var _win = { start: 0, count: 0, dropped: 0 };
+    function _rawSay(text) {
         try {
-            if (typeof window.onChatMessage === 'function') {
-                window.onChatMessage(text, '0xFFCC00');
-            }
+            if (typeof window.onChatMessage === 'function') window.onChatMessage(text, '0xFFCC00');
         } catch (e) {}
     }
-
-    // Фигурные скобки в тексте пузыря заменяем, чтобы чат не принял их за цветовой код {RRGGBB}
-    // или кнопку {btn:..}, иначе строка отобразится искажённой.
-    function _bubbleSafe(v) {
-        return String(v).replace(/\{/g, '(').replace(/\}/g, ')');
+    function _say(text) {
+        var now = Date.now();
+        if (now - _win.start >= 1000) {
+            if (_win.dropped > 0) _rawSay('{FFCC00}[SPY] {999999}пропущено строк за секунду: ' + _win.dropped);
+            _win.start = now; _win.count = 0; _win.dropped = 0;
+        }
+        if (_win.count >= 10) { _win.dropped++; return; }
+        _win.count++;
+        _rawSay(text);
     }
 
-    // Цвет в моде задан как 0xRRGGBBAA (например 0xFF0000FF) — показываем в том же виде,
-    // чтобы пузырь можно было сразу сопоставить с вызовом SetPlayerBubble в моде.
-    function _bubbleColor(c) {
+    // ── форматирование значений ───────────────────────────────
+    // {…} в тексте чат принял бы за цветовой код {RRGGBB} или кнопку {btn:..}
+    function _safe(v) { return String(v).replace(/\{/g, '(').replace(/\}/g, ')'); }
+    function _cut(s, max) { s = String(s); return s.length > max ? s.slice(0, max) + '…' : s; }
+    function _val(v, max) {
+        if (v === undefined) return 'undefined';
+        if (v === null) return 'null';
+        if (typeof v === 'string') return '"' + _cut(_safe(v), max) + '"';
+        if (typeof v === 'object' || typeof v === 'function') {
+            try { return _cut(_safe(JSON.stringify(v)), max); } catch (e) { return _cut(_safe(String(v)), max); }
+        }
+        return _safe(v);
+    }
+    // цвет в моде задан как 0xRRGGBBAA — показываем так же, чтобы сверять с SetPlayerBubble в new.pwn
+    function _color(c) {
         if (typeof c === 'number') return '0x' + (c >>> 0).toString(16).toUpperCase().padStart(8, '0');
-        return String(c);
+        return _safe(c);
+    }
+    function _args(a, max) {
+        var out = [];
+        for (var i = 0; i < a.length; i++) out.push(_val(a[i], max));
+        return out.join(', ');
     }
 
-    function _bubbleWrap() {
-        var cur = window.setPlayerChatBubble;
-        if (typeof cur !== 'function' || cur.__pravoBubbleSpy) return;
-        var orig = cur;
-        var spy = function (id, text, color, dist, time) {
-            try {
-                if (window.PRAVO_BUBBLE_DEBUG) {
-                    var line = 'id=' + id + ' | "' + _bubbleSafe(text) + '" | color=' + _bubbleColor(color) +
-                               ' | dist=' + dist + ' | time=' + time;
-                    console.log('[PRAVO-BUBBLE] ' + line);
-                    _bubbleSay('{FFCC00}[BUBBLE] {FFFFFF}' + line);
-                }
-            } catch (e) {}
-            return orig.apply(this, arguments);
+    // ── форматтеры отдельных функций: вернуть строку или null (не логировать) ──
+    function _fBubble(a) {
+        return 'id=' + a[0] + ' | "' + _cut(_safe(a[1]), 120) + '" | color=' + _color(a[2]) +
+               ' | dist=' + a[3] + ' | time=' + a[4];
+    }
+    function _fPlayersList(a) {
+        var e = a[0];
+        if (e && typeof e === 'object') {
+            var keys = [];
+            try { keys = Object.keys(e).slice(0, 8); } catch (x) {}
+            return 'count=' + e.count + ' | keys=' + keys.join('/') + ' | ' + _val(e, 160);
+        }
+        return _args(a, 160);
+    }
+    function _fOpen(a) {
+        var name = a[0];
+        if (window.PRAVO_SPY_UI.indexOf(name) === -1) return null; // чужие интерфейсы не трогаем
+        return _safe(name) + (a.length > 1 ? ' | params=' + _val(a[1], 200) : '');
+    }
+
+    // [функция, группа, метка в чате, форматтер (необязательно)]
+    var T = [
+        ['setPlayerChatBubble',    'bubble',  'BUBBLE',  _fBubble],
+        ['onUpdatePlayersList',    'players', 'PLAYERS', _fPlayersList],
+        ['updatePlayers',          'players', 'PLAYERS'],
+        ['updatePlayerList',       'players', 'PLAYERS'],
+        ['attachSound3DToPlayer',  'players', 'PLAYERS'],
+        ['setVoiceChatPlayer',     'voice',   'VOICE'],
+        ['resetVoiceChatPlayers',  'voice',   'VOICE'],
+        ['onVoiceRecordChange',    'voice',   'VOICE'],
+        ['startVoiceRecord',       'voice',   'VOICE'],
+        ['stopVoiceRecord',        'voice',   'VOICE'],
+        ['openInterface',          'ui',      'UI',      _fOpen],
+        ['setPlayerNickName',      'self',    'SELF'],
+        ['setPlayerLevel',         'self',    'SELF'],
+        ['setPlayerPassedHours',   'self',    'SELF'],
+        ['setPlayerMoney',         'self',    'SELF'],
+        ['setPlayerBankMoney',     'self',    'SELF'],
+        ['setPlayerDonate',        'self',    'SELF'],
+        ['setPlayerCasinoChips',   'self',    'SELF'],
+        ['setPlayerCasePoints',    'self',    'SELF'],
+        ['setMaxPlayerCasePoints', 'self',    'SELF'],
+        ['setPlayerSkinId',        'self',    'SELF'],
+        ['setPlayerNotification',  'self',    'SELF'],
+        ['setPlayerVipStatus',     'self',    'SELF'],
+        ['setPlayerOxygen',        'self',    'SELF'],
+        ['setPlayerConnectedStatus', 'self',  'SELF']
+    ];
+
+    function _log(t, a) {
+        var body = t[3] ? t[3](a) : (t[0] + '(' + _args(a, 120) + ')');
+        if (body === null) return;
+        if (t[3] && t[1] !== 'bubble') body = t[0] + ' | ' + body;
+        console.log('[PRAVO-SPY] ' + t[2] + ' ' + body);
+        _say('{FFCC00}[' + t[2] + '] {FFFFFF}' + _cut(body, 300));
+    }
+
+    // ── обёртка: ставится с ожиданием и перевешивается, если функцию переопределили ──
+    // _inflight защищает от двойного лога, если чей-то хук обернул наш (внутренний вызов молчит)
+    var _inflight = {};
+    function _wrap(t) {
+        var name = t[0], orig = window[name];
+        if (typeof orig !== 'function' || orig.__pravoSpy) return;
+        var spy = function () {
+            var outer = !_inflight[name];
+            _inflight[name] = (_inflight[name] || 0) + 1;
+            try { if (outer && _isOn(t[1])) _log(t, arguments); } catch (e) {}
+            try { return orig.apply(this, arguments); }
+            finally { _inflight[name]--; }
         };
-        spy.__pravoBubbleSpy = true;
-        window.setPlayerChatBubble = spy;
-        console.log('[PRAVO-BUBBLE] ✅ перехват пузырей установлен (PRAVO_BUBBLE_DEBUG=' + window.PRAVO_BUBBLE_DEBUG + ')');
+        spy.__pravoSpy = true;
+        spy.__pravoOrig = orig;
+        window[name] = spy;
     }
+    function _wrapAll() { for (var i = 0; i < T.length; i++) _wrap(T[i]); }
 
-    _bubbleWrap();
-    setInterval(_bubbleWrap, 1500);
+    _wrapAll();
+    setInterval(_wrapAll, 1500);
+    console.log('[PRAVO-SPY] ✅ перехват установлен. Группы: bubble=' + _isOn('bubble') +
+        ' players=' + _isOn('players') + ' voice=' + _isOn('voice') + ' ui=' + _isOn('ui') + ' self=' + _isOn('self'));
 
-    // ── Хук sendChatInput — /bubble_on и /bubble_off ──────────
-    var _bubbleOrigChat = window.sendChatInput;
+    // ── Хук sendChatInput — /pspy, /bubble_on, /bubble_off ───
+    function _status() {
+        var s = [];
+        for (var i = 0; i < GROUPS.length; i++) s.push(GROUPS[i] + '=' + (_isOn(GROUPS[i]) ? '{33DD77}вкл{FFFFFF}' : '{EE4444}выкл{FFFFFF}'));
+        return s.join('  ');
+    }
+    var _origChat = window.sendChatInput;
     window.sendChatInput = function (input) {
         if (typeof input === 'string') {
-            var cmd = input.trim().toLowerCase();
-            if (cmd === '/bubble_on') {
-                window.PRAVO_BUBBLE_DEBUG = true;
-                _bubbleSay('{FFCC00}[BUBBLE] {33DD77}Вывод пузырей в чат включён');
-                return; // не отправляем на сервер
-            }
-            if (cmd === '/bubble_off') {
-                window.PRAVO_BUBBLE_DEBUG = false;
-                _bubbleSay('{FFCC00}[BUBBLE] {EE4444}Вывод пузырей в чат выключен');
+            var parts = input.trim().toLowerCase().split(/\s+/);
+            var cmd = parts[0];
+            if (cmd === '/bubble_on' || cmd === '/bubble_off') {
+                _setGroup('bubble', cmd === '/bubble_on');
+                _rawSay('{FFCC00}[SPY] {FFFFFF}' + _status());
                 return;
             }
+            if (cmd === '/pspy') {
+                var g = parts[1], v = parts[2];
+                if (g && (v === 'on' || v === 'off')) {
+                    var on = v === 'on';
+                    if (g === 'all') { for (var i = 0; i < GROUPS.length; i++) _setGroup(GROUPS[i], on); }
+                    else if (GROUPS.indexOf(g) !== -1) _setGroup(g, on);
+                    else { _rawSay('{FFCC00}[SPY] {EE4444}нет группы «' + _safe(g) + '». Есть: ' + GROUPS.join(', ') + ', all'); return; }
+                }
+                _rawSay('{FFCC00}[SPY] {FFFFFF}' + _status());
+                return; // не отправляем на сервер
+            }
         }
-        return (typeof _bubbleOrigChat === 'function')
-            ? _bubbleOrigChat.apply(this, arguments)
-            : undefined;
+        return (typeof _origChat === 'function') ? _origChat.apply(this, arguments) : undefined;
     };
 })();
-// ==================== END BUBBLE SPY ====================
+// ==================== END BUBBLE SPY / PLAYER SPY ====================
