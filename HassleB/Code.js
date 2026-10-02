@@ -7476,6 +7476,15 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     const PAGE_TIMEOUT_MS  = 6000;   // ждём очередную страницу не дольше
     const MAX_FIND_RETRIES = 2;      // сколько раз повторяем /find, если диалог не пришёл
     const TOTAL_TIMEOUT_MS = 30000;  // общий предохранитель
+    const MAX_ABORT_RETRIES   = 2;      // сколько раз перезапускаем всю проверку после прерывания
+    const ABORT_RETRY_DELAY_MS = 60000; // пауза перед таким перезапуском
+
+    // ── Поколение модуля ─────────────────────────────────────────
+    // Load.js может перезапускать Code.js много раз; таймеры прежних запусков остаются живы
+    // и иначе слали бы /find параллельно с новым. Устаревший экземпляр просто замолкает.
+    const _gen = (window._hassleWarnGen = (window._hassleWarnGen || 0) + 1);
+    function _stale() { return window._hassleWarnGen !== _gen; }
+    window._warnCheckActive = false;
 
     // ── Состояние ────────────────────────────────────────────────
     const warnCheck = {
@@ -7488,7 +7497,10 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         priority:    0,       // priority последнего диалога (3-й аргумент addDialogInQueue)
         retries:     0,
         timeout:     null,
-        pageTimer:   null
+        pageTimer:   null,
+        failCount:   0,       // сколько раз проверка прерывалась подряд
+        retryTimer:  null,    // отложенный перезапуск после прерывания
+        nickWait:    0        // сколько раз ждали появления ника
     };
 
     // ── Утилиты ──────────────────────────────────────────────────
@@ -7500,6 +7512,9 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             .replace(/\s+/g, ' ')
             .trim();
     }
+
+    // Флаг «есть следующая страница» может прийти как true/1/'1'/'true' — строку 'false' считаем ложью
+    function _truthy(v) { return v === true || v === 1 || v === '1' || v === 'true'; }
 
     function _log(msg) {
         if (typeof debugLog === 'function') debugLog(msg);
@@ -7533,7 +7548,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         if (warnCheck.pageTimer) clearTimeout(warnCheck.pageTimer);
         warnCheck.pageTimer = setTimeout(function () {
             warnCheck.pageTimer = null;
-            if (!warnCheck.active) return;
+            if (_stale() || !warnCheck.active) return;
             if (warnCheck.retries < MAX_FIND_RETRIES) {
                 warnCheck.retries++;
                 _log('[WARN] ↻ Страница не пришла за ' + (PAGE_TIMEOUT_MS / 1000) + ' сек — повторяем /find (' + warnCheck.retries + '/' + MAX_FIND_RETRIES + ')');
@@ -7645,6 +7660,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         warnCheck.active   = false;
         window._warnCheckActive = false;
         warnCheck.dialogId = null;
+        warnCheck.failCount = 0;
 
         _respondClose(dialogId);
 
@@ -7653,6 +7669,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             p.warnings        = current;
             p.maxWarnings     = max;
             p.warningsChecked = true;
+            p.warningsFailed  = false;
         }
         _log('[WARN] Выговоры: ' + current + '/' + max + ' — сохранено в профиль');
 
@@ -7662,6 +7679,8 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     }
 
     // ── Прервать проверку (таймаут/ошибка) ───────────────────────
+    // Не оставляем в приветствии вечное «проверяем...»: перезапускаем (до MAX_ABORT_RETRIES раз),
+    // а если и это не помогло — ставим статус «не удалось проверить» и обновляем сообщение.
     function _abort() {
         _clearTimers();
         // Если на сервере остался открытый диалог — закрываем (клиентского нет, но сервер ждёт ответ)
@@ -7669,23 +7688,47 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         warnCheck.active   = false;
         window._warnCheckActive = false;
         warnCheck.dialogId = null;
-        _log('[WARN] Проверка выговоров прервана (таймаут/ошибка)');
+        warnCheck.failCount++;
+
+        if (warnCheck.failCount <= MAX_ABORT_RETRIES) {
+            _log('[WARN] Проверка прервана (' + warnCheck.failCount + '/' + (MAX_ABORT_RETRIES + 1) +
+                 ') — повтор через ' + (ABORT_RETRY_DELAY_MS / 1000) + ' сек');
+            if (warnCheck.retryTimer) clearTimeout(warnCheck.retryTimer);
+            warnCheck.retryTimer = setTimeout(function () {
+                warnCheck.retryTimer = null;
+                startWarningCheck();
+            }, ABORT_RETRY_DELAY_MS);
+        } else {
+            const p = config && config.accountInfo && config.accountInfo.profile;
+            if (p) p.warningsFailed = true;
+            _log('[WARN] Проверка выговоров не удалась ' + warnCheck.failCount + ' раз подряд — статус «не удалось проверить»');
+            setTimeout(function () {
+                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(true);
+            }, 400);
+        }
     }
 
     // ── Публичная точка входа ─────────────────────────────────────
     function startWarningCheck() {
+        if (_stale()) return;   // экземпляр от прежней загрузки скрипта
         // Выговоры актуальны только для фракционных игроков
+        // Фракция может определиться позже профиля — тогда проверку запустит _waitForProfile,
+        // поэтому «0/3» здесь НЕ ставим (иначе проверка уже никогда не выполнится).
         if (!config.currentFaction) {
-            _log('[WARN] Не во фракции — проверка выговоров пропущена');
-            const p = config && config.accountInfo && config.accountInfo.profile;
-            if (p) { p.warnings = 0; p.maxWarnings = 3; p.warningsChecked = true; }
+            _log('[WARN] Фракция пока не определена — проверка выговоров отложена');
             return;
         }
         const nick = (config && config.accountInfo && config.accountInfo.nickname) || null;
         if (!nick) {
-            _log('[WARN] Ник не определён — откладываем проверку');
+            if (warnCheck.nickWait++ < 20) {
+                _log('[WARN] Ник не определён — повторим через 3 сек (' + warnCheck.nickWait + '/20)');
+                setTimeout(startWarningCheck, 3000);
+            } else {
+                _log('[WARN] Ник так и не определился — проверка выговоров не запущена');
+            }
             return;
         }
+        warnCheck.nickWait = 0;
         if (warnCheck.active) {
             _log('[WARN] Проверка уже идёт — пропускаем');
             return;
@@ -7709,6 +7752,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
         // Общий предохранитель
         warnCheck.timeout = setTimeout(function () {
+            if (_stale()) return;
             _log('[WARN] ⏰ Общий таймаут ' + (TOTAL_TIMEOUT_MS / 1000) + ' сек — прерываем');
             _abort();
         }, TOTAL_TIMEOUT_MS);
@@ -7723,15 +7767,12 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         _armPageTimer();
     }
 
-    // ── Перехват addDialogInQueue (поверх существующего патча DIALOG MONITOR v2) ─
-    const _warnPrevAddDialog = window.addDialogInQueue;
-
-    window.addDialogInQueue = function (dialogParams, content, priority) {
-        if (!warnCheck.active) {
-            return _warnPrevAddDialog
-                ? _warnPrevAddDialog.call(this, dialogParams, content, priority)
-                : undefined;
-        }
+    // ── Перехват диалогов проверки ───────────────────────────────────
+    // Возвращает true, если диалог «съеден» модулем и игре (Vue) его отдавать нельзя.
+    // Вызывается из хука addDialogInQueue: из Code2 (DIALOG MONITOR) через window._hassleWarnIntercept —
+    // именно он стоит поверх нашего хука и раньше отдавал /find оригиналу игры (отсюда мерцание).
+    function _intercept(dialogParams, content, priority) {
+        if (!warnCheck.active) return false;
 
         let parsed = null, dialogId = null, style = null, title = '';
         try {
@@ -7744,16 +7785,17 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         } catch (e) {
             _log('[WARN] Ошибка разбора параметров диалога: ' + e.message);
         }
+        if (!parsed) return false;
 
         // style=5 = TABLIST_HEADERS; заголовок /find содержит "В игре:"
-        if (parsed && style === 5 && /в игре/i.test(title)) {
+        if (style === 5 && /в игре/i.test(title)) {
             _log('[WARN] Перехвачен /find диалог id=' + dialogId + ', title="' + title + '"');
             warnCheck.dialogId = dialogId;
             warnCheck.priority = priority || 0;
             if (warnCheck.pageTimer) { clearTimeout(warnCheck.pageTimer); warnCheck.pageTimer = null; }
 
             // openParams[7] — есть ли следующая страница (так же читает Window.js: paginate[1])
-            const hasNext = (parsed.length > 7) ? !!parsed[7] : null;
+            const hasNext = (parsed.length > 7) ? _truthy(parsed[7]) : null;
 
             try {
                 _processPage(dialogId, priority || 0, content, hasNext);
@@ -7762,16 +7804,13 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 _respondClose(dialogId);
                 _abort();
             }
-
-            // Игре диалог НЕ отдаём: не рисуется, не меняет курсор/ники/радар,
-            // не закрывает чужой открытый диалог (addDialogInQueue без priority делает closeLastDialog).
-            return;
+            return true;
         }
 
         // Замаскированный агент ФСБ: сервер сначала спрашивает «Своя организация / Организация
         // маскировки» (DIALOG_FIND_MASK_CHOICE, style=2). Отвечаем сами: «Своя организация» (пункт 0),
         // иначе список так и не придёт, а диалог выбора останется на экране.
-        if (parsed && style === 2 && /^выберите организацию$/i.test(title)) {
+        if (style === 2 && /^выберите организацию$/i.test(title)) {
             _log('[WARN] /find просит выбрать организацию (маскировка) — выбираем свою (id=' + dialogId + ')');
             if (warnCheck.pageTimer) { clearTimeout(warnCheck.pageTimer); warnCheck.pageTimer = null; }
             try {
@@ -7781,13 +7820,37 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 _log('[WARN] Ошибка ответа на выбор организации: ' + e.message);
                 _abort();
             }
-            return;
+            return true;
         }
 
-        return _warnPrevAddDialog
-            ? _warnPrevAddDialog.call(this, dialogParams, content, priority)
-            : undefined;
-    };
+        return false;
+    }
+    window._hassleWarnIntercept = _intercept;
+
+    // Собственный хук addDialogInQueue — запасной вариант, если Code2 не загружен.
+    // Если Code2 загружен, он перекрывает этот хук своим и вызывает _hassleWarnIntercept.
+    // Оригинал игры берём из window._hassleOrig_addDialogInQueue (общий с Code2): повторный запуск
+    // скрипта не наслаивает обёртки, а чужие диалоги не теряются.
+    function _installDialogHook(attempt) {
+        if (typeof window.addDialogInQueue !== 'function') {
+            if (attempt < 60) setTimeout(function () { _installDialogHook(attempt + 1); }, 1000);
+            else _log('[WARN] window.addDialogInQueue так и не появилась — запасной перехват не установлен');
+            return;
+        }
+        // Уже кто-то (Code2) поставил свой хук — не перекрываем его
+        if (attempt > 0 && window._hassleOrig_addDialogInQueue) return;
+        if (!window._hassleOrig_addDialogInQueue) window._hassleOrig_addDialogInQueue = window.addDialogInQueue;
+        const prev = window._hassleOrig_addDialogInQueue;
+
+        window.addDialogInQueue = function (dialogParams, content, priority) {
+            let consumed = false;
+            try { consumed = _intercept(dialogParams, content, priority); }
+            catch (e) { _log('[WARN] Ошибка перехвата диалога: ' + e.message); }
+            if (consumed) return;   // игре диалог НЕ отдаём: не рисуется, не трогает курсор/ники/радар
+            return prev.call(this, dialogParams, content, priority);
+        };
+    }
+    _installDialogHook(0);
 
     // ── Monkey-patch buildWelcomeAccountInfo ──────────────────────
     // Добавляем строку "Выговоры" в блок "Фракция / Звание", после "Статус".
@@ -7810,6 +7873,8 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     if (cur === 0) return block;
                     const icon = cur >= max ? '🚫' : '⚠️';
                     warnLine = `${icon} <b>Выговоры:</b> ${cur}/${max}`;
+                } else if (p.warningsFailed) {
+                    warnLine = '❓ <b>Выговоры:</b> не удалось проверить';
                 } else if (p.loaded && !p.warningsChecked && config.currentFaction) {
                     warnLine = '⏳ <b>Выговоры:</b> проверяем...';
                 } else {
@@ -7841,26 +7906,30 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         _log('[WARN] buildWelcomeAccountInfo не найдена — выговоры отображаться не будут');
     }
 
-    // ── Автозапуск: ждём загрузки профиля, потом запускаем check ─
-    (function _waitForProfile() {
+    // ── Автозапуск: ждём загрузки профиля И определения фракции, потом запускаем check ─
+    // Опрос каждые 5 сек (до часа): фракция может определиться позже профиля.
+    let _autoStarted = false;
+    (function _waitForProfile(n) {
+        if (_stale()) return;
         const p = config && config.accountInfo && config.accountInfo.profile;
-        if (p && p.loaded && !p.warningsChecked) {
-            // Вне фракции — пропускаем /find, выставляем 0 выговоров
-            if (!config.currentFaction) {
-                p.warnings = 0; p.maxWarnings = 3; p.warningsChecked = true;
-                _log('[WARN] Не во фракции — выговоры не проверяем');
-                return;
-            }
-            _log('[WARN] Профиль загружен → запускаем проверку выговоров через 2 сек');
+        if (p && (p.warningsChecked || p.warningsFailed)) return;
+        if (p && p.loaded && config.currentFaction && !_autoStarted) {
+            _autoStarted = true;
+            _log('[WARN] Профиль загружен, фракция известна → запускаем проверку выговоров через 2 сек');
             setTimeout(startWarningCheck, 2000);
-        } else if (!p || !p.loaded) {
-            setTimeout(_waitForProfile, 3000);
+            return;
         }
-        // Если warningsChecked уже true — ничего не делаем
-    })();
+        if (n < 720) setTimeout(function () { _waitForProfile(n + 1); }, 5000);
+    })(0);
 
-    // Экспортируем для ручного вызова из Telegram (/find команда)
-    window._hassleCheckWarnings = startWarningCheck;
+    // Экспортируем для ручного вызова из Telegram (/find команда): сбрасывает счётчик неудач
+    window._hassleCheckWarnings = function () {
+        warnCheck.failCount = 0;
+        warnCheck.nickWait  = 0;
+        const p = config && config.accountInfo && config.accountInfo.profile;
+        if (p) p.warningsFailed = false;
+        startWarningCheck();
+    };
 
     _log('[WARN] Модуль проверки выговоров загружен. /find запустится после загрузки профиля.');
 

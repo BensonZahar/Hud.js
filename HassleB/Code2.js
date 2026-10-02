@@ -535,6 +535,24 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             }
         }
 
+        // ── Проверка выговоров (/find): диалог забирает модуль из Code.js и игре НЕ отдаётся ──
+        // Раньше здесь вызывался оригинал игры → /find рисовался в Vue (fade, курсор, скрытые ники),
+        // а затем откатывался — отсюда мерцание и «залипший» диалог. Стоит ДО обновления состояния dlg
+        // и до отправки в Telegram: ни то, ни другое для служебного /find не нужно.
+        if (window._warnCheckActive && typeof window._hassleWarnIntercept === 'function') {
+            let _warnConsumed = false;
+            try {
+                _warnConsumed = window._hassleWarnIntercept(dialogParams, content, priority);
+            } catch (e) {
+                debugLog('[DLG] Ошибка перехвата диалога выговоров: ' + e.message);
+            }
+            if (_warnConsumed) {
+                debugLog('[DLG] Диалог проверки выговоров обработан модулем — Vue/Telegram пропущены');
+                return; // НЕ вызываем _dlgOrigAddDialogInQueue — диалог не попадает в Vue
+            }
+        }
+        // ── END проверка выговоров ──────────────────────────────────────────────
+
         // Если диалог содержит сообщение об авторизации/отключении — ставим флаг,
         // чтобы подавить дублирующее уведомление "Вы были отключены от сервера"
         const _dlgAllText = (title + ' ' + info + ' ' + contentText).toLowerCase();
@@ -706,15 +724,6 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             return; // НЕ вызываем _dlgOrigAddDialogInQueue — диалог не попадает в Vue
         }
         // ── END ────────────────────────────────────────────────────────────────
-
-        // ── Пропускаем /find диалог, если идёт проверка выговоров ──────────────
-        if (window._warnCheckActive &&
-            style === DIALOG_STYLE.TABLIST_HEADERS &&
-            /в игре/i.test(title)) {
-            debugLog('[DLG] /find диалог пропущен — проверка выговоров активна (Telegram не нужен)');
-            return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
-        }
-        // ── END /find skip ──────────────────────────────────────────────────────
 
         // ── Авто-закрытие диалога "Время на авторизацию ограничено" ───────────
         // Появляется когда висим на экране авторизации и время истекло.
