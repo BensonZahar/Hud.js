@@ -222,7 +222,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.9 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -4953,29 +4953,78 @@ function _restorePatch() {
     } catch(e) {}
 }
 
-// ── Прячем меню CSS-правилом ЕЩЁ ДО открытия ──
-// MutationObserver срабатывал уже после вставки .main-menu, а CSS-анимация появления
-// перебивает inline-opacity → мерцание. Правило с !important работает с первого кадра.
+// ── Прячем меню ЕЩЁ ДО открытия — но только МЕНЮ ЗАГРУЗЧИКА ──
+// CSS-правило на класс .main-menu работает с первого кадра (нет мерцания), но оно накрывает ЛЮБОЕ
+// .main-menu — в том числе меню, которое сервер открыл для /mn, /gps или M. Поэтому правило живёт
+// только пока идёт чтение, а на каждый элемент загрузчика сразу ставится инлайн-стиль (как в старой
+// версии): он исчезает вместе с элементом и новое серверное меню никогда не наследует невидимость.
+var _mmObserver = null;
+function _tagMenuEl(el) {
+    try {
+        if (!el || el.__pravoHidden) return false;
+        el.__pravoHidden = true;
+        el.style.setProperty('opacity', '0', 'important');
+        el.style.setProperty('visibility', 'hidden', 'important');
+        el.style.setProperty('pointer-events', 'none', 'important');
+        return true;
+    } catch(e) { return false; }
+}
+function _tagAllMenus() {
+    var n = 0;
+    try {
+        var list = document.querySelectorAll('.main-menu');
+        for (var i = 0; i < list.length; i++) if (_tagMenuEl(list[i]) || list[i].__pravoHidden) n++;
+    } catch(e) {}
+    return n;
+}
 function _hideOn() {
     try {
-        if (document.getElementById(STYLE_ID)) return;
-        _styleEl = document.createElement('style');
-        _styleEl.id = STYLE_ID;
-        _styleEl.textContent = '.main-menu{opacity:0!important;visibility:hidden!important;pointer-events:none!important;animation:none!important;transition:none!important;}';
-        (document.head || document.documentElement).appendChild(_styleEl);
+        if (!document.getElementById(STYLE_ID)) {
+            _styleEl = document.createElement('style');
+            _styleEl.id = STYLE_ID;
+            _styleEl.textContent = '.main-menu{opacity:0!important;visibility:hidden!important;pointer-events:none!important;animation:none!important;transition:none!important;}';
+            (document.head || document.documentElement).appendChild(_styleEl);
+        }
+        // метим каждый .main-menu, появившийся пока идёт чтение (до отрисовки кадра)
+        if (!_mmObserver && typeof MutationObserver === 'function') {
+            _mmObserver = new MutationObserver(function() { _tagAllMenus(); });
+            _mmObserver.observe(document.documentElement, { childList: true, subtree: true });
+        }
     } catch(e) {}
 }
-// Снимаем правило только когда меню реально размонтировано (иначе вспышка при закрытии)
-function _hideOff() {
+// Страховка: если меню открыто игроком/сервером, а на его элементе осталась наша метка (например,
+// Vue переиспользовал узел) — снимаем её. Вызывается через ~0.5 с после открытия, когда fade-выход
+// старого меню уже закончился.
+window._pravoUnhideMenus = function() {
+    try {
+        var list = document.querySelectorAll('.main-menu');
+        for (var i = 0; i < list.length; i++) {
+            var el = list[i];
+            if (!el.__pravoHidden) continue;
+            el.style.removeProperty('opacity'); el.style.removeProperty('visibility'); el.style.removeProperty('pointer-events');
+            el.__pravoHidden = false;
+        }
+    } catch(e) {}
+};
+function _hideStop() {
+    try { if (_mmObserver) { _mmObserver.disconnect(); _mmObserver = null; } } catch(e) {}
+}
+function _hideRemoveStyle() {
+    try { var el = document.getElementById(STYLE_ID); if (el && el.parentNode) el.parentNode.removeChild(el); } catch(e) {}
+    _styleEl = null;
+}
+// Конец чтения. own = true, если меню открывали МЫ: тогда прячем его инлайн (до размонтирования)
+// и сразу снимаем CSS-правило, чтобы оно не задело следующее меню. Если элемента ещё нет в DOM —
+// страхуемся старым способом (ждём размонтирования, максимум 1.2 с).
+function _hideOff(own) {
+    _hideStop();
+    if (!own) { _hideRemoveStyle(); return; }
+    if (_tagAllMenus() > 0) { _hideRemoveStyle(); return; }
     var t0 = Date.now();
     (function tick() {
         var gone = true;
         try { gone = !document.querySelector('.main-menu'); } catch(e) {}
-        if (gone || Date.now() - t0 > 1200) {
-            try { var el = document.getElementById(STYLE_ID); if (el && el.parentNode) el.parentNode.removeChild(el); } catch(e) {}
-            _styleEl = null;
-            return;
-        }
+        if (gone || Date.now() - t0 > 1200) { _tagAllMenus(); _hideRemoveStyle(); return; }
         setTimeout(tick, 50);
     })();
 }
@@ -5070,8 +5119,8 @@ function _isConnected() {
 
 // Мгновенно снимаем правило-невидимку (без ожидания размонтирования)
 function _hideForceOff() {
-    try { var el = document.getElementById(STYLE_ID); if (el && el.parentNode) el.parentNode.removeChild(el); } catch(e) {}
-    _styleEl = null;
+    _hideStop();
+    _hideRemoveStyle();
 }
 // Текущий «уступатель» активного считывания (ставится в _begin, снимается в _finish)
 var _activeYield = null;
@@ -5243,12 +5292,14 @@ function loadPlayerProfile(callback) {
             _fetching = false;
             window._mvdProfileLoading = false; // разблокируем патч вкладки
             _tornDownAll = true;
+            var _own = (!_wasOpen && _began);   // меню открывали мы
+            if (_own) _hideOff(true);           // метим элемент загрузчика инлайн + снимаем глобальное правило СРАЗУ
+            else _hideForceOff();
             if (_yielded) {
-                // Освободили меню: даём Vue размонтировать старое, снимаем невидимку и только потом
-                // продолжаем (команда игрока / открытие от сервера) — чтобы новое меню не оказалось скрытым.
-                setTimeout(function() { _hideForceOff(); _flushTeardownCbs(); }, 60);
+                // Освободили меню: даём Vue размонтировать старое и только потом продолжаем
+                // (команда игрока / открытие от сервера) — новое меню — это новый чистый элемент.
+                setTimeout(function() { _flushTeardownCbs(); }, 60);
             } else {
-                if (!_wasOpen) _hideOff(); else _hideForceOff();
                 _flushTeardownCbs();
             }
 
@@ -5481,6 +5532,14 @@ function applyMainMenuTabPatch() {
         var self = this, args = arguments;
         function go() {
             var result = _origOI.apply(self, args);
+            if (name === 'MainMenu' && !window._pravoOwnOpen) {
+                setTimeout(function() {
+                    try {
+                        if (!window._mvdProfileLoading && window.getInterfaceStatus('MainMenu')
+                            && typeof window._pravoUnhideMenus === 'function') window._pravoUnhideMenus();
+                    } catch(e) {}
+                }, 450);
+            }
             if (name === 'MainMenu' && !window._mvdProfileLoading && !_serverPickedTab(params)) {
                 // Vue-компонент монтируется асинхронно — ждём его появления (до ~1 сек), а не бьём вслепую
                 var tries = 0;
