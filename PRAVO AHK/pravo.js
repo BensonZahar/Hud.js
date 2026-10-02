@@ -6322,4 +6322,33 @@ console.log('[PRAVO] Interactions drag v1 готов  (PC=mouse / Hassle=touch)'
 
 })();
 // ==================== END INTERACTIONS: DRAG ====================
+// ==================== BUBBLE SPY (ТЕСТ) ====================
+// Диагностика: выводит в чат каждый пузырь над головой, который сервер шлёт клиенту.
+// Нужна, чтобы проверить: приходит ли сигнал «игрок открыл чат» как пузырь с текстом.
+// Выключить: window.PRAVO_BUBBLE_DEBUG = false  (или удалить этот блок).
+(function () {
+    if (window.__pravoBubbleSpy) return;
+    window.__pravoBubbleSpy = true;
+    if (window.PRAVO_BUBBLE_DEBUG === undefined) window.PRAVO_BUBBLE_DEBUG = true;
+
+    var orig = window.setPlayerChatBubble;
+    if (typeof orig !== 'function') {
+        console.warn('[PRAVO-BUBBLE] window.setPlayerChatBubble не найден — перехват не установлен');
+        return;
+    }
+    window.setPlayerChatBubble = function (id, text, color, dist, time) {
+        try {
+            if (window.PRAVO_BUBBLE_DEBUG) {
+                var line = 'id=' + id + ' | "' + text + '" | color=' + color + ' | dist=' + dist + ' | time=' + time;
+                console.log('[PRAVO-BUBBLE] ' + line);
+                if (typeof window.onChatMessage === 'function') {
+                    window.onChatMessage('{FFCC00}[BUBBLE] {FFFFFF}' + line, [0, 0, 'FFCC00']);
+                }
+            }
+        } catch (e) {}
+        return orig.apply(this, arguments);
+    };
+    console.log('[PRAVO-BUBBLE] ✅ перехват пузырей установлен (PRAVO_BUBBLE_DEBUG=true)');
+})();
+// ==================== END BUBBLE SPY ====================
 }); // конец callback _nickCheck
