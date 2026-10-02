@@ -507,7 +507,7 @@ loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function()
         if (!isMatch(e)) return;
         e.preventDefault && e.preventDefault();
         window._fsinAutoEject && window._fsinAutoEject();
-    });
+    }, true);
 
     if (matchWheel) {
         window.addEventListener('wheel', function(e) {
@@ -595,7 +595,7 @@ loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function()
         if (!isMatch(e)) return;
         e.preventDefault && e.preventDefault();
         window._fsinSwapTaserDeagle && window._fsinSwapTaserDeagle();
-    });
+    }, true);
 
     // Колёсико мыши
     if (matchWheel) {
