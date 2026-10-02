@@ -469,8 +469,29 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
     // и НЕ шлёт данные. Если прошлое закрытие меню не дошло до сервера (closeInterface без
     // sendCloseEvent), сервер «помнит» Statistics — и профиль не приходит НИКОГДА.
     // Поэтому перед своим открытием принудительно сбрасываем это состояние.
+    // Игровой sendClientEvent молча ВЫБРАСЫВАЕТ событие, если открыт чат (isOpenedChat()).
+    // Для обычных событий это нормально, но здесь потеря «закрытия» оставляет на сервере
+    // MAIN_MENU_CURRENT_TYPE_INTERFACE выставленным: MainMenu:Open() потом всегда возвращает false,
+    // и M, /menu, /gps и всё остальное, что открывает главное меню, перестаёт работать.
+    // sendClientEventHandle — «сырая» отправка без этой проверки.
+    function _srvSend(eventName, arg) {
+        var args = (arg === undefined) ? [eventName] : [eventName, arg];
+        try {
+            if (typeof window.sendClientEventHandle === 'function') {
+                window.sendClientEventHandle.apply(window, [0].concat(args));
+                return true;
+            }
+        } catch(e) {}
+        try {
+            if (typeof window.sendClientEvent === 'function') {
+                window.sendClientEvent.apply(window, [0, { ignoreChat: true }].concat(args));
+                return true;
+            }
+        } catch(e) {}
+        return false;
+    }
     function _srvResetMenuState() {
-        try { if (typeof window.sendClientEvent === 'function') window.sendClientEvent(0, 'MainMenu_OnPlayerCloseInterface'); } catch(e) {}
+        _srvSend('MainMenu_OnPlayerCloseInterface');
     }
     function _srvAskStats(mm) {
         try {
@@ -481,8 +502,8 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                     if (ti >= 0) idx = ti;
                 }
             } catch(e) {}
-            window.sendClientEvent(0, 'MainMenu_OnPlayerCloseInterface');
-            window.sendClientEvent(0, 'MainMenu_OnPlayerChangeTab', idx);
+            _srvSend('MainMenu_OnPlayerCloseInterface');
+            _srvSend('MainMenu_OnPlayerChangeTab', idx);
         } catch(e) {}
     }
 
@@ -603,6 +624,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 
         var _done = false, _wd = null, _poll = null;
         var _wasOpen = false;
+        var _openP = null; // промис игрового openInterface (он async: ждёт импорт стора)
 
         function _finish(data) {
             if (_done) return;
@@ -610,20 +632,42 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
             if (_wd)   { clearTimeout(_wd);   _wd = null; }
             if (_poll) { clearInterval(_poll); _poll = null; }
 
-            if (!_wasOpen) {
-                try {
-                    var mmC = window.interface('MainMenu');
-                    if (mmC && typeof mmC.sendCloseEvent === 'function') mmC.sendCloseEvent();
-                    else if (typeof window.sendClientEvent === 'function') window.sendClientEvent(0, 'MainMenu_OnPlayerCloseInterface');
-                } catch(e) {}
-                try { window.closeInterface('MainMenu'); } catch(e) {}
+            // Разбор интерфейса делаем ПОСЛЕ того, как игровой openInterface дошёл до конца.
+            // Иначе closeInterface срабатывает раньше showInterface: open.status уже false,
+            // а курсор/счётчики HUD/стек интерфейсов потом всё равно «включаются» и зависают.
+            var _tornDown = false;
+            function _teardown() {
+                if (_tornDown) return;
+                _tornDown = true;
+
+                if (!_wasOpen) {
+                    // 1) серверу — «меню закрыто» (мимо проверки чата)
+                    _srvSend('MainMenu_OnPlayerCloseInterface');
+                    // 2) закрываем интерфейс на клиенте
+                    try { window.closeInterface('MainMenu'); } catch(e) {}
+                    // 3) страховка: если событие всё-таки потерялось или сервер успел выставить
+                    // состояние позже — повторяем, но только если игрок сам меню не открыл
+                    setTimeout(function() {
+                        try {
+                            if (!window._hassleProfileLoading && !window.getInterfaceStatus('MainMenu')) {
+                                _srvSend('MainMenu_OnPlayerCloseInterface');
+                            }
+                        } catch(e) {}
+                    }, 1500);
+                }
+                _restoreOptions();
+                _restorePatch();
+                _kbRestore();
+                if (!_wasOpen) _hideOff();
+                _fetching = false;
+                window._hassleProfileLoading = false;
             }
-            _restoreOptions();
-            _restorePatch();
-            _kbRestore();
-            if (!_wasOpen) _hideOff();
-            _fetching = false;
-            window._hassleProfileLoading = false;
+            if (!_wasOpen && _openP && typeof _openP.then === 'function') {
+                _openP.then(_teardown, _teardown);
+                setTimeout(_teardown, 1500); // промис не должен держать нас бесконечно
+            } else {
+                _teardown();
+            }
 
             if (data) {
                 Object.assign(config.accountInfo.profile, data);
@@ -670,7 +714,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 _hideOn(); // правило-невидимка ДО открытия
                 _kbSuppress();
                 _srvResetMenuState(); // сервер не должен «помнить» старую вкладку
-                try { window.openInterface('MainMenu'); }
+                try { _openP = window.openInterface('MainMenu'); }
                 catch(e) { _finish(null); return; }
             }
 
@@ -691,7 +735,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                     if (!_wasOpen && !reopened && Date.now() - t0 > 1500) {
                         var st = false;
                         try { st = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
-                        if (!st) { reopened = true; try { window.openInterface('MainMenu'); } catch(e) {} }
+                        if (!st) { reopened = true; try { _openP = window.openInterface('MainMenu'); } catch(e) {} }
                     }
                     return;
                 }
