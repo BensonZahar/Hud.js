@@ -93,38 +93,52 @@
     {
       "id": "euvs",
       "title": "Единый устав вспомогательных структур",
-      "forumUrl": null,
-      "threadId": null,
-      "forumCreatedAt": null,
-      "forumLastUpdatedAt": null,
-      "forumUpdates": [],
-      "forumPostEdits": [],
-      "jsonUpdatedAt": null,
-      "jsonStatus": "ждёт HTML с форума"
+      "forumUrl": "https://forum.radmir.games/threads/r-rp-12-yedinyi-ustav-vspomogatel-nykh-struktur.3801249/",
+      "threadId": "3801249",
+      "forumCreatedAt": "2026-09-03T04:46:15+03:00",
+      "forumLastUpdatedAt": "2026-09-16T17:13:55+03:00",
+      "forumUpdates": [
+        {
+          "date": "2026-09-16T17:13:55+03:00",
+          "postId": "19349009",
+          "description": "Добавлен п. 1.29: игнорирование просьб гражданина о вызове начальства — выговор"
+        }
+      ],
+      "forumPostEdits": [
+        {
+          "date": "2026-09-16T17:08:23+03:00",
+          "postId": "19260362"
+        }
+      ],
+      "jsonUpdatedAt": "2026-10-02",
+      "jsonStatus": "актуален: сверен с HTML форума (снимок 2026-10-02), добавлен п. 1.29, у п. 1.28 добавлена мера [Наказание: выговор]",
+      "jsonSyncedToForumAt": "2026-09-16T17:13:55+03:00"
     },
     {
       "id": "proc",
       "title": "Процессуальный кодекс",
-      "forumUrl": null,
-      "threadId": null,
-      "forumCreatedAt": null,
-      "forumLastUpdatedAt": null,
+      "forumUrl": "https://forum.radmir.games/threads/r-rp-12-protsessual-nyi-kodeks.3800224/",
+      "threadId": "3800224",
+      "forumCreatedAt": "2026-09-01T23:53:42+03:00",
+      "forumLastUpdatedAt": "2026-09-03T00:35:21+03:00",
       "forumUpdates": [],
       "forumPostEdits": [],
-      "jsonUpdatedAt": null,
-      "jsonStatus": "ждёт HTML с форума"
+      "jsonUpdatedAt": "2026-10-02",
+      "jsonStatus": "актуален: сверен с HTML форума (снимок 2026-10-02), добавлена глава X «Допрос» (ст. 10–13), исправлены ст. 8 и п. 9.1 ч.5; на форуме нет UPD и пометок о редактировании, дата = последний пост темы",
+      "jsonSyncedToForumAt": "2026-09-03T00:35:21+03:00"
     },
     {
       "id": "zot",
       "title": "Закон о закрытых и охраняемых территориях",
-      "forumUrl": null,
-      "threadId": null,
-      "forumCreatedAt": null,
-      "forumLastUpdatedAt": null,
+      "forumUrl": "https://forum.radmir.games/threads/r-rp-12-zakon-o-zakrytykh-i-okhranyayemykh-territoriyakh.3800228/",
+      "threadId": "3800228",
+      "forumCreatedAt": "2026-09-01T23:54:56+03:00",
+      "forumLastUpdatedAt": "2026-09-03T00:14:56+03:00",
       "forumUpdates": [],
       "forumPostEdits": [],
-      "jsonUpdatedAt": null,
-      "jsonStatus": "ждёт HTML с форума"
+      "jsonUpdatedAt": "2026-10-02",
+      "jsonStatus": "актуален: сверен с HTML форума (снимок 2026-10-02), расхождений в 36 статьях нет; на форуме нет UPD и пометок о редактировании, дата = последний пост темы",
+      "jsonSyncedToForumAt": "2026-09-03T00:14:56+03:00"
     },
     {
       "id": "kto",
