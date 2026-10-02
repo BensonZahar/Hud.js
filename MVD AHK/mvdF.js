@@ -575,7 +575,9 @@ function _hkMatch(e, combo) {
     var h = _hkParse(combo);
     if (!h || !h.main) return false;
     if (h.alt !== !!e.altKey || h.ctrl !== !!e.ctrlKey || h.shift !== !!e.shiftKey) return false;
-    return _hkMainMatch(e, h.main);
+    var _ok = _hkMainMatch(e, h.main);
+    if (_ok && e.type === 'keydown' && window.__hkGuard) window.__hkGuard.arm(e);   // HK-GUARD: символ клавиши не должен попасть в диалог
+    return _ok;
 }
 // Печатаем в чате/поле ввода — «голые» клавиши не должны срабатывать как бинд
 function _hkTyping(e) {
@@ -583,6 +585,99 @@ function _hkTyping(e) {
     var editable = t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
     return editable && !e.altKey && !e.ctrlKey;
 }
+// ── HK-GUARD: хоткей открывает диалог, но символ самой клавиши НЕ попадает в поле ввода ──
+// Причина утечки: диалог (addDialogInQueue) открывается прямо внутри keydown и сразу получает фокус,
+// поэтому keypress / beforeinput / автоповтор / «запоздавший» символ той же клавиши падает в новое поле.
+// Решение: при совпадении хоткея (_hkMatch → __hkGuard.arm) физическая клавиша (e.code) помечается «занятой»
+// на время удержания (+ короткий хвост после отпускания), и любой ввод её символа в поля глушится.
+(function() {
+    if (window.__hkGuard) return;
+    var GRACE = 300, MAX_HOLD = 5000;          // хвост после keyup, мс / страховка от залипания
+    var armed = {};                            // e.code -> { ev, key, lat, t, up }
+    var snap = (typeof WeakMap === 'function') ? new WeakMap() : null;   // поле -> последнее «законное» значение
+    function now() { return Date.now(); }
+    function isText(t) {
+        if (!t || !t.tagName) return false;
+        if (t.isContentEditable || t.tagName === 'TEXTAREA') return true;
+        if (t.tagName !== 'INPUT') return false;
+        var ty = String(t.type || 'text').toLowerCase();
+        return ty === 'text' || ty === 'password' || ty === 'search' || ty === 'number' || ty === 'tel' || ty === 'email' || ty === 'url';
+    }
+    function codeChar(code) {                  // латинский символ физической клавиши: Digit7→7, KeyG→g
+        var m = /^(?:Digit|Numpad)([0-9])$/.exec(code) || /^Key([A-Z])$/.exec(code);
+        return m ? m[1].toLowerCase() : '';
+    }
+    function live(code) {
+        var a = armed[code]; if (!a) return null;
+        var n = now();
+        if ((a.up && n - a.up > GRACE) || n - a.t > MAX_HOLD) { delete armed[code]; return null; }
+        return a;
+    }
+    function hit(ch) {                         // есть ли активная клавиша, чей символ == ch
+        ch = String(ch || '').toLowerCase(); if (!ch) return null;
+        for (var c in armed) {
+            var a = live(c); if (!a) continue;
+            if (ch === a.key || ch === a.lat) return a;
+        }
+        return null;
+    }
+    function hasArmed() { for (var c in armed) if (live(c)) return true; return false; }
+    function kill(e) { e.preventDefault(); e.stopImmediatePropagation(); }
+    function arm(e) {
+        if (!e || e.type !== 'keydown' || !e.code || e.code === 'Unidentified') return;
+        var k = (typeof e.key === 'string' && e.key.length === 1) ? e.key.toLowerCase() : '';
+        armed[e.code] = { ev: e, key: k, lat: codeChar(e.code), t: now(), up: 0 };
+    }
+
+    // автоповтор удерживаемой клавиши (в т.ч. если Alt уже отпущен) — в поле не пускаем
+    window.addEventListener('keydown', function(e) {
+        var a = armed[e.code] && live(e.code);
+        if (!a || e === a.ev) return;
+        if (!e.repeat) { delete armed[e.code]; return; }   // это новое нажатие (keyup потерялся) — не блокируем
+        if (!isText(e.target)) return;
+        a.t = now(); kill(e);
+    }, true);
+    window.addEventListener('keyup', function(e) {
+        var a = armed[e.code]; if (!a) return;
+        a.up = now();
+        setTimeout(function() { if (armed[e.code] === a) delete armed[e.code]; }, GRACE + 20);
+    }, true);
+    window.addEventListener('keypress', function(e) {
+        if (!isText(e.target)) return;
+        var ch = (typeof e.key === 'string' && e.key.length === 1) ? e.key : (e.charCode ? String.fromCharCode(e.charCode) : '');
+        if (hit(ch)) kill(e);
+    }, true);
+    window.addEventListener('beforeinput', function(e) {
+        if (!isText(e.target) || e.inputType !== 'insertText' || !e.data || e.data.length !== 1) return;
+        if (hit(e.data)) kill(e);
+    }, true);
+
+    // запасной путь: символ всё-таки попал в value (движок/CEF вставил мимо keydown) — откатываем к снимку
+    window.addEventListener('focusin', function(e) {
+        var el = e.target; if (snap && el && typeof el.value === 'string') snap.set(el, el.value);
+    }, true);
+    window.addEventListener('input', function(e) {
+        var el = e.target; if (!snap || !el || typeof el.value !== 'string') return;
+        var cur = el.value, prev = snap.has(el) ? snap.get(el) : '';   // снимка нет → считаем, что поле было пустым
+        if (cur !== prev && hasArmed()) {
+            var max = Math.min(prev.length, cur.length), pre = 0, suf = 0;
+            while (pre < max && prev.charAt(pre) === cur.charAt(pre)) pre++;
+            while (suf < max - pre && prev.charAt(prev.length - 1 - suf) === cur.charAt(cur.length - 1 - suf)) suf++;
+            var added = cur.slice(pre, cur.length - suf), removed = prev.slice(pre, prev.length - suf);
+            if (!removed && added.length === 1 && hit(added)) {
+                el.value = prev;
+                try { el.setSelectionRange(pre, pre); } catch (_e) {}
+                e.stopImmediatePropagation();   // Vue-обработчик поля не увидит символ
+                return;
+            }
+        }
+        snap.set(el, cur);
+    }, true);
+    window.addEventListener('blur', function() { armed = {}; });   // окно потеряло фокус — keyup может не прийти
+
+    window.__hkGuard = { arm: arm, active: hasArmed };
+})();
+
 function _matchesCombo(e, combo) { return _hkMatch(e, combo); }
 
 // Диспетчер прямых биндингов пунктов меню «Повседневная»: клавиатура, колесо, боковые/средняя кнопки мыши
@@ -645,6 +740,9 @@ window.addEventListener('keydown', function(e) {
     // на основе настройки SWAP_KEY из установщика.
     // Прямые хоткеи здесь убраны — не дублируем.
 
+}, true); // HK-CAPTURE: хоткеи ловим в фазе перехвата — диалог/поле не может съесть событие через stopPropagation
+
+window.addEventListener('keydown', function(e) {
     // ==================== ALT — ПОКАЗАТЬ/СКРЫТЬ КУРСОР ПРИ ОТКРЫТОЙ КОНСОЛИ ====================
     if (e.keyCode === window.KEY_CODE_ALT) {
         const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
