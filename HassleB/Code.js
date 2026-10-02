@@ -1843,79 +1843,127 @@ function getNearestAttacker() {
 // ── Периодическое отслеживание HP и уведомление об уроне ──────
 const HP_ALERT_WINDOW_MS = 3 * 60 * 1000; // 3 минуты
 
+// ── Окно «серверной синхронизации» HP после входа в игру ──────
+// Проблема: на коннекте/авторизации/спавне HUD показывает 100 (дефолт SA-MP),
+// а реальное HP сервер присылает позже (после строя при нагрузке — через 10–30 сек).
+// Раньше «льготный период» был фиксированным (8 сек) и стартовал с первого тика,
+// а не со спавна → при долгом реконнекте он успевал истечь, и скачок 100 → реальное
+// значение уходил в Telegram как урон.
+// Теперь:
+//  1) пока игрок НЕ заспавнен (player/isPlayerConnected = false), либо открыты
+//     Authorization / Connect — состояние трекера полностью сбрасывается;
+//  2) после спавна открывается окно до HP_SYNC_MAX_MS; в нём ПЕРВОЕ падение
+//     с «100» вниз считается синхронизацией (не уроном), после чего ещё
+//     HP_SYNC_SETTLE_MS HP молча подстраивается, и окно закрывается;
+//  3) падения с любого другого значения (не 100) в окне считаются уроном как обычно.
+const HP_SYNC_MAX_MS    = 30000; // максимум ждём реальное HP после спавна
+const HP_SYNC_SETTLE_MS = 3000;  // после пойманной синхронизации — молчим ещё 3 сек
+
+// Сбросить всё состояние HP-трекера (baseline, окно синхронизации, таймер урона)
+function _hpResetTrackerState() {
+    globalState.hpLastValue        = null;
+    globalState._hpGraceUntil      = null;
+    globalState._hpGraceActive     = false;
+    globalState._hpSyncActive      = false;
+    globalState._hpSyncUntil       = null;
+    globalState._hpSyncSettleUntil = null;
+    if (globalState._dmgTimer) { clearTimeout(globalState._dmgTimer); globalState._dmgTimer = null; }
+    globalState._dmgAccum = null;
+}
+
+// Заспавнен ли игрок: true / false, либо null если getter недоступен
+function _hpIsPlayerInGame() {
+    try {
+        const st = window.App && window.App.$store;
+        if (!st || !st.getters) return null;
+        const v = st.getters['player/isPlayerConnected'];
+        if (v === undefined) return null;
+        return !!v;
+    } catch (e) {
+        return null;
+    }
+}
+
 function trackPlayerHp() {
     if (!config.hpTracking) return;
     if (window._hassleReloading) return;
 
     // В тюрьме — урон не отслеживаем, сбрасываем baseline
     if (globalState.inPrison) {
-        globalState.hpLastValue    = null;
-        globalState._hpGraceUntil  = null;
-        globalState._hpGraceActive = false;
+        _hpResetTrackerState();
         setTimeout(trackPlayerHp, 2000);
         return;
     }
 
-    // FIX: На экране авторизации сервер сбрасывает HP→100 — это не реальный урон.
-    // Пока Authorization открыта — непрерывно сбрасываем baseline и выходим.
-    // После выхода из авторизации первый тик сам поставит реальный HP как baseline (с grace 4s).
+    // На экране авторизации / коннекта сервер и HUD показывают 100 — это не урон.
+    // Пока эти окна открыты — непрерывно сбрасываем состояние и выходим.
     try {
-        if (window.getInterfaceStatus && window.getInterfaceStatus('Authorization')) {
-            globalState.hpLastValue    = null;
-            globalState._hpGraceUntil  = null;
-            globalState._hpGraceActive = false;
-            if (globalState._dmgTimer)  { clearTimeout(globalState._dmgTimer);  globalState._dmgTimer  = null; }
-            globalState._dmgAccum      = null;
+        if (window.getInterfaceStatus &&
+            (window.getInterfaceStatus('Authorization') || window.getInterfaceStatus('Connect'))) {
+            _hpResetTrackerState();
             setTimeout(trackPlayerHp, 1000);
             return;
         }
-    } catch(e) {}
+    } catch (e) {}
+
+    // Игрок ещё не заспавнен (реконнект, загрузка, очередь после строя) — ждём.
+    // Окно синхронизации начнётся только после спавна, а не с первого тика.
+    if (_hpIsPlayerInGame() === false) {
+        _hpResetTrackerState();
+        setTimeout(trackPlayerHp, 500);
+        return;
+    }
 
     const currentHp = getPlayerHpFromStore();
+    const now = Date.now();
 
-    // Первый тик в игре — только ставим baseline, урон не считаем
+    // Первый тик в игре — только ставим baseline и открываем окно синхронизации
     if (currentHp !== null && globalState.hpLastValue === null) {
-        globalState.hpLastValue   = currentHp;
-        // Grace period: HUD после спавна/rec ещё может показывать 100
-        // пока сервер не прислал реальный HP — ждём 8 сек без учёта урона
-        // FIX: увеличено с 4000 до 8000 — при нагрузке (строй и т.д.) сервер
-        // иногда синхронизирует реальный HP дольше 4 секунд
-        globalState._hpGraceUntil  = Date.now() + 8000;
-        globalState._hpGraceActive = true;
-        debugLog('[HP] ✅ В игре — baseline HP=' + Math.round(currentHp) + ', grace 8s');
+        globalState.hpLastValue        = currentHp;
+        globalState._hpSyncActive      = true;
+        globalState._hpSyncUntil       = now + HP_SYNC_MAX_MS;
+        globalState._hpSyncSettleUntil = null;
+        debugLog('[HP] ✅ В игре — baseline HP=' + Math.round(currentHp) +
+                 ', окно синхронизации до ' + Math.round(HP_SYNC_MAX_MS / 1000) + ' сек');
         setTimeout(trackPlayerHp, 500);
         return;
     }
 
     // Сравниваем только когда в игре и baseline уже есть
     if (currentHp !== null && globalState.hpLastValue !== null) {
-        // Grace period: пока HUD не синхронизировался с сервером после спавна/rec —
-        // молча обновляем baseline, урон не считаем
-        if (globalState._hpGraceActive && globalState._hpGraceUntil && Date.now() < globalState._hpGraceUntil) {
-            globalState.hpLastValue = currentHp;
-            setTimeout(trackPlayerHp, 500);
-            return;
-        }
-        // Grace period истёк — сбрасываем флаг
-        // FIX: в тике окончания grace обновляем baseline до текущего HP и выходим
-        // без проверки урона. Иначе: последний grace-тик видел HP=100, а в этом
-        // тике сервер только что прислал реальный HP (напр. 63) — код засчитывал
-        // это как урон (100→63). Следующий тик уже сравнит корректно.
-        if (globalState._hpGraceActive) {
-            globalState._hpGraceActive = false;
-            globalState._hpGraceUntil  = null;
-            globalState.hpLastValue    = currentHp; // FIX: baseline = реальный HP
-            debugLog('[HP] Grace period завершён, baseline HP=' + Math.round(currentHp));
-            setTimeout(trackPlayerHp, 500);
-            return; // FIX: не проверяем урон в тике окончания grace
+        const prevHp = globalState.hpLastValue;
+
+        if (globalState._hpSyncActive) {
+            const settleUntil = globalState._hpSyncSettleUntil;
+
+            if (now >= globalState._hpSyncUntil || (settleUntil && now >= settleUntil)) {
+                // Окно закрыто (таймаут или синхронизация уже поймана и улеглась)
+                globalState._hpSyncActive      = false;
+                globalState._hpSyncUntil       = null;
+                globalState._hpSyncSettleUntil = null;
+                debugLog('[HP] Окно синхронизации закрыто, baseline HP=' + Math.round(prevHp));
+            } else if (settleUntil) {
+                // Синхронизация поймана — молча подстраиваем baseline до конца окна
+                globalState.hpLastValue = currentHp;
+                setTimeout(trackPlayerHp, 500);
+                return;
+            } else if (currentHp < prevHp && prevHp >= 99.5) {
+                // Первое падение с «100» после спавна = сервер прислал реальное HP.
+                // Это НЕ урон — просто принимаем новое значение как baseline.
+                globalState.hpLastValue        = currentHp;
+                globalState._hpSyncSettleUntil = now + HP_SYNC_SETTLE_MS;
+                debugLog('[HP] Синхронизация с сервера: ' + Math.round(prevHp) + ' → ' +
+                         Math.round(currentHp) + ' (не урон)');
+                setTimeout(trackPlayerHp, 500);
+                return;
+            }
+            // Иначе (рост HP или падение не со 100) — обычная обработка ниже
         }
 
         if (currentHp < globalState.hpLastValue) {
             const damage = Math.round(globalState.hpLastValue - currentHp);
 
             if (damage >= 1) {
-                const now = Date.now();
-
                 globalState.hpLastHitTime = now;
                 if (!globalState._dmgAccum) {
                     globalState._dmgAccum = { total: 0, hpBefore: Math.round(globalState.hpLastValue) };
@@ -1925,6 +1973,7 @@ function trackPlayerHp() {
                 if (globalState._dmgTimer) clearTimeout(globalState._dmgTimer);
                 globalState._dmgTimer = setTimeout(function () {
                     const acc   = globalState._dmgAccum;
+                    if (!acc) { globalState._dmgTimer = null; return; }
                     const hpNow = Math.round(getPlayerHpFromStore() ?? currentHp);
                     sendToTelegram(
                         `💔 <b>Урон (${displayName})</b>\n` +
