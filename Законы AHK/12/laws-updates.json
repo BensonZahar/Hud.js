@@ -1,0 +1,142 @@
+{
+  "_comment": "forumLastUpdatedAt = самая поздняя из дат: пост «UPD.» или «Последнее редактирование» в теме. jsonUpdatedAt заполняется вручную (дата, когда ты обновил свой json). jsonSyncedToForumAt = состояние форума, под которое собран json.",
+  "forumSnapshotAt": "2026-10-02",
+  "timezone": "+03:00 (МСК)",
+  "author": "Angel_Santiago",
+  "laws": [
+    {
+      "id": "uk",
+      "title": "Уголовный кодекс",
+      "forumUrl": "https://forum.radmir.games/threads/r-rp-12-ugolovnyi-kodeks.3800223/",
+      "threadId": "3800223",
+      "forumCreatedAt": "2026-09-01T23:53:20+03:00",
+      "forumLastUpdatedAt": "2026-09-13T02:38:20+03:00",
+      "forumUpdates": [
+        {
+          "date": "2026-09-13T02:38:20+03:00",
+          "postId": "19323347",
+          "description": "Изменена ст. 15.4: повторное оскорбление сотрудника ПО при исполнении (после штрафа по 5.2.3 КоАП) — лишение свободы на 1 год + штраф 75 000 по 5.2.3 КоАП"
+        }
+      ],
+      "forumPostEdits": [
+        {
+          "date": "2026-09-13T02:38:12+03:00",
+          "postId": "19255637"
+        }
+      ],
+      "jsonUpdatedAt": "2026-10-02",
+      "jsonStatus": "актуален: пересобран с нуля из HTML форума (снимок 2026-10-02)",
+      "jsonSyncedToForumAt": "2026-09-13T02:38:20+03:00"
+    },
+    {
+      "id": "koap",
+      "title": "Кодекс об административных правонарушениях",
+      "forumUrl": "https://forum.radmir.games/threads/r-rp-12-kodeks-ob-administrativnykh-pravonarusheniyakh.3800222/",
+      "threadId": "3800222",
+      "forumCreatedAt": "2026-09-01T23:52:50+03:00",
+      "forumLastUpdatedAt": "2026-09-13T02:38:17+03:00",
+      "forumUpdates": [
+        {
+          "date": "2026-09-13T02:38:17+03:00",
+          "postId": "19323346",
+          "description": "Изменена ст. 5.2 (Оскорбление): штрафы 15 000 / 30 000 / 50 000 / 75 000 (5.2.1–5.2.4), примечание о повторном оскорблении → УК 15.4"
+        }
+      ],
+      "forumPostEdits": [
+        {
+          "date": "2026-09-13T02:38:16+03:00",
+          "postId": "19260127"
+        }
+      ],
+      "jsonUpdatedAt": "2026-10-02",
+      "jsonStatus": "актуален: пересобран с нуля из HTML форума (снимок 2026-10-02)",
+      "jsonSyncedToForumAt": "2026-09-13T02:38:17+03:00"
+    },
+    {
+      "id": "euss",
+      "title": "Единый устав силовых структур",
+      "forumUrl": "https://forum.radmir.games/threads/r-rp-12-yedinyi-ustav-silovykh-struktur.3730422/",
+      "threadId": "3730422",
+      "forumCreatedAt": "2026-07-12T02:36:51+03:00",
+      "forumLastUpdatedAt": "2026-09-30T03:47:53+03:00",
+      "forumUpdates": [
+        {
+          "date": "2026-09-16T17:05:07+03:00",
+          "postId": "19348927",
+          "description": "Добавлен п. 1.27: игнорирование просьб гражданина о вызове начальства — выговор"
+        },
+        {
+          "date": "2026-09-22T16:06:32+03:00",
+          "postId": "19393585",
+          "description": "Изменён п. 1.18: запрет личного оружия не распространяется на ФСБ и сотрудников СОБР"
+        },
+        {
+          "date": "2026-09-30T03:47:53+03:00",
+          "postId": "19449441",
+          "description": "Изменён п. 5.5: майоры могут не являться на построение; исключения — приказ полковника/генерала/ФСБ с 4 ранга, проверка, ЧП; для ФСБ — приказ подполковника"
+        }
+      ],
+      "forumPostEdits": [
+        {
+          "date": "2026-09-16T17:03:13+03:00",
+          "postId": "18885843"
+        },
+        {
+          "date": "2026-09-30T03:47:01+03:00",
+          "postId": "18885910"
+        }
+      ],
+      "jsonUpdatedAt": "2026-10-02",
+      "jsonStatus": "актуален: пересобран с нуля из HTML форума (снимок 2026-10-02)",
+      "jsonSyncedToForumAt": "2026-09-30T03:47:53+03:00"
+    },
+    {
+      "id": "euvs",
+      "title": "Единый устав вспомогательных структур",
+      "forumUrl": null,
+      "threadId": null,
+      "forumCreatedAt": null,
+      "forumLastUpdatedAt": null,
+      "forumUpdates": [],
+      "forumPostEdits": [],
+      "jsonUpdatedAt": null,
+      "jsonStatus": "ждёт HTML с форума"
+    },
+    {
+      "id": "proc",
+      "title": "Процессуальный кодекс",
+      "forumUrl": null,
+      "threadId": null,
+      "forumCreatedAt": null,
+      "forumLastUpdatedAt": null,
+      "forumUpdates": [],
+      "forumPostEdits": [],
+      "jsonUpdatedAt": null,
+      "jsonStatus": "ждёт HTML с форума"
+    },
+    {
+      "id": "zot",
+      "title": "Закон о закрытых и охраняемых территориях",
+      "forumUrl": null,
+      "threadId": null,
+      "forumCreatedAt": null,
+      "forumLastUpdatedAt": null,
+      "forumUpdates": [],
+      "forumPostEdits": [],
+      "jsonUpdatedAt": null,
+      "jsonStatus": "ждёт HTML с форума"
+    },
+    {
+      "id": "kto",
+      "title": "Закон о КТО",
+      "forumUrl": null,
+      "threadId": null,
+      "forumCreatedAt": null,
+      "forumLastUpdatedAt": null,
+      "forumUpdates": [],
+      "forumPostEdits": [],
+      "jsonUpdatedAt": null,
+      "jsonStatus": "ждёт HTML с форума"
+    }
+  ]
+}
