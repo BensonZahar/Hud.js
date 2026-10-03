@@ -67,6 +67,10 @@ PRAVO_INTLOAD_URL  = f"{PRAVO_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98
 PRAVO_CUSTOM_UI_URL= f"{PRAVO_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
 PRAVO_LOADERS_URL  = f"{PRAVO_CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
 
+# ── АХК другое: Банда (в AHK konst/GANG AHK) — своих кастом-интерфейсов нет ──
+GANG_RAW           = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/AHK%20konst/GANG%20AHK"
+GANG_AHK_URL       = f"{GANG_RAW}/LoadGang.js"
+
 RETRY_COUNT = 5
 RETRY_DELAY = 4
 
@@ -881,6 +885,9 @@ class InstallerAPI:
         в установщике всегда совпадает с тем, что реально есть в pravo.js.
         Возвращает {'ok': bool, 'items': [...плоский список...], 'groups': [{'id','title','items'}], 'error': str}.
         """
+        if department == 'gang':
+            # У Банды пункты меню не биндятся (меню открывается одной кнопкой)
+            return {'ok': True, 'items': [], 'groups': [], 'error': ''}
         loaders = {
             'fsb': FSB_AHK_URL, 'fsin': FSIN_AHK_URL,
             'pravo': PRAVO_AHK_URL, 'mvd': AHK_URL,
@@ -913,6 +920,8 @@ class InstallerAPI:
     @staticmethod
     def _fetch_custom_interfaces(department: str = 'mvd') -> list:
         import re, json, traceback
+        if department == 'gang':
+            return []   # у Банды своих кастом-интерфейсов нет — только gang.js
         intload_url = _intload_url(department)
         try:
             print(f'[Installer] Загружаю IntLoad.js: {intload_url}')
@@ -1065,10 +1074,11 @@ class InstallerAPI:
         return {"ok": True, "path": str(self.radmir_path)}
 
     def save_department(self, department: str) -> bool:
-        """Сохраняет выбранную структуру (mvd/fsb/fsin/pravo) в settings.json."""
+        """Сохраняет выбранную структуру (mvd/fsb/fsin/pravo/gang) в settings.json."""
         if department == 'fsb':    dept = 'fsb'
         elif department == 'fsin': dept = 'fsin'
         elif department == 'pravo':dept = 'pravo'
+        elif department == 'gang': dept = 'gang'
         else:                      dept = 'mvd'
         save_settings({'department': dept})
         return True
@@ -1089,6 +1099,7 @@ class InstallerAPI:
                 if department == 'fsb':     loader_url = FSB_AHK_URL
                 elif department == 'fsin':  loader_url = FSIN_AHK_URL
                 elif department == 'pravo': loader_url = PRAVO_AHK_URL
+                elif department == 'gang':  loader_url = GANG_AHK_URL
                 else:                       loader_url = AHK_URL
                 code = None
                 for attempt in range(3):
@@ -1246,29 +1257,38 @@ class InstallerAPI:
 
                 self._set_status("st-code","Установлен","cr-val ok")
                 current = load_settings()
-                save_settings({
-                    'callsign': callsign if use_callsign else '',
-                    'use_callsign': bool(use_callsign),
-                    'auto_password': auto_password,
-                    'use_auto_password': bool(auto_password),
-                    'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                    'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {},
-                    'swap_enabled': _swap_on,
-                    'swap_key': safe_swap_key if _swap_on else '',
-                    'eject_enabled': _eject_on,
-                    'eject_key': safe_eject_key if _eject_on else '',
-                    'menu_key': safe_menu_key,
-                    'menu_hidden': hidden_list,
-                    'menu_binds': binds_dict,
-                    'menu_order': order_list,
-                    'menu_timer_items': timer_list,
-                    'department': 'fsb' if department == 'fsb' else ('fsin' if department == 'fsin' else ('pravo' if department == 'pravo' else 'mvd')),
-                    'auto_reissue_lic': bool(auto_reissue_lic) if department == 'pravo' else False,
-                    'reissue_key': safe_reissue_key if (auto_reissue_lic and department == 'pravo') else '',
-                    'givelic_key': safe_givelic_key if department == 'pravo' else '',
-                    'givelic_on': bool(safe_givelic_key) and department == 'pravo',
-                    'licensor_helper': (bool(auto_reissue_lic) or bool(safe_givelic_key)) and department == 'pravo',  # гейт: любая функция помощника включена
-                })
+                if department == 'gang':
+                    # Банда: сохраняем только структуру и свою кнопку меню —
+                    # настройки фракций (позывной, снаряжение, бинды и т.д.) не трогаем
+                    save_settings({
+                        'department': 'gang',
+                        'gang_menu_key': safe_menu_key,
+                        'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
+                    })
+                else:
+                    save_settings({
+                        'callsign': callsign if use_callsign else '',
+                        'use_callsign': bool(use_callsign),
+                        'auto_password': auto_password,
+                        'use_auto_password': bool(auto_password),
+                        'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
+                        'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {},
+                        'swap_enabled': _swap_on,
+                        'swap_key': safe_swap_key if _swap_on else '',
+                        'eject_enabled': _eject_on,
+                        'eject_key': safe_eject_key if _eject_on else '',
+                        'menu_key': safe_menu_key,
+                        'menu_hidden': hidden_list,
+                        'menu_binds': binds_dict,
+                        'menu_order': order_list,
+                        'menu_timer_items': timer_list,
+                        'department': 'fsb' if department == 'fsb' else ('fsin' if department == 'fsin' else ('pravo' if department == 'pravo' else 'mvd')),
+                        'auto_reissue_lic': bool(auto_reissue_lic) if department == 'pravo' else False,
+                        'reissue_key': safe_reissue_key if (auto_reissue_lic and department == 'pravo') else '',
+                        'givelic_key': safe_givelic_key if department == 'pravo' else '',
+                        'givelic_on': bool(safe_givelic_key) and department == 'pravo',
+                        'licensor_helper': (bool(auto_reissue_lic) or bool(safe_givelic_key)) and department == 'pravo',  # гейт: любая функция помощника включена
+                    })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"
                 self._notify(True)
@@ -1458,6 +1478,8 @@ class InstallerAPI:
             loader_url = FSIN_AHK_URL
         elif department == "pravo":
             loader_url = PRAVO_AHK_URL
+        elif department == "gang":
+            loader_url = GANG_AHK_URL
         else:
             loader_url = AHK_URL
         url = HASSLE_LOADER_URL or loader_url
@@ -1499,7 +1521,7 @@ class InstallerAPI:
                 code = code.replace('const EJECT_ENABLED = false;', 'const EJECT_ENABLED = true;')
                 code = code.replace('const EJECT_KEY = "Alt+U";', f'const EJECT_KEY = "{safe_eject_key}";')
             # Клавиша меню
-            menu_key = saved.get("menu_key", "Alt+0")
+            menu_key = saved.get("gang_menu_key", "Alt+0") if department == "gang" else saved.get("menu_key", "Alt+0")
             safe_menu_key = str(menu_key).replace('"', '').replace("'", '')[:30] if menu_key else ''
             code = code.replace('const MENU_KEY = "Alt+0";', f'const MENU_KEY = "{safe_menu_key}";')
             # Скрытые пункты меню
@@ -1621,20 +1643,24 @@ class InstallerAPI:
         _safe_givelic_key = str(givelic_key).replace('"', '').replace("'", '')[:30] if givelic_key else ''
         _lh = bool(licensor_helper) and _is_pravo
         # save_settings делает merge, поэтому auto_grab и остальные ПК-настройки не затираются.
-        save_settings({
-            'callsign':         callsign if use_callsign else '',
-            'use_callsign':     bool(use_callsign),
-            'auto_password':    auto_password,
-            'menu_key':         menu_key or 'Alt+0',
-            'licensor_helper':  _lh,
-            'auto_reissue_lic': bool(auto_reissue_lic) and _is_pravo,
-            'reissue_key':      _safe_reissue_key if (auto_reissue_lic and _is_pravo) else '',
-            'givelic_key':      _safe_givelic_key if _is_pravo else '',
-            # На Hassle клавиш нет — кнопка «Выдать лицензию» заменяет хоткей.
-            # Поэтому givelic_on = True если галочка стоит (givelic_button_on),
-            # даже когда givelic_key пуст (ключ не нужен на телефоне).
-            'givelic_on':       (bool(_safe_givelic_key) or bool(givelic_button_on)) and _is_pravo,
-        })
+        if _dept == 'gang':
+            # Банда: только своя кнопка меню — настройки фракций не трогаем
+            save_settings({'gang_menu_key': menu_key or 'Alt+0'})
+        else:
+            save_settings({
+                'callsign':         callsign if use_callsign else '',
+                'use_callsign':     bool(use_callsign),
+                'auto_password':    auto_password,
+                'menu_key':         menu_key or 'Alt+0',
+                'licensor_helper':  _lh,
+                'auto_reissue_lic': bool(auto_reissue_lic) and _is_pravo,
+                'reissue_key':      _safe_reissue_key if (auto_reissue_lic and _is_pravo) else '',
+                'givelic_key':      _safe_givelic_key if _is_pravo else '',
+                # На Hassle клавиш нет — кнопка «Выдать лицензию» заменяет хоткей.
+                # Поэтому givelic_on = True если галочка стоит (givelic_button_on),
+                # даже когда givelic_key пуст (ключ не нужен на телефоне).
+                'givelic_on':       (bool(_safe_givelic_key) or bool(givelic_button_on)) and _is_pravo,
+            })
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 

@@ -80,6 +80,7 @@
       <div class="content">
 
         <!-- Выбор структуры -->
+        <div class="dept-title">АХК фракций</div>
         <div class="dept-selector">
           <button id="dept-mvd" class="dept-btn dept-mvd active" onclick="setDepartment('mvd')">
             <svg viewBox="0 0 24 24"><path d="M12 2L3 7v6c0 5.25 3.75 10.15 9 11.25C17.25 23.15 21 18.25 21 13V7L12 2z"/></svg>
@@ -96,6 +97,15 @@
           <button id="dept-pravo" class="dept-btn dept-pravo" onclick="setDepartment('pravo')">
             <svg viewBox="0 0 24 24"><path d="M3 3h18v4H3zM3 10h18M3 14h18M3 18h18v3H3z"/><line x1="8" y1="7" x2="8" y2="10"/><line x1="16" y1="7" x2="16" y2="10"/></svg>
             <span>ПРАВИТЕЛЬСТВО</span>
+          </button>
+        </div>
+
+        <!-- АХК другое -->
+        <div class="dept-title">АХК другое</div>
+        <div class="dept-selector">
+          <button id="dept-gang" class="dept-btn dept-gang dept-single" onclick="setDepartment('gang')">
+            <svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2a8 8 0 0 0-8 8c0 2.8 1.4 5.2 3.5 6.6V20a1 1 0 0 0 1 1h1.5v-2h2v2h1.5v-2h2v2h.5a1 1 0 0 0 1-1v-3.4A8 8 0 0 0 12 2zM8.5 12.6a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6zm7 0a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6z"/></svg>
+            <span>Банда</span>
           </button>
         </div>
 
@@ -140,7 +150,7 @@
     <div class="page" id="page-insert">
       <div class="page-header">
         <div class="page-dot" style="background:var(--accent)"></div>
-        <span class="page-title">Данные сотрудника</span>
+        <span class="page-title" id="insert-title">Данные сотрудника</span>
       </div>
       <div class="content">
 
@@ -169,6 +179,7 @@
         </div>
         </div><!-- /section-callsign -->
 
+        <div id="section-pwd">
         <div class="chk-row" onclick="toggleAutoPassword()">
           <div class="chk-box" id="chk-box-pwd"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <span class="chk-lbl">Авто-ввод пароля при входе</span>
@@ -179,6 +190,7 @@
             <input class="inp" id="f-password" type="password" placeholder="Введите пароль">
           </div>
         </div>
+        </div><!-- /section-pwd -->
 
         <div id="section-grab">
         <div class="chk-row" onclick="toggleAutoGrab()">
@@ -454,8 +466,10 @@ var ejectEnabled=false,ejectKey='Alt+U';
 var autoReissueOn=false,reissueKey='Alt+R';
 var licensorHelperOn=false;
 var givelicOn=false,giveLicKey='';
-var menuKey='Alt+0';
+var menuKey='Alt+0',gangMenuKey='Alt+0';
 var currentDepartment='mvd';
+// Хоткей меню хранится отдельно для «Банды» (у неё своё меню, не связано с фракциями)
+function curMenuKey(){return currentDepartment==='gang'?gangMenuKey:menuKey;}
 
 function setDepartment(dept){
   currentDepartment=dept;
@@ -463,6 +477,7 @@ function setDepartment(dept){
   document.getElementById('dept-fsb').classList.toggle('active',dept==='fsb');
   document.getElementById('dept-fsin').classList.toggle('active',dept==='fsin');
   document.getElementById('dept-pravo').classList.toggle('active',dept==='pravo');
+  document.getElementById('dept-gang').classList.toggle('active',dept==='gang');
   applyDepartment(dept);
   if(api)api.save_department(dept);
 }
@@ -470,15 +485,25 @@ function applyDepartment(dept){
   var isMvd=dept==='mvd';
   var isFsin=dept==='fsin';
   var isPravo=dept==='pravo';
-  // Для ФСИН и Правительства скрываем Позывной и Авто-выброс из авто
-  var hideCallsign=isFsin||isPravo;
+  var isGang=dept==='gang';
+  // Для ФСИН, Правительства и Банды скрываем Позывной и Авто-выброс из авто
+  var hideCallsign=isFsin||isPravo||isGang;
   var sectionCallsign=document.getElementById('section-callsign');
   if(sectionCallsign)sectionCallsign.style.display=hideCallsign?'none':'';
   var sectionEject=document.getElementById('section-eject');
   if(sectionEject)sectionEject.style.display=hideCallsign?'none':'';
-  // Для Правительства скрываем Авто-тазер
+  // Для Правительства и Банды скрываем Авто-тазер
   var sectionSwap=document.getElementById('section-swap');
-  if(sectionSwap)sectionSwap.style.display=isPravo?'none':'';
+  if(sectionSwap)sectionSwap.style.display=(isPravo||isGang)?'none':'';
+  // Банда: пока только кнопка меню АХК — пароль и авто-снаряжение скрыты
+  var sectionPwd=document.getElementById('section-pwd');
+  if(sectionPwd)sectionPwd.style.display=isGang?'none':'';
+  var sectionGrab=document.getElementById('section-grab');
+  if(sectionGrab)sectionGrab.style.display=isGang?'none':'';
+  var insTitle=document.getElementById('insert-title');
+  if(insTitle)insTitle.textContent=isGang?'АХК «Банда»':'Данные сотрудника';
+  var mkEl=document.getElementById('f-menu-key');
+  if(mkEl)mkEl.value=_keyDisplayRu(curMenuKey());
   // Помощник для лицензёров — только для Правительства
   var sectionLicensor=document.getElementById('section-licensor');
   if(sectionLicensor)sectionLicensor.style.display=isPravo?'':'none';
@@ -491,7 +516,7 @@ function applyDepartment(dept){
   loadMenuItems(dept);
   // Обновляем подсказку на главной
   var infoEl=document.getElementById('info-dept');
-  if(infoEl)infoEl.textContent=isMvd?'МВД':(isFsin?'ФСИН':(isPravo?'Правительство':'ФСБ'));
+  if(infoEl)infoEl.textContent=isMvd?'МВД':(isFsin?'ФСИН':(isPravo?'Правительство':(isGang?'Банда':'ФСБ')));
 }
 // action -> label для пунктов меню «Повседневная»
 var ALL_MENU_ITEMS=[
@@ -527,7 +552,7 @@ ALL_MENU_ITEMS.forEach(function(it){menuItemTimers[it.action]=false;});
 // Как в игре (mvdF.js): диалог «Повседневная» (667) — одна страница со всеми пунктами и скроллом, без листания по N штук.
 // «Страницы» здесь — только группы меню: «Главное меню» (677) и «Повседневная» (667).
 var GW_ZOOM=1.4;   // общий масштаб окна (размеры в игре заданы в vh, а окно установщика ниже экрана игры)
-var BINDS_DEPT_TITLES={mvd:'МВД',fsb:'ФСБ',fsin:'ФСИН',pravo:'ПРАВИТЕЛЬСТВО'};
+var BINDS_DEPT_TITLES={mvd:'МВД',fsb:'ФСБ',fsin:'ФСИН',pravo:'ПРАВИТЕЛЬСТВО',gang:'БАНДА'};
 var GW_EXTRA_CSS="\n*,*::before,*::after{box-sizing:border-box}\n:host{display:block;font-family:'Open Sans',sans-serif;--fallback-font:'Open Sans',sans-serif;color:#fff;-webkit-user-select:none;user-select:none}\np{margin:0}\n/* Modal.css делает .modal полноэкранным (fixed 100vw/100vh) — здесь окно встроено в страницу */\n.modal[data-v-0c90f898]{position:relative;left:auto;top:auto;width:auto;height:auto;display:block;z-index:auto}\n.modal__pattern{background-position:50%;background-repeat:no-repeat;background-size:cover;opacity:.05;transform:rotate(148deg) scale3d(-1,1,1)}\n/* ширина окна — по содержимому, как containerWidth в Window.js */\n.window__content-container[data-v-8a748e31]{position:relative;width:max-content}\n.scrollable-container__container{scrollbar-width:none}\n.scrollable-container__container::-webkit-scrollbar{display:none}\n.window-table__item{user-select:none}\n.window-table__col{white-space:nowrap;flex:1 1 auto}\n.window-table__item .bd-right{align-items:center;display:flex;flex-shrink:0;gap:0.74vh;padding-right:1.11vh}\n.bd-ico{align-items:center;background:#ffffff0f;border:0.09vh solid #0000;border-radius:0.37vh;cursor:pointer;display:flex;height:2.59vh;justify-content:center;padding:0;transition:all .15s;width:2.59vh}\n.bd-ico svg{fill:none;height:1.3vh;stroke:#f4f1e166;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;width:1.3vh}\n.bd-ico:hover{background:#f9b70130}\n.bd-ico:hover svg,.bd-ico.on svg{stroke:#f9b701}\n.bd-ico.on{background:#f9b70138;border-color:#f9b70180}\n.bd-ico_clear:hover{background:#e2554430}\n.bd-ico_clear:hover svg{stroke:#e25544}\n.bd-badge{background:#f9b70126;border:0.09vh solid #f9b70166;border-radius:0.37vh;color:#f9b701;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:1.3vh;font-weight:500;padding:0.37vh 0.93vh;white-space:nowrap}\n.bd-badge:hover{background:#f9b70148}\n/* авто-снаряжение: подсветка при наведении и строки с подписью (патроны) */\n.window-table__item:hover:not(.selected){background:#ffffff18}\n.gw-item_sub{height:6.3vh}\n.gw-item_sub .window-table__col{flex-direction:column;gap:0.2vh}\n.gw-sub{color:#f4f1e159;font-size:1.35vh;font-weight:400}\n.selected .gw-sub{color:#f4f1e199}\n\n/* ButtonContainer.css игры в репозитории нет — минимальный аналог для подписей к кнопкам (отступы между кнопками задаёт Window.css) */\n.controls-button__container{align-items:center;display:flex}\n.controls-button__container-text{color:rgba(244,241,225,.6);font-family:'Open Sans',sans-serif;font-size:1.11vh;font-weight:600;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.04em;padding-left:0.56vh}\n";
 var _bindsPage=0,_bindsOpener=null,_bindsSel=null,_bindsPages=[],_bindsRoot=null;
 var _V='data-v-8a748e31',_VM='data-v-0c90f898',_VB='data-v-11f6a12f',_VS='data-v-db32da26',_VT='data-v-e3acdd50';
@@ -779,6 +804,8 @@ function _applyMenuItems(items){
 }
 function loadMenuItems(dept){
   var seq=++_menuItemsSeq;
+  // У «Банды» пока нет пунктов для биндов — только кнопка открытия меню (вкладка «Вставить AHK»)
+  if(dept==='gang'){_setBindsStatus('У «Банды» пока нет пунктов меню для биндов. Кнопка открытия меню АХК задаётся на вкладке «Вставить AHK».',false);_applyMenuItems([]);return;}
   if(_menuItemsByDept[dept]){_setBindsStatus('');_applyMenuItems(_menuItemsByDept[dept]);return;}
   // Старый установщик без get_menu_items — остаётся встроенный список
   if(!api||typeof api.get_menu_items!=='function')return;
@@ -944,6 +971,7 @@ window.addEventListener('pywebviewready',function(){
     if(typeof s.eject_enabled!=='undefined'){ejectEnabled=!!s.eject_enabled;document.getElementById('chk-box-eject').classList.toggle('on',ejectEnabled);document.getElementById('eject-wrap').classList.toggle('show',ejectEnabled);}
     if(s.eject_key!==undefined){ejectKey=s.eject_key||'Alt+U';}document.getElementById('f-eject-key').value=_keyDisplayRu(ejectKey);
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=_keyDisplayRu(menuKey);
+    if(s.gang_menu_key!==undefined){gangMenuKey=s.gang_menu_key||'Alt+0';}
     if(typeof s.licensor_helper!=='undefined'){licensorHelperOn=!!s.licensor_helper;document.getElementById('chk-box-licensor').classList.toggle('on',licensorHelperOn);document.getElementById('licensor-wrap').classList.toggle('show',licensorHelperOn);}
     if(typeof s.auto_reissue_lic!=='undefined'){autoReissueOn=!!s.auto_reissue_lic;document.getElementById('chk-box-reissue').classList.toggle('on',autoReissueOn);document.getElementById('reissue-wrap').classList.toggle('show',autoReissueOn);}
     if(s.reissue_key!==undefined){reissueKey=s.reissue_key||'Alt+R';}document.getElementById('f-reissue-key').value=_keyDisplayRu(reissueKey);
@@ -962,13 +990,14 @@ window.addEventListener('pywebviewready',function(){
       document.getElementById('st-code').textContent='Установлен';
       document.getElementById('st-code').className='cr-val ok';
     }
-    // Восстанавливаем выбор структуры (МВД/ФСБ/ФСИН/Правительство)
-    if(s.department==='fsb'||s.department==='mvd'||s.department==='fsin'||s.department==='pravo'){
+    // Восстанавливаем выбор структуры (МВД/ФСБ/ФСИН/Правительство/Банда)
+    if(s.department==='fsb'||s.department==='mvd'||s.department==='fsin'||s.department==='pravo'||s.department==='gang'){
       currentDepartment=s.department;
       document.getElementById('dept-mvd').classList.toggle('active',s.department==='mvd');
       document.getElementById('dept-fsb').classList.toggle('active',s.department==='fsb');
       document.getElementById('dept-fsin').classList.toggle('active',s.department==='fsin');
       document.getElementById('dept-pravo').classList.toggle('active',s.department==='pravo');
+      document.getElementById('dept-gang').classList.toggle('active',s.department==='gang');
       applyDepartment(s.department);
     }
     // Если путь рабочий — сразу открываем страницу вставки
@@ -1107,6 +1136,7 @@ function _targetName(t){
   return t;
 }
 function _activeTargets(){
+  if(currentDepartment==='gang')return [['menu',gangMenuKey]]; // у Банды только кнопка меню
   var list=[['menu',menuKey]];
   if(swapEnabled)list.push(['swap',swapKey]);
   if(ejectEnabled)list.push(['eject',ejectKey]);
@@ -1171,7 +1201,7 @@ function _applyCapture(combo){
     giveLicKey=combo;
     document.getElementById('f-givelic-key').value=_keyDisplayRu(combo);
   } else if(_captureTarget==='menu'){
-    menuKey=combo;
+    if(currentDepartment==='gang'){gangMenuKey=combo;}else{menuKey=combo;}
     document.getElementById('f-menu-key').value=_keyDisplayRu(combo);
   } else if(_captureTarget&&_captureTarget.indexOf('bind:')===0){
     var action=_captureTarget.slice(5);
@@ -1198,7 +1228,7 @@ function stopListeningGivelicKey(){/* blur — оверлей управляет
 function clearGivelicKey(){giveLicKey='';document.getElementById('f-givelic-key').value='';}
 function startListeningMenuKey(){_showOverlay('menu');}
 function stopListeningMenuKey(){/* blur — оверлей управляет сам */}
-function clearMenuKey(){menuKey='';document.getElementById('f-menu-key').value='';}
+function clearMenuKey(){if(currentDepartment==='gang'){gangMenuKey='';}else{menuKey='';}document.getElementById('f-menu-key').value='';}
 
 // ── Клавиатура ──
 document.addEventListener('keydown',function(e){
@@ -1287,8 +1317,8 @@ document.addEventListener('wheel',function(e){
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){var btn=document.getElementById('btn-insert');var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();btn.disabled=true;if(insertTarget==='phone'){runBar('pbar-insert','pbar-insert-f',4000);var _api=window.pywebview&&window.pywebview.api;if(_api){/* передаём только поля, нужные для Hassle: callsign, use_callsign, password, menu_key, department, app_folder */
-_api.insert_hassle_code(cs,callsignOn,pwd,menuKey,currentDepartment,'',licensorHelperOn?autoReissueOn:false,reissueKey,(licensorHelperOn&&givelicOn)?giveLicKey:'',licensorHelperOn&&currentDepartment==='pravo',licensorHelperOn&&givelicOn&&currentDepartment==='pravo').then(function(r){btn.disabled=false;if(r&&r.ok){flash(true);}else{flash(false);}});}else{flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment,licensorHelperOn?autoReissueOn:false,reissueKey,(licensorHelperOn&&givelicOn)?giveLicKey:'').then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){var btn=document.getElementById('btn-insert');var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();if(currentDepartment==='gang'){cs='';pwd='';grab.enabled=false;binds={};timerItems=[];}btn.disabled=true;if(insertTarget==='phone'){runBar('pbar-insert','pbar-insert-f',4000);var _api=window.pywebview&&window.pywebview.api;if(_api){/* передаём только поля, нужные для Hassle: callsign, use_callsign, password, menu_key, department, app_folder */
+_api.insert_hassle_code(cs,callsignOn,pwd,curMenuKey(),currentDepartment,'',licensorHelperOn?autoReissueOn:false,reissueKey,(licensorHelperOn&&givelicOn)?giveLicKey:'',licensorHelperOn&&currentDepartment==='pravo',licensorHelperOn&&givelicOn&&currentDepartment==='pravo').then(function(r){btn.disabled=false;if(r&&r.ok){flash(true);}else{flash(false);}});}else{flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,curMenuKey(),[],binds,[],timerItems,currentDepartment,licensorHelperOn?autoReissueOn:false,reissueKey,(licensorHelperOn&&givelicOn)?giveLicKey:'').then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){var btn=document.getElementById('btn-remove');btn.disabled=true;if(removeTarget==='phone'){_setHassleStatus('hassle-remove-status','Удаление с телефона...','muted');runBar('pbar-remove','pbar-remove-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.remove_hassle_code('').then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-remove-status',r.message||'Код удалён','ok');flash(true);}else{_setHassleStatus('hassle-remove-status',(r&&r.message)||'Ошибка удаления','err');flash(false);}});}else{_setHassleStatus('hassle-remove-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 

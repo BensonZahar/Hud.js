@@ -407,6 +407,17 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   color:#CCFF00;box-shadow:0 0 0 1px rgba(204,255,0,.10) inset
 }
 
+/* Банда — красный (цвет «Банда» в стартовом уведомлении АХК) */
+.dept-gang.active{
+  background:rgba(226,85,68,.12);border-color:rgba(226,85,68,.4);
+  color:#E25544;box-shadow:0 0 0 1px rgba(226,85,68,.12) inset
+}
+/* Подписи групп («АХК фракций» / «АХК другое») */
+.dept-title{font-family:var(--font-head);font-size:10px;font-style:italic;font-weight:700;color:var(--text3);
+  text-transform:uppercase;letter-spacing:.08em;padding:0 2px;margin-bottom:6px}
+/* Одиночная кнопка во втором ряду — той же ширины, что и кнопки первого (4 в ряд) */
+.dept-btn.dept-single{flex:0 0 calc(25% - 6px)}
+
 /* Hassle / Телефон */
 .hassle-actions{
   display:flex;
