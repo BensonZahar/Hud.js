@@ -223,7 +223,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.779 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -5644,6 +5644,29 @@ waitForApp(function() {
     });
 });
 
+// ── Пассивный сбор звания: когда сервер сам открывает MainMenu (M, /menu), в params уже лежит ──
+// статистика персонажа [0, вкладка, json] (тип 0 = UPDATE_MAIN_STATS, [9] = [ранг, звание, орг.]).
+// Берём оттуда ник и звание бесплатно: без запросов, окон и ожидания; заодно обновляется кэш.
+window._pravoHarvestMainMenuParams = function(params) {
+    try {
+        if (!params || _fetching) return;
+        var p = typeof params === 'string' ? JSON.parse(params.replace(/\n/, '\\n')) : params;
+        if (!Array.isArray(p) || Number(p[0]) !== 0 || p[2] === undefined || p[2] === null) return;
+        var arr = typeof p[2] === 'string' ? JSON.parse(p[2]) : p[2];
+        if (!Array.isArray(arr)) return;
+        var nick = _currentNick() || arr[0] || '';
+        if (!nick) return;
+        var org = Array.isArray(arr[9]) ? arr[9] : [];
+        var rank = org[1] || '';
+        var prev = window._pravoRank || '';
+        applyProfileResult(nick, rank);
+        console.log('[Profile] 🔁 Звание обновлено из открытия меню: ' + (rank || 'без звания'));
+        if (rank !== prev && window.App && window.App.isMobile && typeof _pravoUpdateHassleInteraction === 'function') {
+            setTimeout(function() { try { _pravoUpdateHassleInteraction(-1); } catch(e) {} }, 300);
+        }
+    } catch(e) {}
+};
+
 window._pravoLoadPlayerProfile = loadPlayerProfile;
 })();
 // ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
@@ -5668,6 +5691,9 @@ function _pravoIsBareClientOpen(p) {
 function applyMainMenuTabPatch() {
     var _origOI = window.openInterface;
     window.openInterface = function(name, params) {
+        if (name === 'MainMenu' && typeof window._pravoHarvestMainMenuParams === 'function') {
+            window._pravoHarvestMainMenuParams(params);
+        }
         var result = _origOI.apply(this, arguments);
         if (name === 'MainMenu' && !window._mvdProfileLoading && _pravoIsBareClientOpen(params)) {
             // Небольшая задержка: Vue-компонент должен смонтироваться
