@@ -4161,151 +4161,95 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
    ============================================================ */
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
 
-// ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) При первом открытии меню /dahk один раз считывает актуальные данные персонажа (ник, звание, должн...
+// ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание): «тихое» чтение без открытия MainMenu.
+// На событие MainMenu_OnPlayerChangeTab(Statistics) сервер шлёт статистику в
+// interface('MainMenu').onServerResponse(0, json). Окно открывать не нужно: на время ответа вместо окна
+// подставляется «приёмник», забираем ник и звание и сразу сообщаем серверу, что меню «закрыто».
 (function() {
 'use strict';
 var _fetching = false;
 
-// Аварийная очистка при (пере)загрузке скрипта: если предыдущий экземпляр оставил "залипший" стиль (например, скрипт был перезапущен посред...
+// Аварийная очистка стилей/оверлея от прошлых версий скрипта
 try {
     var _leftoverStyle = document.getElementById('mvd-profile-styles');
-    if (_leftoverStyle && _leftoverStyle.parentNode) {
-        _leftoverStyle.parentNode.removeChild(_leftoverStyle);
-    }
+    if (_leftoverStyle && _leftoverStyle.parentNode) _leftoverStyle.parentNode.removeChild(_leftoverStyle);
     var _leftoverOverlay = document.getElementById('mvd-profile-scan-overlay');
-    if (_leftoverOverlay && _leftoverOverlay.parentNode) {
-        _leftoverOverlay.parentNode.removeChild(_leftoverOverlay);
-    }
+    if (_leftoverOverlay && _leftoverOverlay.parentNode) _leftoverOverlay.parentNode.removeChild(_leftoverOverlay);
 } catch(e) {}
 
-// ── Сохраняем оригиналы системных функций ──
-var _origSetCursorStatus = window.setCursorStatus;
-var _origSetDrawLabelStatus = window.setDrawLabelStatus;
-var _patchesActive = false;
-function applyCursorPatch() {
-    _patchesActive = true;
-    window.setCursorStatus = function(name, status, allowMovement) {
-        if (_patchesActive && name === 'MainMenu') {
-            try {
-                if (typeof engine !== 'undefined' && engine.trigger) {
-                    engine.trigger("SetCursorStatus", false, true);
-                }
-            } catch(e) {}
-            return;
+function applyProfileResult(nick, rank) {
+    window._mvdCallsign = nick || '';
+    window._mvdRank = rank || '';
+    var nickParts = (nick || '').split(/[_\s]+/);
+    window._mvdFirstName = nickParts[0] || '';
+    window._mvdLastName = nickParts[1] || '';
+}
+
+// Индексы ответа как в MainMenu.js (updateMainStats): [0] — ник, [9] — [rang, rangName, title].
+function silentReadProfile(cb) {
+    var origInterface = window.interface;
+    var alreadyOpen = false;
+    try { alreadyOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+    if (alreadyOpen || typeof origInterface !== 'function' || typeof window.sendClientEventHandle !== 'function') {
+        cb(null); // меню уже открыто игроком / нет нужных функций
+        return;
+    }
+
+    var settled = false;
+    var timer = null;
+    var EVT = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC) || 0;
+
+    function finish(result) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (window.interface === wrapper) window.interface = origInterface;
+        // Сообщаем серверу, что «окно закрыто», иначе MainMenu:Open (M, /menu, /gps) будет игнорироваться
+        try { window.sendClientEventHandle(EVT, 'MainMenu_OnPlayerCloseInterface'); } catch(e) {}
+        cb(result);
+    }
+
+    function onResponse(type, json) {
+        if (Number(type) !== 0) return; // 0 = UPDATE_MAIN_STATS
+        try {
+            var arr = typeof json === 'string' ? JSON.parse(json) : json;
+            var realNick = null;
+            try { realNick = window.App.$store.getters['player/nickName']; } catch(e) {}
+            var org = Array.isArray(arr[9]) ? arr[9] : [];
+            finish({ nickname: realNick || arr[0] || '', orgRangName: org[1] || '' });
+        } catch(e) {
+            finish(null);
         }
-        return _origSetCursorStatus.apply(this, arguments);
-    };
-    // Блокируем скрытие ников (setDrawLabelStatus(false)) пока грузим профиль.
-    // MainMenu при открытии вызывает setCursorStatus → движок вызывает setDrawLabelStatus(false) →
-    // ники над головами пропадают. Подменяем функцию: false — игнорируем, true — пропускаем как есть.
-    window.setDrawLabelStatus = function(status) {
-        if (_patchesActive && !status) {
-            console.log('[Profile] 🔒 setDrawLabelStatus(false) заблокировано — ники остаются видны');
-            return;
-        }
-        return _origSetDrawLabelStatus && _origSetDrawLabelStatus.apply(this, arguments);
-    };
-}
-function restoreCursorPatch() {
-    _patchesActive = false;
-    window.setCursorStatus = _origSetCursorStatus;
-    window.setDrawLabelStatus = _origSetDrawLabelStatus;
-    // Явно восстанавливаем ники на случай если до патча они были видны
-    try { _origSetDrawLabelStatus && _origSetDrawLabelStatus.call(window, true); } catch(e) {}
-}
+    }
 
-// ── Подмена опций интерфейса для корректной работы загрузки ──
-var _origHideHud = null;
-var _origHideChat = null;
-function patchMainMenuOptions() {
-    try {
-        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
-        if (!mmComp || !mmComp.options) return;
-        _origHideHud = mmComp.options.hideHud;
-        _origHideChat = mmComp.options.hideChat;
-        mmComp.options.hideHud = false;
-        mmComp.options.hideChat = false;
-    } catch(e) {}
-}
-function restoreMainMenuOptions() {
-    try {
-        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
-        if (!mmComp || !mmComp.options) return;
-        if (_origHideHud !== null) mmComp.options.hideHud = _origHideHud;
-        if (_origHideChat !== null) mmComp.options.hideChat = _origHideChat;
-        _origHideHud = null;
-        _origHideChat = null;
-    } catch(e) {}
-}
-
-// Безопасное скрытие меню через ИНЛАЙН-СТИЛИ (не ломает Vue Transition).
-// Используем MutationObserver вместо setInterval — срабатывает в той же задаче
-// сразу после добавления элемента в DOM, ДО перерисовки браузера.
-// Это полностью исключает мерцание (setInterval с 50мс давал 0-50мс окно,
-// за которое браузер успевал нарисовать кадр с видимым меню).
-var _profileObserver = null;
-
-function applyProfileStyles(skipHiding) {
-    removeProfileStyles();
-    if (skipHiding) return; // Меню уже открыто игроком — не трогаем его
-
-    _profileObserver = new MutationObserver(function() {
-        var el = document.querySelector('.main-menu');
-        if (el) {
-            el.style.opacity = '0';
-            el.style.pointerEvents = 'none';
-            _profileObserver.disconnect();
-            _profileObserver = null;
+    var sink = new Proxy({}, {
+        get: function(_, prop) {
+            if (typeof prop === 'symbol') return undefined;
+            if (prop === 'onServerResponse') return onResponse;
+            return function() {};
         }
     });
-    // subtree:true — ловим вложенные добавления; childList:true — добавление узлов
-    _profileObserver.observe(document.documentElement, { childList: true, subtree: true });
-}
+    var wrapper = function(name) {
+        var r = origInterface.apply(this, arguments);
+        if (!r && name === 'MainMenu' && !settled) return sink;
+        return r;
+    };
 
-function removeProfileStyles() {
-    if (_profileObserver) {
-        _profileObserver.disconnect();
-        _profileObserver = null;
-    }
-    // ВАЖНО: инлайн-стили НЕ убираем намеренно!
-    // closeInterface() удалит DOM-элемент вместе с ними.
-    // Следующее openInterface() создаст чистый элемент без инлайн-стилей.
-}
-
-// ── Извлечение данных из профиля ──
-function extractProfileData(mm) {
+    window.interface = wrapper;
+    timer = setTimeout(function() { finish(null); }, 4000);
     try {
-        var s = mm.statistics;
-        if (!s) return null;
-        var org  = s.organization || {};
-        var info = s.info || {};
-
-        // ── Заглушка MainMenu.js: до прихода данных с сервера
-        // organization содержит mock-значения "Officer" / "Police departament".
-        // Принимать их нельзя — ждём настоящий ответ сервера.
-        if (org.rangName === 'Officer' || org.title === 'Police departament') {
-            console.log('[Profile] ⏳ Пропускаем mock-данные (Officer / Police departament) — ждём сервер...');
-            return null;
-        }
-
-        var realNick = null;
-        try {
-            realNick = window.App && window.App.$store && 
-                       window.App.$store.getters['player/nickName'];
-        } catch(e) {}
-        return {
-            orgRangName: org.rangName || null,
-            nickname:    realNick || info.nickname || null,
-            fetchedAt: Date.now()
-        };
+        // Сервер при совпадении вкладки возвращает false без данных —
+        // поэтому сначала сброс «текущей вкладки», затем запрос Statistics.
+        window.sendClientEventHandle(EVT, 'MainMenu_OnPlayerCloseInterface');
+        window.sendClientEventHandle(EVT, 'MainMenu_OnPlayerChangeTab', 1); // 1 = «Персонаж»
     } catch(e) {
-        return null;
+        finish(null);
     }
 }
 
 // ── Основная функция: считывает ОДИН РАЗ, дальше возвращает сохранённые данные ──
 function loadPlayerProfile(callback) {
-    // Если данные уже загружены — НЕ открываем профиль повторно
+    // Если данные уже загружены — повторно не читаем
     if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
         console.log('[Profile] Данные уже загружены — использую сохранённые');
         if (callback) callback({
@@ -4314,7 +4258,7 @@ function loadPlayerProfile(callback) {
         });
         return;
     }
-    
+
     if (_fetching) {
         // Уже идёт загрузка — ждём завершения
         var waitPoll = setInterval(function() {
@@ -4328,136 +4272,27 @@ function loadPlayerProfile(callback) {
         }, 100);
         return;
     }
-    
+
     _fetching = true;
     window._mvdProfileLoading = true; // блокируем патч вкладки пока читаем профиль
-    console.log('[Profile] Загрузка данных персонажа (первый раз)...');
+    console.log('[Profile] Загрузка данных персонажа (тихое чтение)...');
 
-    var _done = false;
-    var _watchdog = null;
-
-    // Если игрок уже сам открыл MainMenu (например, нажал M) — не трогаем
-    // его открытие/закрытие вообще, просто читаем то, что уже на экране.
-    var _wasAlreadyOpen = false;
-    try { _wasAlreadyOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
-
-    // Единая точка выхода.
-    function finishFlow(result) {
-        if (_done) return;
-        _done = true;
-        if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
-
-        // Закрываем ТОЛЬКО если открывали сами — и обязательно уведомляем об этом сервер тем же событием, что уходит при нажатии ESC.
-        if (!_wasAlreadyOpen) {
-            try {
-                var mmForClose = window.interface('MainMenu');
-                if (mmForClose && typeof mmForClose.sendCloseEvent === 'function') {
-                    mmForClose.sendCloseEvent();
-                } else if (typeof window.sendClientEvent === 'function') {
-                    window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
-                }
-            } catch(e) {}
-            try { window.closeInterface('MainMenu'); } catch(e) {}
-        }
-
-        restoreMainMenuOptions();
-        restoreCursorPatch();
-        removeProfileStyles();
+    silentReadProfile(function(data) {
         _fetching = false;
-        window._mvdProfileLoading = false; // разблокируем патч вкладки
-        if (callback) callback(result);
-    }
-
-    // ── Аварийный предохранитель: что бы ни пошло не так дальше
-    // (подвисший поллинг, ошибка в чужом коде, перерендер интерфейса),
-    // авточтение не может провисеть дольше 8 секунд. ──
-    _watchdog = setTimeout(function() {
-        console.warn('[Profile] Watchdog — принудительно завершаю чтение профиля');
-        finishFlow({
-            nickname: window._mvdCallsign || '',
-            orgRangName: window._mvdRank || ''
+        window._mvdProfileLoading = false;
+        if (data && data.nickname && data.orgRangName) {
+            applyProfileResult(data.nickname, data.orgRangName);
+            console.log('[Profile] ✅ Запомнено: ' + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
+        } else if (data) {
+            console.log('[Profile] Звания нет (не в организации) — запоминать нечего');
+        } else {
+            console.warn('[Profile] ⚠️ Данные не получены (меню открыто игроком / нет ответа сервера)');
+        }
+        if (callback) callback({
+            nickname: window._mvdCallsign,
+            orgRangName: window._mvdRank
         });
-    }, 8000);
-
-    patchMainMenuOptions();
-    applyCursorPatch();
-    applyProfileStyles(_wasAlreadyOpen);
-
-    if (!_wasAlreadyOpen) {
-        try {
-            window.openInterface('MainMenu');
-        } catch(e) {
-            console.error('[Profile] Ошибка открытия профиля:', e);
-            finishFlow(null);
-            return;
-        }
-    }
-
-    setTimeout(function() {
-        if (_done) return; // watchdog уже всё снял — дальше не лезем
-        var mm = window.interface('MainMenu');
-        if (!mm) {
-            console.error('[Profile] Профиль не найден');
-            finishFlow(null);
-            return;
-        }
-        try {
-            if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
-        } catch(e) {}
-
-        var attempts = 0;
-        var maxAttempts = 30;
-        // Стабилизация: не принимаем данные по первому же непустому результату — сервер может сперва прислать заглушку (например, звание по умолчан...
-        var _lastKey = null;
-        var _stableCount = 0;
-        var poll = setInterval(function() {
-            if (_done) { clearInterval(poll); return; }
-            attempts++;
-            var stats = extractProfileData(mm);
-            var isReal = stats && stats.nickname && stats.orgRangName;
-
-            if (isReal) {
-                var key = stats.nickname + '|' + stats.orgRangName;
-                if (key === _lastKey) {
-                    _stableCount++;
-                } else {
-                    _lastKey = key;
-                    _stableCount = 1;
-                }
-            } else {
-                _lastKey = null;
-                _stableCount = 0;
-            }
-
-            if ((isReal && _stableCount >= 2) || attempts >= maxAttempts) {
-                clearInterval(poll);
-
-                if (stats && isReal) {
-                    console.log('[Profile] Данные успешно загружены:', stats);
-
-                    // Сохраняем в window НАВСЕГДА
-                    window._mvdCallsign = stats.nickname || '';
-                    window._mvdRank = stats.orgRangName || '';
-
-                    // Парсим ник на Имя и Фамилию
-                    var nickParts = (stats.nickname || '').split(/[_\s]+/);
-                    window._mvdFirstName = nickParts[0] || '';
-                    window._mvdLastName = nickParts[1] || '';
-
-                    console.log('[Profile] Запомнено: ' + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
-                } else {
-                    console.warn('[Profile] Таймаут — данные не получены');
-                }
-
-                setTimeout(function() {
-                    finishFlow({
-                        nickname: window._mvdCallsign,
-                        orgRangName: window._mvdRank
-                    });
-                }, 150);
-            }
-        }, 100); // ↓ 200→100ms: быстрее считываем данные
-    }, 250);  // ↓ 600→250ms: Vue успевает примонтироваться, но не ждём лишнего
+    });
 }
 
 // ── Команда /mmenu для принудительного обновления данных ──
@@ -4494,21 +4329,26 @@ waitForApp(function() {
     };
     console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 
-    // ── Фоновая предзагрузка профиля при старте ──────────────────────────────
-    // Запускаем loadPlayerProfile сразу после готовности App — невидимо для
-    // игрока — чтобы к первому /dahk данные уже лежали в window._mvdRank /
-    // _mvdFirstName / _mvdLastName и MvdMenu открывалось мгновенно.
-    setTimeout(function() {
+    // ── Фоновая предзагрузка профиля ─────────────────────────────────────────
+    // Ждём, пока игрок реально подключится к серверу (иначе сервер не ответит на запрос),
+    // затем читаем профиль тихо — к первому /dahk данные уже лежат в window._mvdRank и т.д.
+    function _waitConnected(cb, n) {
+        var ok = false;
+        try { ok = !!window.App.$store.getters['player/isPlayerConnected']; } catch(e) {}
+        if (ok) { setTimeout(cb, 1500); return; }
+        if ((n || 0) < 600) setTimeout(function() { _waitConnected(cb, (n || 0) + 1); }, 1000);
+    }
+    _waitConnected(function() {
         if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
-        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+        console.log('[Profile] 🔄 Фоновая предзагрузка профиля после входа в игру...');
         loadPlayerProfile(function(data) {
             if (data && data.orgRangName) {
                 console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
             } else {
-                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет повторная попытка');
             }
         });
-    }, 1500);
+    });
 });
 
 window._mvdLoadPlayerProfile = loadPlayerProfile;
@@ -4522,11 +4362,21 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
 // чтобы не мешать невидимому считыванию данных.
 (function() {
 'use strict';
+// Открытия с сервера (MainMenu:Open → SHOW_INTERFACE) приходят с массивом [тип_данных:число, вкладка, json]
+// и уже содержат нужную вкладку: M и /menu сервер открывает на «Персонаж», /gps — на «Карту», J — на «Задания».
+// Переключаем ТОЛЬКО прямые клиентские открытия без вкладки (params пуст или ['not_from_server', 0, ...]).
+function _isBareClientOpen(p) {
+    try {
+        if (p === undefined || p === null || p === '') return true;
+        if (typeof p === 'string') p = JSON.parse(p.replace(/\n/, '\\n'));
+        return Array.isArray(p) && p[0] === 'not_from_server' && Number(p[1]) === 0;
+    } catch(e) { return false; }
+}
 function applyMainMenuTabPatch() {
     var _origOI = window.openInterface;
-    window.openInterface = function(name) {
+    window.openInterface = function(name, params) {
         var result = _origOI.apply(this, arguments);
-        if (name === 'MainMenu' && !window._mvdProfileLoading) {
+        if (name === 'MainMenu' && !window._mvdProfileLoading && _isBareClientOpen(params)) {
             // Небольшая задержка: Vue-компонент должен смонтироваться
             setTimeout(function() {
                 try {
