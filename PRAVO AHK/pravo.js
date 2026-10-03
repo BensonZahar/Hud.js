@@ -222,7 +222,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.9 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -4957,38 +4957,36 @@ function restoreMainMenuOptions() {
     } catch(e) {}
 }
 
-// Безопасное скрытие меню через ИНЛАЙН-СТИЛИ (не ломает Vue Transition) Почему инлайн, а не CSS-тег <style>? MainMenu.js использует Vue Tra...
-// Используем MutationObserver вместо setInterval — он срабатывает в той же
-// задаче сразу после добавления элемента в DOM, ДО перерисовки браузера.
-// Это полностью исключает мерцание (setInterval с 50мс давал 0-50мс окно,
-// за которое браузер успевал нарисовать кадр с видимым меню).
-var _profileObserver = null;
+// Скрытие MainMenu (подход из Code.js): CSS-правило внедряется ДО openInterface,
+// поэтому меню не успевает отрисоваться ни одним кадром, а !important
+// перебивает CSS-анимацию появления. Правило снимается только после того,
+// как .main-menu реально исчез из DOM (опрос 50 мс, предел 1200 мс).
+var HIDE_STYLE_ID = 'mvd-profile-styles';
 
-function applyProfileStyles(skipHiding) {
-    removeProfileStyles();
-    if (skipHiding) return; // Меню уже открыто игроком — не трогаем его
-
-    _profileObserver = new MutationObserver(function() {
-        var el = document.querySelector('.main-menu');
-        if (el) {
-            el.style.opacity = '0';
-            el.style.pointerEvents = 'none';
-            _profileObserver.disconnect();
-            _profileObserver = null;
-        }
-    });
-    // subtree:true — ловим вложенные добавления; childList:true — добавление узлов
-    _profileObserver.observe(document.documentElement, { childList: true, subtree: true });
+function _hideOn() {
+    try {
+        if (document.getElementById(HIDE_STYLE_ID)) return;
+        var s = document.createElement('style');
+        s.id = HIDE_STYLE_ID;
+        s.textContent = '.main-menu{opacity:0!important;visibility:hidden!important;pointer-events:none!important;animation:none!important;transition:none!important;}';
+        (document.head || document.documentElement).appendChild(s);
+    } catch(e) {}
 }
 
-function removeProfileStyles() {
-    if (_profileObserver) {
-        _profileObserver.disconnect();
-        _profileObserver = null;
-    }
-    // ВАЖНО: инлайн-стили НЕ убираем намеренно!
-    // closeInterface() удалит DOM-элемент вместе с ними.
-    // Следующее openInterface() создаст чистый элемент без инлайн-стилей.
+function _hideOff() {
+    var t0 = Date.now();
+    (function tick() {
+        var gone = true;
+        try { gone = !document.querySelector('.main-menu'); } catch(e) {}
+        if (gone || Date.now() - t0 > 1200) {
+            try {
+                var el = document.getElementById(HIDE_STYLE_ID);
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            } catch(e) {}
+            return;
+        }
+        setTimeout(tick, 50);
+    })();
 }
 
 // ── Извлечение данных из профиля ──
@@ -5081,7 +5079,7 @@ function loadPlayerProfile(callback) {
 
         restoreMainMenuOptions();
         restoreCursorPatch();
-        removeProfileStyles();
+        if (!_wasAlreadyOpen) _hideOff();
         _fetching = false;
         window._mvdProfileLoading = false; // разблокируем патч вкладки
         if (callback) callback(result);
@@ -5100,7 +5098,7 @@ function loadPlayerProfile(callback) {
 
     patchMainMenuOptions();
     applyCursorPatch();
-    applyProfileStyles(_wasAlreadyOpen);
+    if (!_wasAlreadyOpen) _hideOn(); // меню уже открыто игроком — не трогаем
 
     if (!_wasAlreadyOpen) {
         try {
