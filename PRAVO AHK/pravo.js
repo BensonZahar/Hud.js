@@ -2794,6 +2794,7 @@ var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата пр�
 var PRAVO_SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
 var PRAVO_SMS_LABEL = 'Ответ'; // надпись на кнопке
 var PRAVO_SMS_OUTLINE_COLOR = 'rgba(255,255,255,.65)'; // цвет контура вокруг сообщения + кнопок при раскрытии ('' = без контура)
+var PRAVO_SMS_OUTLINE_RADIUS = '1.4vh'; // скругление углов рамки
 var PRAVO_SMS_MENU_TIMEOUT = 30000; // мс: через сколько авто-свернуть раскрытый выбор, если ничего не нажали (0 = не сворачивать)
 var PRAVO_SMS_MOBILE_SCALE = 2; // Хасл: во сколько раз кнопка больше, чем стандартная мобильная (2.78vh)
 var PRAVO_SMS_PC_SCALE = 1.5;    // ПК: во сколько раз кнопка больше штатного кружка (1.85vh); 1.5 = 2.78vh
@@ -2822,13 +2823,13 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}' +
         // раскрытый выбор - отдельная строка под сообщением; вид тот же, что у кнопки «Ответ» (свои элементы без data-v -> штатные стили чата не действуют)
         '.pravo-sms-menu{display:flex;align-items:center;flex-wrap:wrap;box-sizing:border-box;padding:.3vh .6vh .35vh;color:#fff;font-weight:700;}' +
-        // контур: сообщение (верх+бока) и строка кнопок (бока+низ) складываются в одну рамку; inset-тени не двигают вёрстку чата.
-        // Ширину каждой части и «недостающие» отрезки линий выставляет _pravoSmsFit() по реальным размерам
+        // контур: сообщение (верх+бока) и строка кнопок (бока+низ) = одна скруглённая рамка из настоящих границ (углы ровные).
+        // Ширину обеих частей выставляет _pravoSmsFit() по реальным размерам
         (PRAVO_SMS_OUTLINE_COLOR ?
-            '.chat-message.pravo-sms-row--active{background-color:rgba(255,255,255,.08)!important;border-radius:.7vh .7vh 0 0!important;' +
-                'box-shadow:inset .14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset -.14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset 0 .14vh 0 ' + PRAVO_SMS_OUTLINE_COLOR + '!important;}' +
-            '.pravo-sms-menu.pravo-sms-menu--attached{background-color:rgba(255,255,255,.08);border-radius:0 0 .7vh .7vh;' +
-                'box-shadow:inset .14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset -.14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset 0 -.14vh 0 ' + PRAVO_SMS_OUTLINE_COLOR + ';}'
+            '.chat-message.pravo-sms-row--active{background-color:rgba(255,255,255,.08)!important;border:.16vh solid ' + PRAVO_SMS_OUTLINE_COLOR + '!important;border-bottom:0!important;' +
+                'border-radius:' + PRAVO_SMS_OUTLINE_RADIUS + ' ' + PRAVO_SMS_OUTLINE_RADIUS + ' 0 0!important;}' +
+            '.pravo-sms-menu.pravo-sms-menu--attached{background-color:rgba(255,255,255,.08);border:.16vh solid ' + PRAVO_SMS_OUTLINE_COLOR + ';border-top:0;' +
+                'border-radius:0 0 ' + PRAVO_SMS_OUTLINE_RADIUS + ' ' + PRAVO_SMS_OUTLINE_RADIUS + ';}'
         : '') +
         '.pravo-sms-opt{' + css(pcH) +
             'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.6vh;position:relative;' +
@@ -2888,7 +2889,7 @@ function _pravoSmsCollapse(menu) {
             var r = menu._pravoRow;
             r.classList.remove('pravo-sms-row--active');
             r.style.width = r.style.boxSizing = r.style.paddingLeft = r.style.paddingRight = '';
-            r.style.backgroundImage = r.style.backgroundSize = r.style.backgroundPosition = r.style.backgroundRepeat = '';
+            r.style.flexGrow = r.style.flexShrink = r.style.alignSelf = '';
         }
         if (menu.parentNode) menu.parentNode.removeChild(menu);
     } catch (e) {}
@@ -2908,39 +2909,45 @@ function _pravoSmsRow(btn) {
     }
     return null;
 }
-// Подгоняем рамку: верх - по ширине самого сообщения, низ - по ширине кнопок; слева соединены, где одна часть шире - дорисовываем линию
+// Подгоняем рамку: одна скруглённая рамка по ширине самого длинного из двух - сообщения или строки кнопок (а не на весь чат).
+// Размеры берём из getBoundingClientRect (экранные px) и переводим в px вёрстки через эталон: у чата может быть scale/transform.
 function _pravoSmsFit(row, menu) {
     try {
         if (!PRAVO_SMS_OUTLINE_COLOR || !row || !menu) return;
         var kids = row.children, lastR = kids && kids.length ? kids[kids.length - 1] : null;
         var lastM = menu.lastElementChild;
         if (!lastR || !lastM) return;
-        var cs = getComputedStyle(menu);
-        var padM = parseFloat(cs.paddingLeft) || 0;
-        var padR = padM; // такой же боковой отступ у сообщения
-        // offsetLeft/Width - в «родных» px вёрстки (не зависят от scale/transform у чата)
+        // 1) эталон масштаба: ставим меню ширину ровно 200px и смотрим, сколько это на экране
+        var prevW = menu.style.width;
+        menu.style.width = '200px';
+        var ref = menu.getBoundingClientRect().width;
+        menu.style.width = prevW;
+        var scale = ref / 200;
+        if (!(scale > 0.05 && scale < 20)) scale = 1;
+        // 2) естественные ширины (до наших отступов)
+        var rr = row.getBoundingClientRect(), mm = menu.getBoundingClientRect();
+        var lr = lastR.getBoundingClientRect(), lm = lastM.getBoundingClientRect();
+        var padM = parseFloat(getComputedStyle(menu).paddingLeft) || 0;
+        var padR = padM;
+        var bw = parseFloat(getComputedStyle(row).borderLeftWidth) || 0; // толщина границы рамки
         var mR = parseFloat(getComputedStyle(lastM).marginRight) || 0;
-        var w1 = lastR.offsetLeft + lastR.offsetWidth - row.offsetLeft + padR * 2;
-        var w2 = lastM.offsetLeft + lastM.offsetWidth + mR - menu.offsetLeft + padM;
-        var full = row.offsetWidth;
-        if (!(w1 > 0 && w2 > 0)) return;
-        // +3px запаса: ширины округляются, иначе текст/кнопки могут перенестись на следующую строку
-        w1 = Math.min(Math.ceil(w1) + 3, full); w2 = Math.min(Math.ceil(w2) + 3, full);
-        menu.style.flexWrap = 'nowrap';
+        var w1 = (lr.right - rr.left) / scale + padR * 2 + bw * 2; // сообщение
+        var w2 = (lm.right - mm.left) / scale + mR + padM + bw * 2; // кнопки
+        var full = rr.width / scale;                        // ширина списка сообщений
+        var W = Math.ceil(Math.max(w1, w2)) + 3;            // +3px запаса: иначе из-за округления текст/кнопки могут перенестись
+        if (full > 0) W = Math.min(W, Math.floor(full));
+        try { console.log('[PRAVO][SMS] рамка: scale=' + scale.toFixed(3) + ' сообщение=' + Math.round(w1) + ' кнопки=' + Math.round(w2) + ' список=' + Math.round(full) + ' -> ' + W + 'px'); } catch (_) {}
+        if (!(W > 0)) return;
+        // 3) обе части одной ширины = одна рамка
         row.style.boxSizing = 'border-box';
         row.style.paddingLeft = padR + 'px';
         row.style.paddingRight = padR + 'px';
-        row.style.width = w1 + 'px';
-        menu.style.width = w2 + 'px';
-        var line = 'linear-gradient(' + PRAVO_SMS_OUTLINE_COLOR + ',' + PRAVO_SMS_OUTLINE_COLOR + ')';
-        if (w1 > w2) { // сообщение шире кнопок: нижняя линия сообщения справа от кнопок
-            row.style.backgroundImage = line; row.style.backgroundRepeat = 'no-repeat';
-            row.style.backgroundSize = (w1 - w2) + 'px .14vh'; row.style.backgroundPosition = 'right bottom';
-        } else if (w2 > w1) { // кнопки шире сообщения: верхняя линия кнопок справа от сообщения
-            menu.style.backgroundImage = line; menu.style.backgroundRepeat = 'no-repeat';
-            menu.style.backgroundSize = (w2 - w1) + 'px .14vh'; menu.style.backgroundPosition = 'right top';
-        }
-    } catch (e) {}
+        row.style.width = W + 'px';
+        row.style.flexGrow = '0'; row.style.flexShrink = '0'; row.style.alignSelf = 'flex-start';
+        menu.style.width = W + 'px';
+        menu.style.flexWrap = 'nowrap';
+        menu.style.flexGrow = '0'; menu.style.flexShrink = '0'; menu.style.alignSelf = 'flex-start';
+    } catch (e) { try { console.log('[PRAVO][SMS] ошибка подгонки рамки', e); } catch (_) {} }
 }
 function _pravoSmsExpand(btn, number) {
     try {
