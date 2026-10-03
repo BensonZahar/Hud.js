@@ -2822,11 +2822,12 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}' +
         // раскрытый выбор - отдельная строка под сообщением; вид тот же, что у кнопки «Ответ» (свои элементы без data-v -> штатные стили чата не действуют)
         '.pravo-sms-menu{display:flex;align-items:center;flex-wrap:wrap;box-sizing:border-box;padding:.3vh .6vh .35vh;color:#fff;font-weight:700;}' +
-        // контур: сообщение (верх+бока) и строка кнопок (бока+низ) складываются в одну рамку; inset-тени не двигают вёрстку чата
+        // контур: сообщение (верх+бока) и строка кнопок (бока+низ) складываются в одну рамку; inset-тени не двигают вёрстку чата.
+        // Ширину каждой части и «недостающие» отрезки линий выставляет _pravoSmsFit() по реальным размерам
         (PRAVO_SMS_OUTLINE_COLOR ?
-            '.chat-message.pravo-sms-row--active{background:rgba(255,255,255,.08)!important;border-radius:.7vh .7vh 0 0!important;' +
+            '.chat-message.pravo-sms-row--active{background-color:rgba(255,255,255,.08)!important;border-radius:.7vh .7vh 0 0!important;' +
                 'box-shadow:inset .14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset -.14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset 0 .14vh 0 ' + PRAVO_SMS_OUTLINE_COLOR + '!important;}' +
-            '.pravo-sms-menu.pravo-sms-menu--attached{background:rgba(255,255,255,.08);border-radius:0 0 .7vh .7vh;' +
+            '.pravo-sms-menu.pravo-sms-menu--attached{background-color:rgba(255,255,255,.08);border-radius:0 0 .7vh .7vh;' +
                 'box-shadow:inset .14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset -.14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset 0 -.14vh 0 ' + PRAVO_SMS_OUTLINE_COLOR + ';}'
         : '') +
         '.pravo-sms-opt{' + css(pcH) +
@@ -2883,7 +2884,12 @@ function _pravoSmsCollapse(menu) {
         if (menu._pravoTimer) { clearTimeout(menu._pravoTimer); menu._pravoTimer = 0; }
         var btn = menu._pravoBtn;
         if (btn) btn._pravoMenu = null;
-        if (menu._pravoRow && menu._pravoRow.classList) menu._pravoRow.classList.remove('pravo-sms-row--active');
+        if (menu._pravoRow && menu._pravoRow.classList) {
+            var r = menu._pravoRow;
+            r.classList.remove('pravo-sms-row--active');
+            r.style.width = r.style.boxSizing = r.style.paddingLeft = r.style.paddingRight = '';
+            r.style.backgroundImage = r.style.backgroundSize = r.style.backgroundPosition = r.style.backgroundRepeat = '';
+        }
         if (menu.parentNode) menu.parentNode.removeChild(menu);
     } catch (e) {}
 }
@@ -2901,6 +2907,40 @@ function _pravoSmsRow(btn) {
         el = el.parentNode;
     }
     return null;
+}
+// Подгоняем рамку: верх - по ширине самого сообщения, низ - по ширине кнопок; слева соединены, где одна часть шире - дорисовываем линию
+function _pravoSmsFit(row, menu) {
+    try {
+        if (!PRAVO_SMS_OUTLINE_COLOR || !row || !menu) return;
+        var kids = row.children, lastR = kids && kids.length ? kids[kids.length - 1] : null;
+        var lastM = menu.lastElementChild;
+        if (!lastR || !lastM) return;
+        var cs = getComputedStyle(menu);
+        var padM = parseFloat(cs.paddingLeft) || 0;
+        var padR = padM; // такой же боковой отступ у сообщения
+        // offsetLeft/Width - в «родных» px вёрстки (не зависят от scale/transform у чата)
+        var mR = parseFloat(getComputedStyle(lastM).marginRight) || 0;
+        var w1 = lastR.offsetLeft + lastR.offsetWidth - row.offsetLeft + padR * 2;
+        var w2 = lastM.offsetLeft + lastM.offsetWidth + mR - menu.offsetLeft + padM;
+        var full = row.offsetWidth;
+        if (!(w1 > 0 && w2 > 0)) return;
+        // +3px запаса: ширины округляются, иначе текст/кнопки могут перенестись на следующую строку
+        w1 = Math.min(Math.ceil(w1) + 3, full); w2 = Math.min(Math.ceil(w2) + 3, full);
+        menu.style.flexWrap = 'nowrap';
+        row.style.boxSizing = 'border-box';
+        row.style.paddingLeft = padR + 'px';
+        row.style.paddingRight = padR + 'px';
+        row.style.width = w1 + 'px';
+        menu.style.width = w2 + 'px';
+        var line = 'linear-gradient(' + PRAVO_SMS_OUTLINE_COLOR + ',' + PRAVO_SMS_OUTLINE_COLOR + ')';
+        if (w1 > w2) { // сообщение шире кнопок: нижняя линия сообщения справа от кнопок
+            row.style.backgroundImage = line; row.style.backgroundRepeat = 'no-repeat';
+            row.style.backgroundSize = (w1 - w2) + 'px .14vh'; row.style.backgroundPosition = 'right bottom';
+        } else if (w2 > w1) { // кнопки шире сообщения: верхняя линия кнопок справа от сообщения
+            menu.style.backgroundImage = line; menu.style.backgroundRepeat = 'no-repeat';
+            menu.style.backgroundSize = (w2 - w1) + 'px .14vh'; menu.style.backgroundPosition = 'right top';
+        }
+    } catch (e) {}
 }
 function _pravoSmsExpand(btn, number) {
     try {
@@ -2935,6 +2975,7 @@ function _pravoSmsExpand(btn, number) {
             row.classList.add('pravo-sms-row--active');        // контур вокруг «своего» сообщения + строки кнопок
             menu.classList.add('pravo-sms-menu--attached');
             menu._pravoRow = row;
+            _pravoSmsFit(row, menu);
         } else btn.parentNode.appendChild(menu);
         btn._pravoMenu = menu;
         if (PRAVO_SMS_MENU_TIMEOUT > 0) menu._pravoTimer = setTimeout(function () { _pravoSmsCollapse(menu); }, PRAVO_SMS_MENU_TIMEOUT);
