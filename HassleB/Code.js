@@ -3181,15 +3181,18 @@ function buildWelcomeAccountInfo() {
     }
 }
 
-// ── Версия Code / Code2 в меню «Menu» (экран, где читается ник: menu/nickName) ──
-// В Menu2.js блок игрока: <div class="menu-player__data"><div class="name">ник</div>
-// <div class="server">Сервер N</div></div>. Дописываем под ним две строки в стиле GitHub:
-//   Code  #a1b2c3d  сообщение коммита · 04.10.2026 00:10
-// Vue о нашем блоке не знает и не трогает его; MutationObserver возвращает блок,
-// если меню пересоздано. Данные обновляются через window.hbUpdateMenuVersion()
-// (её вызывает Load.js, когда приходит инфо о коммитах с GitHub).
+// ── Версия Code / Code2 в меню «Menu» (экран, где читается/меняется ник: menu/nickName) ──
+// Меню (Menu2.js) состоит из страниц: welcome (ввод ника + выбор сервера), main («Играть /
+// Настройки / Выбор сервера») и pause. Корневые классы страниц: .menu-welcome, .menu-main,
+// .menu-pause. Пока любая из них на экране — показываем отдельную плашку поверх меню
+// (position:fixed, не зависит от вёрстки меню и от scoped-стилей Vue):
+//   Code   #a1b2c3d  сообщение коммита  ·  04.10.2026 00:10
+//   Code2  #e4f5a6b  сообщение коммита  ·  04.10.2026 00:11
+// Данные обновляются через window.hbUpdateMenuVersion() (её вызывает Load.js,
+// когда приходит инфо о коммитах с GitHub).
 (function setupMenuVersionLabel() {
-    const CLS = 'hb-menu-version';
+    const ID = 'hb-menu-version';
+    const MENU_SELECTOR = '.menu-welcome, .menu-main, .menu-pause';
 
     function span(text, color) {
         const s = document.createElement('span');
@@ -3200,16 +3203,16 @@ function buildWelcomeAccountInfo() {
 
     function row(label, info) {
         const div = document.createElement('div');
-        div.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vh;';
-        div.appendChild(span(label + '  ', 'rgba(255,255,255,0.55)'));
+        div.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+        div.appendChild(span(label + '  ', 'rgba(255,255,255,0.6)'));
         if (info === undefined) {
-            div.appendChild(span('загрузка...', 'rgba(255,255,255,0.4)'));
+            div.appendChild(span('загрузка...', 'rgba(255,255,255,0.45)'));
         } else if (!info) {
             div.appendChild(span('версия недоступна', '#FF6666'));
         } else {
             div.appendChild(span('#' + (info.sha || '?') + '  ', '#00BFFF'));
-            div.appendChild(span(info.msg || '', 'rgba(255,255,255,0.9)'));
-            div.appendChild(span('  ·  ' + (info.date || ''), 'rgba(255,255,255,0.45)'));
+            div.appendChild(span(info.msg || '', 'rgba(255,255,255,0.95)'));
+            div.appendChild(span('  ·  ' + (info.date || ''), 'rgba(255,255,255,0.5)'));
         }
         return div;
     }
@@ -3220,32 +3223,56 @@ function buildWelcomeAccountInfo() {
         box.appendChild(row('Code2', window.CODE2_COMMIT_INFO));
     }
 
-    function ensure() {
-        document.querySelectorAll('.menu-player__data').forEach(data => {
-            if (data.querySelector('.' + CLS)) return;
-            const box = document.createElement('div');
-            box.className = CLS;
-            box.style.cssText = 'margin-top:0.8vh;font-size:1.3vh;line-height:1.35;pointer-events:none;';
-            data.appendChild(box);
+    function isMenuOnScreen() {
+        const nodes = document.querySelectorAll(MENU_SELECTOR);
+        for (const n of nodes) {
+            if (n.getClientRects().length > 0) return true;   // реально отображается
+        }
+        return false;
+    }
+
+    function getBox() {
+        let box = document.getElementById(ID);
+        if (!box) {
+            box = document.createElement('div');
+            box.id = ID;
+            box.style.cssText =
+                'position:fixed;left:50%;bottom:2vh;transform:translateX(-50%);' +
+                'z-index:2147483000;pointer-events:none;display:none;' +
+                'max-width:80vw;padding:0.7vh 1.6vh;border-radius:0.8vh;' +
+                'background:rgba(0,0,0,0.5);font-size:1.5vh;line-height:1.4;' +
+                'font-family:inherit;text-align:left;';
+            (document.body || document.documentElement).appendChild(box);
             render(box);
-        });
+        }
+        return box;
+    }
+
+    let shownLogged = false;
+    function tick() {
+        const on = isMenuOnScreen();
+        const box = getBox();
+        const want = on ? 'block' : 'none';
+        if (box.style.display !== want) {
+            box.style.display = want;
+            if (on && !shownLogged) {
+                shownLogged = true;
+                console.log('[MenuVersion] плашка версии показана в меню');
+            }
+        }
     }
 
     window.hbUpdateMenuVersion = function () {
-        document.querySelectorAll('.' + CLS).forEach(render);
-        ensure();
+        render(getBox());
+        tick();
     };
 
-    // Повторная загрузка скрипта — снимаем старый наблюдатель, чтобы не копились
+    // Повторная загрузка скрипта — снимаем старый таймер и старую плашку (без дублей)
+    try { if (window.__hbMenuVerTimer) clearInterval(window.__hbMenuVerTimer); } catch (e) {}
     try { if (window.__hbMenuVerObserver) window.__hbMenuVerObserver.disconnect(); } catch (e) {}
-    let timer = null;
-    const obs = new MutationObserver(() => {
-        if (timer) return;
-        timer = setTimeout(() => { timer = null; ensure(); }, 150);
-    });
-    obs.observe(document.body, { childList: true, subtree: true });
-    window.__hbMenuVerObserver = obs;
-    ensure();
+    try { const old = document.getElementById(ID); if (old) old.remove(); } catch (e) {}
+    window.__hbMenuVerTimer = setInterval(tick, 500);
+    tick();
 })();
 
 // ── Строит полный текст приветственного сообщения ──
