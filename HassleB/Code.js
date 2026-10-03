@@ -604,6 +604,131 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
         } catch(e) { return null; }
     }
 
+    // ── Разбор сырого ответа сервера (UPDATE_MAIN_STATS = 0) ──
+    // Формат — ровно как в MainMenu.js → updateMainStats(e):
+    // [0 ник, 1 статус, 2 [тип_подписки, период], 3 [ур, опыт, цель], 4 [дома, бизнесы, машины],
+    //  5 [выносл., сила, закон, ранг_преступн., телефон, баланс SIM], 6 имущество [[иконка, имя, дней, макс, опасность]],
+    //  7 баффы [[текст, осталось, дебафф]], 8 ачивки, 9 [ранг, звание, фракция], 10 работы [[id, имя, иконка, ур]], ...]
+    // Возвращает объект той же формы, что и _extract().
+    var _SUB_TYPES = ['none', 'silver', 'gold', 'platinum'];
+    function _parseStats(arr) {
+        try {
+            if (!Array.isArray(arr) || arr.length < 10) return null;
+            var sub   = Array.isArray(arr[2]) ? arr[2] : [];
+            var lvl   = Array.isArray(arr[3]) ? arr[3] : [];
+            var prop  = Array.isArray(arr[4]) ? arr[4] : [];
+            var misc  = Array.isArray(arr[5]) ? arr[5] : [];
+            var props = Array.isArray(arr[6]) ? arr[6] : [];
+            var buffs = Array.isArray(arr[7]) ? arr[7] : [];
+            var org   = Array.isArray(arr[9]) ? arr[9] : [];
+            var jobs  = Array.isArray(arr[10]) ? arr[10] : [];
+
+            // Та же сортировка, что в MainMenu.js: сначала «опасные», затем по возрастанию оставшихся дней
+            var propsDetail = props.map(function(P) {
+                return { icon: P[0], name: P[1], days: { current: P[2], max: P[3], isDanger: !!P[4] } };
+            }).sort(function(a, b) {
+                return a.days.isDanger === b.days.isDanger
+                    ? a.days.current - b.days.current
+                    : (a.days.isDanger ? -1 : 1);
+            });
+
+            var _money = { money: null, bankMoney: null };
+            try { var _m = getPlayerMoneyFromStore(); if (_m) _money = _m; } catch(e) {}
+
+            var subType = _SUB_TYPES[sub[0]];
+            return {
+                rank:        org[1] || null,
+                rankNum:     org[0] || null,
+                orgTitle:    org[2] || null,
+                status:      arr[1] || null,
+                level:       lvl[0] || null,
+                xpCurrent:   lvl[1] || null,
+                xpTarget:    lvl[2] || null,
+                cash:        _money.money,
+                bank:        _money.bankMoney,
+                phone:       misc[4] || null,
+                simBalance:  misc[5] || null,
+                stamina:     misc[0] || null,
+                strength:    misc[1] || null,
+                housesCount: prop[0] || 0,
+                bizCount:    prop[1] || 0,
+                carsCount:   prop[2] || 0,
+                propertiesDetail: propsDetail.map(function(pr) {
+                    return {
+                        name:        pr.name || '',
+                        icon:        pr.icon || '',
+                        days:        pr.days || null,
+                        isApartment: !!(pr.name && (pr.name.indexOf('Квартира') !== -1 || pr.name.indexOf('квартира') !== -1)),
+                    };
+                }),
+                subscribe:   (subType && subType !== 'none') ? subType : null,
+                lawLevel:    misc[2] != null ? misc[2] : null,
+                buffs:       buffs.map(function(b) { return { text: b[0], leftTime: b[1], debuff: !!b[2] }; }),
+                jobs:        jobs.map(function(j) { return { id: j[0], title: j[1], lvl: j[3] }; }),
+            };
+        } catch(e) { return null; }
+    }
+
+    // ── ТИХОЕ чтение профиля (как в pravo.js) ──────────────────────────────────
+    // Окно MainMenu НЕ открывается вообще: на событие MainMenu_OnPlayerChangeTab(Statistics)
+    // сервер шлёт статистику в interface('MainMenu').onServerResponse(0, json). Пока ждём ответ,
+    // window.interface('MainMenu') (если окна нет) возвращает «приёмник» — он забирает данные.
+    // Нет мерцания, не нужно ждать закрытия других интерфейсов, не трогаем курсор/ники/HUD.
+    // Если не вышло (меню уже открыто, нет нужных функций, таймаут) — cb(null) и работает старый путь через UI.
+    function _silentRead(cb) {
+        var origInterface = window.interface;
+        var alreadyOpen = false;
+        try { alreadyOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+        if (alreadyOpen || typeof origInterface !== 'function' || typeof window.sendClientEventHandle !== 'function') {
+            cb(null);
+            return;
+        }
+
+        var settled = false, timer = null;
+        window._hassleProfileLoading = true; // пассивный режим для патча вкладки и проверки выговоров
+
+        function finish(result) {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (window.interface === wrapper) window.interface = origInterface;
+            // Сообщаем серверу «меню закрыто», иначе MainMenu:Open (M, /menu, /gps) будет игнорироваться
+            _srvSend('MainMenu_OnPlayerCloseInterface');
+            window._hassleProfileLoading = false;
+            cb(result);
+        }
+
+        function onResponse(type, json) {
+            if (Number(type) !== 0) return; // 0 = UPDATE_MAIN_STATS
+            try {
+                var arr = typeof json === 'string' ? JSON.parse(json) : json;
+                finish(_parseStats(arr));
+            } catch(e) { finish(null); }
+        }
+
+        var sink = new Proxy({}, {
+            get: function(_, prop) {
+                if (typeof prop === 'symbol') return undefined;
+                if (prop === 'onServerResponse') return onResponse;
+                return function() {};
+            }
+        });
+        var wrapper = function(name) {
+            var r = origInterface.apply(this, arguments);
+            if (!r && name === 'MainMenu' && !settled) return sink;
+            return r;
+        };
+
+        window.interface = wrapper;
+        timer = setTimeout(function() { finish(null); }, 4000);
+        try {
+            // Сервер при совпадении вкладки возвращает false без данных —
+            // поэтому сначала сброс «текущей вкладки», потом запрос Statistics.
+            _srvSend('MainMenu_OnPlayerCloseInterface');
+            _srvSend('MainMenu_OnPlayerChangeTab', 1); // 1 = MAIN_MENU_TAB_STATISTICS
+        } catch(e) { finish(null); }
+    }
+
     // ── Главная функция: считывает профиль ОДИН РАЗ ──
     function loadPlayerProfile(callback) {
         // Уже загружено
@@ -625,6 +750,34 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
         var _done = false, _wd = null, _poll = null;
         var _wasOpen = false;
         var _openP = null; // промис игрового openInterface (он async: ждёт импорт стора)
+
+        // Применение результата (общее для тихого чтения и резервного пути через UI)
+        function _applyResult(data) {
+            if (data) {
+                Object.assign(config.accountInfo.profile, data);
+                config.accountInfo.profile.loaded = true;
+                globalState.profileRetry = 0; // сбрасываем счётчик — успех
+                debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
+                // Обновляем приветственное сообщение с полными данными профиля
+                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
+            } else {
+                debugLog('[Profile] ⚠️ Профиль не получен — данные недоступны');
+                if (globalState.profileRetry < 3) {
+                    globalState.profileRetry++;
+                    var retryDelaySec = globalState.profileRetry * 15; // 15с, 30с, 45с
+                    debugLog('[Profile] 🔄 Повтор через ' + retryDelaySec + 'с (попытка ' + globalState.profileRetry + '/3)');
+                    // Обновляем сообщение — покажем частичные данные (фракция/скин уже известны)
+                    if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
+                    setTimeout(function() { loadPlayerProfile(callback); }, retryDelaySec * 1000);
+                } else {
+                    globalState.profileRetry = 0;
+                    debugLog('[Profile] ❌ Все попытки загрузки профиля исчерпаны');
+                    // Всё равно обновляем сообщение — хотя бы скин/фракция отобразятся
+                    if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
+                }
+            }
+            if (callback) callback(data ? config.accountInfo.profile : null);
+        }
 
         function _finish(data) {
             if (_done) return;
@@ -669,30 +822,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 _teardown();
             }
 
-            if (data) {
-                Object.assign(config.accountInfo.profile, data);
-                config.accountInfo.profile.loaded = true;
-                globalState.profileRetry = 0; // сбрасываем счётчик — успех
-                debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
-                // Обновляем приветственное сообщение с полными данными профиля
-                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
-            } else {
-                debugLog('[Profile] ⚠️ Профиль не получен — данные недоступны');
-                if (globalState.profileRetry < 3) {
-                    globalState.profileRetry++;
-                    var retryDelaySec = globalState.profileRetry * 15; // 15с, 30с, 45с
-                    debugLog('[Profile] 🔄 Повтор через ' + retryDelaySec + 'с (попытка ' + globalState.profileRetry + '/3)');
-                    // Обновляем сообщение — покажем частичные данные (фракция/скин уже известны)
-                    if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
-                    setTimeout(function() { loadPlayerProfile(callback); }, retryDelaySec * 1000);
-                } else {
-                    globalState.profileRetry = 0;
-                    debugLog('[Profile] ❌ Все попытки загрузки профиля исчерпаны');
-                    // Всё равно обновляем сообщение — хотя бы скин/фракция отобразятся
-                    if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
-                }
-            }
-            if (callback) callback(data ? config.accountInfo.profile : null);
+            _applyResult(data);
         }
 
         function _begin() {
@@ -769,13 +899,27 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
             }, 150);
         }
 
-        // Перед открытием ждём, пока закроются другие интерфейсы (PauseMenu, диалоги и т.д.),
-        // иначе игра прячет их и показывает заново — это мерцание. Максимум 20 сек.
-        (function waitFree(tries) {
-            if (_done) return;
-            if (!_otherInterfaceOpen() || tries >= 40) { _begin(); return; }
-            setTimeout(function() { waitFree(tries + 1); }, 500);
-        })(0);
+        // Резервный путь: открываем MainMenu невидимо. Перед открытием ждём, пока закроются другие
+        // интерфейсы (PauseMenu, диалоги и т.д.), иначе игра прячет их и показывает заново — это мерцание.
+        function _readViaUI() {
+            (function waitFree(tries) {
+                if (_done) return;
+                if (!_otherInterfaceOpen() || tries >= 40) { _begin(); return; }
+                setTimeout(function() { waitFree(tries + 1); }, 500);
+            })(0);
+        }
+
+        // Сначала «тихо» (без открытия окна). Не вышло — старый путь через UI.
+        _silentRead(function(sd) {
+            if (sd) {
+                _fetching = false;
+                debugLog('[Profile] ✅ Тихое чтение (без открытия меню)');
+                _applyResult(sd);
+                return;
+            }
+            debugLog('[Profile] Тихое чтение не удалось — открываю меню (резервный путь)');
+            _readViaUI();
+        });
     }
 
     // ── Отправляем карточку профиля в Telegram после загрузки ──
