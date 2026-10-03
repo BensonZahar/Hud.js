@@ -2792,7 +2792,8 @@ function _pravoSmsPriceText() {
 var PRAVO_SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
 var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
 var PRAVO_SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
-var PRAVO_SMS_LABEL = 'SMS'; // надпись на кнопке
+var PRAVO_SMS_LABEL = 'Ответ'; // надпись на кнопке
+var PRAVO_SMS_MENU_TIMEOUT = 30000; // мс: через сколько авто-свернуть раскрытый выбор, если ничего не нажали (0 = не сворачивать)
 var PRAVO_SMS_MOBILE_SCALE = 2; // Хасл: во сколько раз кнопка больше, чем стандартная мобильная (2.78vh)
 var PRAVO_SMS_PC_SCALE = 1.5;    // ПК: во сколько раз кнопка больше штатного кружка (1.85vh); 1.5 = 2.78vh
 var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фон + чёрный текст (как у штатных кнопок чата); false = без подсветки
@@ -2818,13 +2819,11 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
         '.chat-message-content__action.pravo-sms-btn>*{display:none!important;}' +
         '.chat-message-content__action.pravo-sms-btn::after{content:"' + PRAVO_SMS_LABEL + '";}' +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}' +
-        // свернули кнопку SMS, пока раскрыт выбор
-        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--hidden{display:none!important;}' +
-        // раскрытый выбор: те же размеры/вид, что у кнопки SMS (свои элементы без data-v -> штатные стили чата не действуют)
-        '.pravo-sms-menu{display:inline-flex;align-items:center;vertical-align:middle;}' +
+        // раскрытый выбор - отдельная строка под сообщением; вид тот же, что у кнопки «Ответ» (свои элементы без data-v -> штатные стили чата не действуют)
+        '.pravo-sms-menu{display:flex;align-items:center;flex-wrap:wrap;margin:.3vh 0 .2vh .6vh;color:#fff;font-weight:700;}' +
         '.pravo-sms-opt{' + css(pcH) +
             'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.6vh;position:relative;' +
-            'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:inherit;font-weight:700;line-height:1;' +
+            'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:#fff;font-weight:700;line-height:1;' +
             'letter-spacing:.03em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;transition:all .25s ease;}' +
         '.pravo-sms-opt.pravo-sms-opt--mobile{' + css(mbH) + '}' +
         '.pravo-sms-opt:hover{background:#fff;color:#000;}';
@@ -2873,8 +2872,9 @@ var _pravoSmsLastBtn = null; // кнопка SMS, по которой кликн
 function _pravoSmsCollapse(menu) {
     try {
         if (!menu) return;
+        if (menu._pravoTimer) { clearTimeout(menu._pravoTimer); menu._pravoTimer = 0; }
         var btn = menu._pravoBtn;
-        if (btn && btn.classList) btn.classList.remove('pravo-sms-btn--hidden');
+        if (btn) btn._pravoMenu = null;
         if (menu.parentNode) menu.parentNode.removeChild(menu);
     } catch (e) {}
 }
@@ -2884,12 +2884,23 @@ function _pravoSmsCollapseAll() {
         for (var i = 0; i < menus.length; i++) _pravoSmsCollapse(menus[i]);
     } catch (e) {}
 }
+// Строка сообщения чата (flex: время + текст), под которой показываем выбор
+function _pravoSmsRow(btn) {
+    var el = btn;
+    for (var i = 0; i < 6 && el && el.parentNode; i++) {
+        if (el.classList && el.classList.contains('chat-message')) return el;
+        el = el.parentNode;
+    }
+    return null;
+}
 function _pravoSmsExpand(btn, number) {
     try {
         if (!btn || !btn.parentNode) return false;
+        // повторный клик по «Ответ» сворачивает выбор
+        if (btn._pravoMenu && btn._pravoMenu.parentNode) { _pravoSmsCollapse(btn._pravoMenu); return true; }
         _pravoSmsCollapseAll(); // одновременно раскрыта только одна кнопка
         var mobile = btn.classList.contains('pravo-sms-btn--mobile');
-        var menu = document.createElement('span');
+        var menu = document.createElement('div');
         menu.className = 'pravo-sms-menu';
         menu._pravoBtn = btn;
         var opts = [
@@ -2905,12 +2916,15 @@ function _pravoSmsExpand(btn, number) {
                 try { _pravoSendCmd('/sms ' + number + ' ' + o.text()); } catch (e) {
                     try { console.log('[PRAVO] SMS: ошибка отправки', e); } catch (_) {}
                 }
-                _pravoSmsCollapse(menu); // отправили -> снова одна кнопка SMS
+                _pravoSmsCollapse(menu); // отправили -> выбор убирается, остаётся одна кнопка «Ответ»
             });
             menu.appendChild(b);
         });
-        btn.classList.add('pravo-sms-btn--hidden');
-        btn.parentNode.insertBefore(menu, btn.nextSibling);
+        var row = _pravoSmsRow(btn);
+        if (row && row.parentNode) row.parentNode.insertBefore(menu, row.nextSibling); // отдельной строкой под сообщением
+        else btn.parentNode.appendChild(menu);
+        btn._pravoMenu = menu;
+        if (PRAVO_SMS_MENU_TIMEOUT > 0) menu._pravoTimer = setTimeout(function () { _pravoSmsCollapse(menu); }, PRAVO_SMS_MENU_TIMEOUT);
         return true;
     } catch (e) { return false; }
 }
