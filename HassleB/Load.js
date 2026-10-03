@@ -385,6 +385,9 @@ async function initializeScripts() {
             window.CODE2_COMMIT_INFO = code2Info || null;
             console.log('📝 Инфо о коммитах загружено — обновляем велком');
             // Редактируем уже отправленное велком-сообщение с версиями
+            if (typeof window.hbUpdateMenuVersion === 'function') {
+                window.hbUpdateMenuVersion(); // надпись версии в меню (экран с ником)
+            }
             if (typeof window.sendWelcomeMessage === 'function') {
                 window.sendWelcomeMessage();
             }
