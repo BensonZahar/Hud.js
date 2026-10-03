@@ -5052,6 +5052,30 @@ function loadPlayerProfile(callback) {
     window._mvdProfileLoading = true; // блокируем патч вкладки пока читаем профиль
     console.log('[Profile] Загрузка данных персонажа (первый раз)...');
 
+    // Сначала пробуем «тихо»: без открытия MainMenu вообще (нет мерцания и подвисания).
+    // Если сервер не ответил — откатываемся на старый путь через открытие меню.
+    silentReadProfile(function(data) {
+        if (data && data.nickname && data.orgRangName) {
+            applyProfileResult(data.nickname, data.orgRangName);
+            console.log('[Profile] ✅ Тихое чтение: ' + window._pravoRank + ' ' + window._pravoFirstName + ' ' + window._pravoLastName);
+            _fetching = false;
+            window._mvdProfileLoading = false;
+            if (callback) callback({ nickname: window._pravoCallsign, orgRangName: window._pravoRank });
+            return;
+        }
+        if (data) { // ответ пришёл, но звания нет (не в организации) — запоминать нечего
+            console.log('[Profile] Тихое чтение: звания нет');
+            _fetching = false;
+            window._mvdProfileLoading = false;
+            if (callback) callback({ nickname: window._pravoCallsign, orgRangName: window._pravoRank });
+            return;
+        }
+        console.warn('[Profile] Тихое чтение не удалось — открываю меню по-старому');
+        readViaUI();
+    });
+
+    function readViaUI() {
+
     var _done = false;
     var _watchdog = null;
 
@@ -5069,9 +5093,10 @@ function loadPlayerProfile(callback) {
         // Закрываем ТОЛЬКО если открывали сами — и обязательно уведомляем об этом сервер тем же событием, что уходит при нажатии ESC.
         if (!_wasAlreadyOpen) {
             try {
-                var mmForClose = window.interface('MainMenu');
-                if (mmForClose && typeof mmForClose.sendCloseEvent === 'function') {
-                    mmForClose.sendCloseEvent();
+                // sendClientEventHandle минует проверку «открыт чат», из-за которой событие терялось
+                // и сервер считал MainMenu открытым (MainMenu:Open → return false: /gps, M, /menu молча не работали)
+                if (typeof window.sendClientEventHandle === 'function') {
+                    window.sendClientEventHandle(0, "MainMenu_OnPlayerCloseInterface");
                 } else if (typeof window.sendClientEvent === 'function') {
                     window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
                 }
@@ -5177,6 +5202,79 @@ function loadPlayerProfile(callback) {
             }
         }, 100); // ↓ 200→100ms: быстрее считываем данные
     }, 250);  // ↓ 600→250ms: Vue успевает примонтироваться, но не ждём лишнего
+    } // конец readViaUI
+}
+
+function applyProfileResult(nick, rank) {
+    window._pravoCallsign = nick || '';
+    window._pravoRank = rank || '';
+    var nickParts = (nick || '').split(/[_\s]+/);
+    window._pravoFirstName = nickParts[0] || '';
+    window._pravoLastName = nickParts[1] || '';
+}
+
+// ── ТИХОЕ чтение профиля ─────────────────────────────────────────────────────
+// Сервер на событие MainMenu_OnPlayerChangeTab(1) шлёт статистику строкой
+//   interface('MainMenu').onServerResponse(0, '[ник, статус, ..., [ранг, звание, орг.]...]')
+// Окно для этого открывать не нужно: на время ответа подставляем вместо окна «приёмник»,
+// забираем ник и звание и тут же шлём серверу MainMenu_OnPlayerCloseInterface.
+// Индексы как в MainMenu.js (updateMainStats): [0] — ник, [9] — [rang, rangName, title].
+function silentReadProfile(cb) {
+    var origInterface = window.interface;
+    var alreadyOpen = false;
+    try { alreadyOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+    if (alreadyOpen || typeof origInterface !== 'function' || typeof window.sendClientEventHandle !== 'function') {
+        cb(null); // меню уже открыто игроком / нет нужных функций — обычный путь
+        return;
+    }
+
+    var settled = false;
+    var timer = null;
+    var EVT = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC) || 0;
+
+    function finish(result) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (window.interface === wrapper) window.interface = origInterface;
+        // Сообщаем серверу, что «окно закрыто», иначе MainMenu:Open (M, /menu, /gps) будет игнорироваться
+        try { window.sendClientEventHandle(EVT, 'MainMenu_OnPlayerCloseInterface'); } catch(e) {}
+        cb(result);
+    }
+
+    function onResponse(type, json) {
+        if (Number(type) !== 0) return; // 0 = UPDATE_MAIN_STATS
+        try {
+            var arr = typeof json === 'string' ? JSON.parse(json) : json;
+            var realNick = null;
+            try { realNick = window.App.$store.getters['player/nickName']; } catch(e) {}
+            var org = Array.isArray(arr[9]) ? arr[9] : [];
+            finish({ nickname: realNick || arr[0] || '', orgRangName: org[1] || '' });
+        } catch(e) {
+            finish(null);
+        }
+    }
+
+    var sink = new Proxy({}, {
+        get: function(_, prop) {
+            if (typeof prop === 'symbol') return undefined;
+            if (prop === 'onServerResponse') return onResponse;
+            return function() {};
+        }
+    });
+    var wrapper = function(name) {
+        var r = origInterface.apply(this, arguments);
+        if (!r && name === 'MainMenu' && !settled) return sink;
+        return r;
+    };
+
+    window.interface = wrapper;
+    timer = setTimeout(function() { finish(null); }, 2500);
+    try {
+        window.sendClientEventHandle(EVT, 'MainMenu_OnPlayerChangeTab', 1); // 1 = «Персонаж»
+    } catch(e) {
+        finish(null);
+    }
 }
 
 // ── Команда /mmenu для принудительного обновления данных ──
@@ -5217,9 +5315,15 @@ waitForApp(function() {
     // Запускаем loadPlayerProfile сразу после готовности App — невидимо для
     // игрока — чтобы к первому /dahk данные уже лежали в window._pravoRank /
     // _mvdFirstName / _mvdLastName и MvdMenu открывалось мгновенно.
-    setTimeout(function() {
+    function _pravoWaitConnected(cb, n) {
+        var ok = false;
+        try { ok = !!window.App.$store.getters['player/isPlayerConnected']; } catch(e) {}
+        if (ok) { setTimeout(cb, 1500); return; }
+        if ((n || 0) < 600) setTimeout(function() { _pravoWaitConnected(cb, (n || 0) + 1); }, 1000);
+    }
+    _pravoWaitConnected(function() {
         if (window._pravoFirstName && window._pravoLastName && window._pravoRank) return;
-        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+        console.log('[Profile] 🔄 Фоновая предзагрузка профиля после входа в игру...');
         loadPlayerProfile(function(data) {
             if (data && data.orgRangName) {
                 console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._pravoFirstName||'') + ' ' + (window._pravoLastName||''));
@@ -5235,7 +5339,7 @@ waitForApp(function() {
                 console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
             }
         });
-    }, 1500);
+    });
 });
 
 window._pravoLoadPlayerProfile = loadPlayerProfile;
@@ -5249,11 +5353,21 @@ window._pravoLoadPlayerProfile = loadPlayerProfile;
 // чтобы не мешать невидимому считыванию данных.
 (function() {
 'use strict';
+// Открытия с сервера (MainMenu:Open → SHOW_INTERFACE) приходят с массивом [тип_данных:число, вкладка, json]
+// и уже содержат нужную вкладку: M и /menu сервер открывает на «Персонаж», /gps — на «Карту», J — на «Задания».
+// Переключаем ТОЛЬКО прямые клиентские открытия без вкладки (params пуст или ['not_from_server', 0, ...]).
+function _pravoIsBareClientOpen(p) {
+    try {
+        if (p === undefined || p === null || p === '') return true;
+        if (typeof p === 'string') p = JSON.parse(p.replace(/\n/, '\\n'));
+        return Array.isArray(p) && p[0] === 'not_from_server' && Number(p[1]) === 0;
+    } catch(e) { return false; }
+}
 function applyMainMenuTabPatch() {
     var _origOI = window.openInterface;
-    window.openInterface = function(name) {
+    window.openInterface = function(name, params) {
         var result = _origOI.apply(this, arguments);
-        if (name === 'MainMenu' && !window._mvdProfileLoading) {
+        if (name === 'MainMenu' && !window._mvdProfileLoading && _pravoIsBareClientOpen(params)) {
             // Небольшая задержка: Vue-компонент должен смонтироваться
             setTimeout(function() {
                 try {
