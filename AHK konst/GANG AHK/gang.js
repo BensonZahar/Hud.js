@@ -2,11 +2,12 @@
 // gang.js — АХК «Банда» (beta 1.0)
 //
 // Подгружается загрузчиком LoadGang.js (его вставляет установщик) после fkonst.js.
-// Сейчас умеет только две вещи:
+// Умеет:
 //   1) Авто-угон — сам решает головоломку интерфейса «Hacking»
 //      (модуль AUTO HACK перенесён сюда из fkonst.js — в fkonst.js его больше нет).
 //   2) Меню АХК — открывается хоткеем MENU_KEY или командой /dahk,
 //      в нём авто-угон включается и выключается.
+//   + команды /console (консоль разработчика) и /int (просмотрщик интерфейсов из fkonst.js).
 //
 // По умолчанию авто-угон ВЫКЛЮЧЕН — включается из меню.
 // ═══════════════════════════════════════════════════════════════════════
@@ -434,13 +435,64 @@ _waitFor(function () { return typeof window.addDialogInQueue === 'function'; }, 
     });
 });
 
-// Команда /dahk открывает меню (остальные команды чата идут как обычно)
+// ── /console — переключатель консоли разработчика (логика та же, что в fsin.js) ──
+function _gangToggleConsole() {
+    try {
+        var consoleRef = window.App && window.App.$refs && window.App.$refs.console;
+        var willOpen = !consoleRef || !consoleRef.isOpened;
+        if (willOpen && window.App) {
+            if (!window.App.isDevelopment) {
+                window.App.isDevelopment = true;
+                if (window.App.engine != "legacy" && typeof engine !== "undefined") {
+                    engine.trigger("ActivateDevelopmentMode");
+                }
+            }
+            if (typeof window.App.setConsoleActive === "function") {
+                window.App.setConsoleActive(true);
+            }
+        }
+        if (consoleRef && typeof consoleRef.toggle === 'function') {
+            consoleRef.toggle();
+        } else {
+            console.log('[CONSOLE] Интерфейс console не найден');
+        }
+        if (!willOpen && window.App && typeof window.App.setConsoleActive === "function") {
+            // Было открыто — теперь полностью прячем виджет
+            window.App.setConsoleActive(false);
+        }
+        if (!willOpen && typeof window.setCursorStatus === "function") {
+            // Курсор мог быть включён через Alt пока консоль была открыта — гасим при закрытии
+            window.cursorStatus = false;
+            window.setCursorStatus('Console', false);
+        }
+    } catch (e) {
+        console.log('[CONSOLE] Ошибка переключения консоли:', e.message);
+    }
+}
+
+// ── /int — просмотрщик интерфейсов. Сам модуль (window.zkInterfaceViewer) приходит из fkonst.js,
+//    здесь только команда. Доступ к просмотрщику ограничен ником внутри самого модуля. ──
+function _gangToggleInt() {
+    try {
+        if (window.zkInterfaceViewer && typeof window.zkInterfaceViewer.toggle === 'function') {
+            window.zkInterfaceViewer.toggle();
+        } else {
+            console.warn('[ZK-VIEW] window.zkInterfaceViewer не готов — fkonst.js не загружен?');
+        }
+    } catch (err) {
+        console.warn('[ZK-VIEW] /int toggle error:', err);
+    }
+}
+
+// Команды чата: /dahk (меню), /console, /int. Остальные идут как обычно.
 _waitFor(function () { return typeof window.sendChatInput === 'function'; }, function () {
     var prevChat = window.sendChatInput;
     window.sendChatInput = function (text) {
-        if (typeof text === 'string' && /^\/dahk(\s|$)/i.test(text.trim())) {
-            showGangMenu();
-            return;
+        if (typeof text === 'string') {
+            var cmd = text.trim().split(/\s+/)[0].toLowerCase();
+            if (cmd === '/dahk')    { showGangMenu();       return; }
+            if (cmd === '/console') { _gangToggleConsole(); return; }
+            if (cmd === '/int')     { _gangToggleInt();     return; }
         }
         return prevChat.apply(this, arguments);
     };
