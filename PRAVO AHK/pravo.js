@@ -4953,6 +4953,13 @@ function _restorePatch() {
     } catch(e) {}
 }
 
+// Параметры открытия для загрузчика: [-1, 1, {}] = «тип ответа сервера: нет, вкладка №1 (Statistics)».
+// Без параметров MainMenu открывается на вкладке по умолчанию — «Карта»: её компонент (MainMap.js)
+// монтируется скрытым и сыплет TypeError «Cannot read properties of undefined (reading 'getZoom')»
+// в specialPoints, пока нет данных карты. Открывая сразу «Персонаж», карту не создаём вообще.
+// Сервер при этом данные не присылает (вкладка выбрана без события) — их запрашивает _srvAskStats.
+var _OPEN_STATS_PARAMS = [-1, 1, {}];
+
 // ── Прячем меню ЕЩЁ ДО открытия — но только МЕНЮ ЗАГРУЗЧИКА ──
 // CSS-правило на класс .main-menu работает с первого кадра (нет мерцания), но оно накрывает ЛЮБОЕ
 // .main-menu — в том числе меню, которое сервер открыл для /mn, /gps или M. Поэтому правило живёт
@@ -5354,7 +5361,7 @@ function loadPlayerProfile(callback) {
             _hideOn();             // правило-невидимка ДО открытия
             _kbSuppress();
             _srvResetMenuState();  // сервер не должен «помнить» старую вкладку
-            try { window._pravoOwnOpen = true; _openP = window.openInterface('MainMenu'); }
+            try { window._pravoOwnOpen = true; _openP = window.openInterface('MainMenu', _OPEN_STATS_PARAMS); }
             catch(e) { window._pravoOwnOpen = false; _finish(null); return; }
             window._pravoOwnOpen = false;
         }
@@ -5376,7 +5383,7 @@ function loadPlayerProfile(callback) {
                 if (!_wasOpen && !reopened && Date.now() - t0 > 1500) {
                     var st = false;
                     try { st = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
-                    if (!st) { reopened = true; try { window._pravoOwnOpen = true; _openP = window.openInterface('MainMenu'); } catch(e) {} window._pravoOwnOpen = false; }
+                    if (!st) { reopened = true; try { window._pravoOwnOpen = true; _openP = window.openInterface('MainMenu', _OPEN_STATS_PARAMS); } catch(e) {} window._pravoOwnOpen = false; }
                 }
                 return;
             }
