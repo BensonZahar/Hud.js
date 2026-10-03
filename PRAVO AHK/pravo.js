@@ -2779,6 +2779,63 @@ var PRAVO_SMS_LABEL_PLACE = 'Место';
 var PRAVO_SMS_LABEL_PRICE = 'Ценовая политика';
 // Текст «Ценовой политики» собирается из _GIVE_LIC_TYPES (те же цены, что в меню выдачи). Хочешь свой текст - впиши строку сюда.
 var PRAVO_SMS_TEXT_PRICE = '';
+// ── Отправка SMS с разбиением на части и очередью ─────────────────────────────
+// Сервер отвечает «Слишком длинное сообщение», если текст SMS длинный: 61 символ проходил, 80 - нет (точный лимит /sms в дампе мода не найден).
+// Поэтому режем на части <= PRAVO_SMS_MAX_LEN и шлём подряд. Если снова увидите «Слишком длинное сообщение» - уменьшите число.
+var PRAVO_SMS_MAX_LEN = 61;
+var PRAVO_SMS_PART_DELAY = 700; // мс между частями (как PRAVO_CHAT_PART_DELAY у обычного чата); плюс ждём по модели антифлуда
+var _pravoSmsQueue = [];
+var _pravoSmsBusy = false;
+var _pravoSmsLastAt = 0;
+
+// Режем по ", " (запятая остаётся в конце строки); слишком длинный кусок без запятых - общим резаком по словам
+function _pravoSmsSplit(text, max) {
+    text = String(text == null ? '' : text).trim();
+    max = max || PRAVO_SMS_MAX_LEN;
+    if (text.length <= max) return text ? [text] : [];
+    var toks = text.split(', '), parts = [], cur = '';
+    for (var i = 0; i < toks.length; i++) {
+        var piece = toks[i] + (i < toks.length - 1 ? ',' : '');
+        var cand = cur ? cur + ' ' + piece : piece;
+        if (cand.length <= max) { cur = cand; continue; }
+        if (cur) parts.push(cur);
+        cur = piece;
+        if (cur.length > max) {
+            var sub = _pravoSplitChat(cur, max);
+            cur = sub.pop() || '';
+            parts = parts.concat(sub);
+        }
+    }
+    if (cur) parts.push(cur);
+    return parts;
+}
+function _pravoSmsDrain() {
+    if (_pravoSmsBusy) return;
+    _pravoSmsBusy = true;
+    (function next() {
+        if (!_pravoSmsQueue.length) { _pravoSmsBusy = false; return; }
+        var now = Date.now();
+        var gap = Math.max(0, PRAVO_SMS_PART_DELAY - (now - _pravoSmsLastAt)); // пауза между частями
+        var fw = _pravoFloodWait(1);                                            // антифлуд сервера (3000/1000 за команду)
+        var w = Math.max(gap, fw);
+        if (w > 0) {
+            if (fw >= 700) { try { gtAdd('~y~Антифлуд~n~~w~SMS через ' + (fw / 1000).toFixed(1) + ' с', Math.min(fw + 300, 2500), 3); } catch (_) {} }
+            setTimeout(next, w + 5);
+            return;
+        }
+        var job = _pravoSmsQueue.shift();
+        _pravoSendCmd('/sms ' + job.number + ' ' + job.text);
+        _pravoSmsLastAt = Date.now();
+        setTimeout(next, PRAVO_SMS_PART_DELAY);
+    })();
+}
+function _pravoSmsSend(number, text) {
+    var parts = _pravoSmsSplit(text, PRAVO_SMS_MAX_LEN);
+    for (var i = 0; i < parts.length; i++) _pravoSmsQueue.push({ number: number, text: parts[i] });
+    try { console.log('[PRAVO][SMS] -> ' + number + ': ' + parts.length + ' сообщ.', parts); } catch (_) {}
+    _pravoSmsDrain();
+}
+
 function _pravoSmsPriceText() {
     if (PRAVO_SMS_TEXT_PRICE) return PRAVO_SMS_TEXT_PRICE;
     try {
@@ -2792,7 +2849,9 @@ function _pravoSmsPriceText() {
 var PRAVO_SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
 var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
 var PRAVO_SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
-var PRAVO_SMS_LABEL = 'Ответ'; // надпись на кнопке
+var PRAVO_SMS_LABEL = 'Ответ'; // надпись на кнопке (закрыто: стрелка вниз = можно открыть)
+var PRAVO_SMS_LABEL_CLOSE = 'Закрыть'; // надпись, пока выбор раскрыт (стрелка вверх = можно закрыть)
+var PRAVO_SMS_OPT_SCALE = 1.15; // кнопки «Место / Ценовая политика» во столько раз крупнее кнопки «Ответ»
 var PRAVO_SMS_OUTLINE_COLOR = 'rgba(255,255,255,.65)'; // цвет контура вокруг сообщения + кнопок при раскрытии ('' = без контура)
 var PRAVO_SMS_OUTLINE_RADIUS = '1.4vh'; // скругление углов рамки
 var PRAVO_SMS_MENU_TIMEOUT = 30000; // мс: через сколько авто-свернуть раскрытый выбор, если ничего не нажали (0 = не сворачивать)
@@ -2819,7 +2878,14 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
             'letter-spacing:.05em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;}' +
         (PRAVO_SMS_HOVER_INVERT ? '.chat-message-content__action.pravo-sms-btn:hover{background:#fff;color:#000;}' : '') +
         '.chat-message-content__action.pravo-sms-btn>*{display:none!important;}' +
-        '.chat-message-content__action.pravo-sms-btn::after{content:"' + PRAVO_SMS_LABEL + '";}' +
+        // подпись + стрелка-треугольник (рисуется границами, не глифом - в шрифте чата может не быть символов-стрелок)
+        '.chat-message-content__action.pravo-sms-btn::before{content:"' + PRAVO_SMS_LABEL + '";}' +
+        '.chat-message-content__action.pravo-sms-btn::after{content:"";display:block;width:0;height:0;margin-left:.45em;' +
+            'border-left:.36em solid transparent;border-right:.36em solid transparent;border-top:.46em solid currentColor;}' +
+        // раскрыто: «Закрыть» + стрелка вверх + подсветка (белая заливка, как при наведении)
+        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open{background:#fff;color:#000;}' +
+        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open::before{content:"' + PRAVO_SMS_LABEL_CLOSE + '";}' +
+        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open::after{border-top:0;border-bottom:.46em solid currentColor;}' +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}' +
         // раскрытый выбор - отдельная строка под сообщением; вид тот же, что у кнопки «Ответ» (свои элементы без data-v -> штатные стили чата не действуют)
         '.pravo-sms-menu{display:flex;align-items:center;flex-wrap:wrap;box-sizing:border-box;padding:.3vh .6vh .35vh;color:#fff;font-weight:700;}' +
@@ -2831,11 +2897,11 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
             '.pravo-sms-menu.pravo-sms-menu--attached{background-color:rgba(255,255,255,.08);border:.16vh solid ' + PRAVO_SMS_OUTLINE_COLOR + ';border-top:0;' +
                 'border-radius:0 0 ' + PRAVO_SMS_OUTLINE_RADIUS + ' ' + PRAVO_SMS_OUTLINE_RADIUS + ';}'
         : '') +
-        '.pravo-sms-opt{' + css(pcH) +
+        '.pravo-sms-opt{' + css(pcH * PRAVO_SMS_OPT_SCALE) +
             'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.6vh;position:relative;' +
             'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:#fff;font-weight:700;line-height:1;' +
             'letter-spacing:.03em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;transition:all .25s ease;}' +
-        '.pravo-sms-opt.pravo-sms-opt--mobile{' + css(mbH) + '}' +
+        '.pravo-sms-opt.pravo-sms-opt--mobile{' + css(mbH * PRAVO_SMS_OPT_SCALE) + '}' +
         '.pravo-sms-opt:hover{background:#fff;color:#000;}';
     document.head.appendChild(s);
 })();
@@ -2884,7 +2950,7 @@ function _pravoSmsCollapse(menu) {
         if (!menu) return;
         if (menu._pravoTimer) { clearTimeout(menu._pravoTimer); menu._pravoTimer = 0; }
         var btn = menu._pravoBtn;
-        if (btn) btn._pravoMenu = null;
+        if (btn) { btn._pravoMenu = null; if (btn.classList) btn.classList.remove('pravo-sms-btn--open'); }
         if (menu._pravoRow && menu._pravoRow.classList) {
             var r = menu._pravoRow;
             r.classList.remove('pravo-sms-row--active');
@@ -2911,7 +2977,7 @@ function _pravoSmsRow(btn) {
 }
 // Подгоняем рамку: одна скруглённая рамка по ширине самого длинного из двух - сообщения или строки кнопок (а не на весь чат).
 // Размеры берём из getBoundingClientRect (экранные px) и переводим в px вёрстки через эталон: у чата может быть scale/transform.
-function _pravoSmsFit(row, menu) {
+function _pravoSmsFit(row, menu, btn) {
     try {
         if (!PRAVO_SMS_OUTLINE_COLOR || !row || !menu) return;
         var kids = row.children, lastR = kids && kids.length ? kids[kids.length - 1] : null;
@@ -2924,6 +2990,23 @@ function _pravoSmsFit(row, menu) {
         menu.style.width = prevW;
         var scale = ref / 200;
         if (!(scale > 0.05 && scale < 20)) scale = 1;
+        // 1b) размер кнопок выбора = реальный размер кнопки «Ответ» * PRAVO_SMS_OPT_SCALE (замер, а не расчёт - движок может масштабировать иначе)
+        try {
+            var bh = btn ? btn.getBoundingClientRect().height / scale : 0;
+            var bcs = btn ? getComputedStyle(btn) : null;
+            var bfs = bcs ? parseFloat(bcs.fontSize) : 0, bpad = bcs ? parseFloat(bcs.paddingLeft) : 0;
+            if (bh > 2 && bfs > 2) {
+                var K = PRAVO_SMS_OPT_SCALE, hh = bh * K;
+                for (var oi = 0; oi < menu.children.length; oi++) {
+                    var st = menu.children[oi].style;
+                    st.setProperty('height', hh + 'px', 'important');
+                    st.setProperty('font-size', (bfs * K) + 'px', 'important');
+                    st.setProperty('border-radius', (hh / 2) + 'px', 'important');
+                    st.setProperty('padding', '0 ' + ((bpad || hh * 0.38 / K) * K) + 'px', 'important');
+                    st.setProperty('min-width', (hh * 1.85) + 'px', 'important');
+                }
+            }
+        } catch (_) {}
         // 2) естественные ширины (до наших отступов)
         var rr = row.getBoundingClientRect(), mm = menu.getBoundingClientRect();
         var lr = lastR.getBoundingClientRect(), lm = lastM.getBoundingClientRect();
@@ -2969,20 +3052,21 @@ function _pravoSmsExpand(btn, number) {
             b.textContent = o.label;
             b.addEventListener('click', function (ev) {
                 try { ev.stopPropagation(); ev.preventDefault(); } catch (_) {}
-                try { _pravoSendCmd('/sms ' + number + ' ' + o.text()); } catch (e) {
+                try { _pravoSmsSend(number, o.text()); } catch (e) {
                     try { console.log('[PRAVO] SMS: ошибка отправки', e); } catch (_) {}
                 }
                 _pravoSmsCollapse(menu); // отправили -> выбор убирается, остаётся одна кнопка «Ответ»
             });
             menu.appendChild(b);
         });
+        btn.classList.add('pravo-sms-btn--open'); // «Закрыть» + стрелка вверх (до замеров рамки: подпись меняет ширину)
         var row = _pravoSmsRow(btn);
         if (row && row.parentNode) {
             row.parentNode.insertBefore(menu, row.nextSibling); // отдельной строкой под сообщением
             row.classList.add('pravo-sms-row--active');        // контур вокруг «своего» сообщения + строки кнопок
             menu.classList.add('pravo-sms-menu--attached');
             menu._pravoRow = row;
-            _pravoSmsFit(row, menu);
+            _pravoSmsFit(row, menu, btn);
         } else btn.parentNode.appendChild(menu);
         btn._pravoMenu = menu;
         if (PRAVO_SMS_MENU_TIMEOUT > 0) menu._pravoTimer = setTimeout(function () { _pravoSmsCollapse(menu); }, PRAVO_SMS_MENU_TIMEOUT);
@@ -3026,7 +3110,7 @@ function _pravoAddSmsButton(message) {
             if (String(action) === String(PRAVO_SMS_ACTION)) {
                 var _b = _pravoSmsLastBtn; _pravoSmsLastBtn = null;
                 // Раскрываем выбор «Место / Ценовая политика»; если кнопку в DOM не нашли - шлём «Место» как раньше
-                if (!_pravoSmsExpand(_b, value)) _pravoSendCmd('/sms ' + value + ' ' + PRAVO_SMS_TEXT);
+                if (!_pravoSmsExpand(_b, value)) _pravoSmsSend(value, PRAVO_SMS_TEXT);
                 return;
             }
             return orig.apply(this, arguments);
