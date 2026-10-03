@@ -303,6 +303,11 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
 //     оно показывается сразу (без скрытия и без повторной отправки).
 //  5. Запасные пути: MutationObserver по ошибке/полю пароля и таймер
 //     AUTO_PASSWORD_REVEAL_MS. После ошибки повторов нет (RETRY_BLOCK_MS).
+//  6. КУРСОР: пока окно спрятано, window.setCursorStatus('Authorization', true)
+//     не пропускается в движок — курсора на экране нет. Включение запоминается
+//     и повторяется в showUI(), если окно авторизации всё ещё открыто
+//     (ошибка пароля / код 2FA / таймаут / переоткрытие). При успешном входе
+//     окно закрывается, курсор так и не появляется.
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {
         var AUTO_PASSWORD_REVEAL_MS = 8000;   // не дождались закрытия окна — показать его
@@ -313,6 +318,32 @@ if (AUTO_PASSWORD) {
 
         var sent = false, blockUntil = 0, lastSend = 0, revealTimer = null, errObs = null, hideToken = 0;
         var patched = (typeof WeakSet === 'function') ? new WeakSet() : null;
+
+        // ── Курсор: не показываем, пока окно спрятано ──────────────────────
+        var heldCursor = null;     // {имя: true} — «включить курсор» запросы, которые мы придержали
+        var rawSetCursor = null;   // оригинальный window.setCursorStatus (в обход нашей обёртки)
+
+        function isCursorOn(status) { return status === true || status === 1; }
+        function holdsCursor(name, status) {
+            return isHidden() && isCursorOn(status) && (name === 'Authorization' || name === 'Server');
+        }
+        // Запасной путь: окно уже открылось с курсором, потом мы его спрятали — гасим курсор
+        function dropCursor() {
+            try {
+                if (!rawSetCursor) return;
+                (heldCursor = heldCursor || {}).Authorization = true;
+                rawSetCursor('Authorization', false);
+            } catch (e) { console.error('[PRAVO AHK AUTO-PWD] dropCursor:', e); }
+        }
+        // Окно показано пользователю — вернуть курсор (только если окно ещё открыто)
+        function restoreCursor() {
+            var h = heldCursor; heldCursor = null;
+            if (!h || !rawSetCursor) return;
+            try {
+                if (!window.getInterfaceStatus || !window.getInterfaceStatus('Authorization')) return;
+                for (var n in h) rawSetCursor(n, true, false);
+            } catch (e) { console.error('[PRAVO AHK AUTO-PWD] restoreCursor:', e); }
+        }
 
         // CSS: только visibility. Анимации/переходы НЕ трогаем — иначе при показе
         // они проигрываются заново и окно «возвращается» с задержкой.
@@ -329,6 +360,7 @@ if (AUTO_PASSWORD) {
             document.documentElement.classList.remove(HIDE_CLASS);
             clearTimeout(revealTimer); revealTimer = null;
             if (errObs) { errObs.disconnect(); errObs = null; }
+            restoreCursor();   // курсор появляется вместе с окном
         }
 
         // Снять скрытие после закрытия окна (успешный вход) — когда его DOM уже исчез
@@ -440,6 +472,19 @@ if (AUTO_PASSWORD) {
             };
         });
 
+        // Курсор: пока окно спрятано — «включить» не пропускаем; «выключить» всегда пропускаем
+        hook('setCursorStatus', function(orig) {
+            rawSetCursor = orig;
+            return function(name, status) {
+                if (holdsCursor(name, status)) {
+                    (heldCursor = heldCursor || {})[name] = true;
+                    return;
+                }
+                if (heldCursor && !isCursorOn(status)) delete heldCursor[name];
+                return orig.apply(this, arguments);
+            };
+        });
+
         hook('openInterface', function(orig) {
             return function(name, params) {
                 var go = false;
@@ -482,6 +527,7 @@ if (AUTO_PASSWORD) {
             if (sent || !canAuto()) return;
             if (document.querySelector('.authorization-field__input[type="password"]')) {
                 hideUI();
+                dropCursor();   // окно появилось не через openInterface — курсор уже включён, гасим
                 fire();
                 tryPatch();
             }
