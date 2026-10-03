@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════════
 // LoadGang.js — загрузчик АХК «Банда» (beta 1.0)
 //
-// Встраивается установщиком в Index.js игры. При запуске подтягивает
-// gang.js с GitHub, подставляет в него настройки из установщика
-// (сейчас — только хоткей меню) и выполняет его.
+// Встраивается установщиком в Index.js игры. При запуске сначала подтягивает
+// общий хелпер fkonst.js (из «MVD AHK»), затем gang.js с GitHub, подставляет
+// в gang.js настройки из установщика (сейчас — только хоткей меню) и выполняет.
 //
-// В gang.js сейчас: авто-угон + меню АХК (вкл/выкл).
+// В gang.js сейчас: проверка ника + авто-угон + меню АХК (вкл/выкл).
+// Авто-угона в fkonst.js больше нет — он живёт только в gang.js.
 // Сам загрузчик также содержит авто-вход (AUTO_PASSWORD) — работает без gang.js.
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -49,9 +50,12 @@ const username = 'BensonZahar';
 const repo = 'Hud.js';
 const folder = 'AHK konst/GANG AHK';
 const filename = 'gang.js';
+const fkonstFilename = 'fkonst.js'; // общий хелпер (хранится в MVD AHK, общий для всех структур)
+const fkonstFolder = 'MVD AHK';
 
-// Загрузка с GitHub с повторными попытками
-function loadScriptFromGitHub(retries) {
+// Загрузка с GitHub с повторными попытками.
+// onSuccess — колбэк после успешного eval; onFail — после исчерпания попыток.
+function loadScriptFromGitHub(folder, filename, retries, onSuccess, onFail) {
     // Папка может быть вложенной («AHK konst/GANG AHK») — кодируем каждую часть отдельно, слэши оставляем
     const path = folder ? folder.split('/').map(encodeURIComponent).join('/') + '/' : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
@@ -60,9 +64,10 @@ function loadScriptFromGitHub(retries) {
         console.error(`[GANG] ${reason} (${url})`);
         if (retries > 0) {
             console.log(`[GANG] Повторная попытка... Осталось: ${retries - 1}`);
-            setTimeout(function () { loadScriptFromGitHub(retries - 1); }, 2000);
+            setTimeout(function () { loadScriptFromGitHub(folder, filename, retries - 1, onSuccess, onFail); }, 2000);
         } else {
             console.error(`[GANG] Не удалось загрузить ${filename} после всех попыток`);
+            if (typeof onFail === 'function') onFail();
         }
     }
 
@@ -72,11 +77,14 @@ function loadScriptFromGitHub(retries) {
         if (xhr.status >= 200 && xhr.status < 300) {
             let scriptText = xhr.responseText;
             // ── Патчим MENU_KEY (в gang.js это var, не const) ──
-            scriptText = scriptText.replace(/var MENU_KEY = "Alt\+0";/, function () {
-                return 'var MENU_KEY = ' + JSON.stringify(MENU_KEY) + ';';
-            });
+            if (filename === 'gang.js') {
+                scriptText = scriptText.replace(/var MENU_KEY = "Alt\+0";/, function () {
+                    return 'var MENU_KEY = ' + JSON.stringify(MENU_KEY) + ';';
+                });
+            }
             eval(scriptText);
             console.log(`[GANG] Скрипт ${filename} загружен и выполнен успешно`);
+            if (typeof onSuccess === 'function') onSuccess();
         } else {
             retry(`HTTP error! status: ${xhr.status}`);
         }
@@ -296,6 +304,9 @@ if (AUTO_PASSWORD) {
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
-loadScriptFromGitHub(5);
+// Запуск: сначала fkonst.js (из MVD AHK), затем gang.js.
+// Если fkonst.js не загрузился — gang.js всё равно запускается (он самостоятельный).
+function _loadGang() { loadScriptFromGitHub(folder, filename, 5); }
+loadScriptFromGitHub(fkonstFolder, fkonstFilename, 5, _loadGang, _loadGang);
 
 })();

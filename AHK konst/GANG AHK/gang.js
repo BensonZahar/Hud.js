@@ -1,31 +1,116 @@
 // ═══════════════════════════════════════════════════════════════════════
 // gang.js — АХК «Банда» (beta 1.0)
 //
-// Подгружается загрузчиком LoadGang.js (его вставляет установщик).
+// Подгружается загрузчиком LoadGang.js (его вставляет установщик) после fkonst.js.
 // Сейчас умеет только две вещи:
 //   1) Авто-угон — сам решает головоломку интерфейса «Hacking»
-//      (модуль AUTO HACK перенесён из fkonst.js без изменений в логике).
+//      (модуль AUTO HACK перенесён сюда из fkonst.js — в fkonst.js его больше нет).
 //   2) Меню АХК — открывается хоткеем MENU_KEY или командой /dahk,
 //      в нём авто-угон включается и выключается.
 //
 // По умолчанию авто-угон ВЫКЛЮЧЕН — включается из меню.
 // ═══════════════════════════════════════════════════════════════════════
 
-// ПРОВЕРКА НИКА — по умолчанию выключена (доступ и так ограничен установщиком).
-// Чтобы ограничить скрипт по нику: NICK_CHECK_ENABLED = true и впиши ники.
-const NICK_CHECK_ENABLED = false;
+// ПРОВЕРКА НИКА — как в fsin.js. Добавляй/убирай ники здесь.
+const NICK_CHECK_ENABLED = true; // ← false = проверка выключена, скрипт доступен всем
+
 const _ALLOWED_NICKS = [
-    // "Name_Surname",
+    "Zahar_Damidov",
+    "Denis_Galievskiy",
+	"Fura_Morales",
+    "Sergey_Gaben",
+	"Steel_Soprano"
 ];
 
+// Показ уведомления о запрете доступа.
+// Приоритет: QuestsProgressInfo (HUD) → ZkmScreenNotification → чат.
+function _showAccessDenied(nick) {
+    var title = "AHK — Доступ запрещён";
+    var text  = "Ник «" + nick + "» не в списке AHK. Обратитесь к создателю.";
+    var shown = false;
+
+    function tryShow() {
+        if (shown) return;
+
+        // 1) QuestsProgressInfo — HUD-уведомление (правый верхний угол)
+        try {
+            if (typeof window.openInterface === 'function') {
+                // Пропускаем если интерфейс занят активным квестом
+                var questBusy = window.getInterfaceStatus && window.getInterfaceStatus("QuestsProgressInfo");
+                if (!questBusy) {
+                    window.openInterface("QuestsProgressInfo", JSON.stringify([
+                        false,  // ручной режим (не из QuestsInfo.js)
+                        0,      // currentScores
+                        1,      // maxScores
+                        title,  // progressName → заголовок
+                        text,   // progressTask → текст под заголовком
+                        0,      // showedProgress = 0 → без шкалы прогресса
+                        false,  // isShowLocateButton
+                        0       // progressMode: PERCENT
+                    ]));
+                    setTimeout(function () {
+                        try { window.closeInterface("QuestsProgressInfo"); } catch (e) {}
+                    }, 15000);
+                    shown = true;
+                    console.warn('[gang] 🚫 Доступ запрещён: ник "' + nick + '" не в списке.');
+                    return;
+                }
+            }
+        } catch (e) {}
+
+        // 2) ZKM-уведомление (красивое, сверху экрана)
+        var sn = window.ZkmScreenNotification;
+        if (sn && typeof sn.add === 'function') {
+            try {
+                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 15000]');
+                shown = true;
+                console.warn('[gang] 🚫 Доступ запрещён (ZKM): ник "' + nick + '".');
+                return;
+            } catch (e) {}
+        }
+
+        // 3) Fallback — сообщение в чат (работает всегда)
+        if (typeof window.onChatMessage === 'function') {
+            try {
+                window.onChatMessage('{FF3333}[AHK] {FFFFFF}' + title + ': ' + text, [0, 0, 'FF3333']);
+                shown = true;
+                console.warn('[gang] 🚫 Доступ запрещён (чат): ник "' + nick + '".');
+            } catch (e) {}
+        }
+    }
+
+    // Первая попытка сразу
+    tryShow();
+
+    // Если не получилось — повторяем каждые 500мс до 5 секунд
+    // (даём время загрузиться интерфейсам)
+    if (!shown) {
+        var attempts = 0;
+        var retryTimer = setInterval(function () {
+            attempts++;
+            tryShow();
+            if (shown || attempts >= 10) {
+                clearInterval(retryTimer);
+                if (!shown) console.warn('[gang] 🚫 Ник "' + nick + '" — уведомление показать не удалось.');
+            }
+        }, 500);
+    }
+}
+
 (function _nickCheck(callback) {
-    if (!NICK_CHECK_ENABLED) { callback(); return; }
+    // Если проверка отключена — сразу запускаем скрипт для всех
+    if (!NICK_CHECK_ENABLED) {
+        console.log('[gang] ⚠️ Проверка ника ОТКЛЮЧЕНА (NICK_CHECK_ENABLED = false) — скрипт доступен всем.');
+        callback();
+        return;
+    }
 
     function getNick() {
         try {
             var n = window.App && window.App.$store &&
                     window.App.$store.getters &&
                     window.App.$store.getters['player/nickName'];
+            // Игнорируем дефолтное значение стора ("Name_Surname")
             if (n && n !== "Name_Surname") return n;
             return null;
         } catch (e) { return null; }
@@ -33,20 +118,29 @@ const _ALLOWED_NICKS = [
 
     var nick = getNick();
     if (nick) {
-        if (_ALLOWED_NICKS.indexOf(nick) !== -1) callback();
+        if (_ALLOWED_NICKS.indexOf(nick) !== -1) {
+            callback();
+        } else {
+            _showAccessDenied(nick);
+        }
         return;
     }
 
     // Стор ещё не готов — ждём до 30 секунд
     var attempts = 0;
-    var timer = setInterval(function () {
+    var timer = setInterval(function() {
         attempts++;
         var n = getNick();
         if (n) {
             clearInterval(timer);
-            if (_ALLOWED_NICKS.indexOf(n) !== -1) callback();
-        } else if (attempts >= 60) {
+            if (_ALLOWED_NICKS.indexOf(n) !== -1) {
+                callback();
+            } else {
+                _showAccessDenied(n);
+            }
+        } else if (attempts >= 60) { // 60 × 500мс = 30 сек
             clearInterval(timer);
+            console.warn('[gang] Не удалось получить ник — скрипт не запущен.');
         }
     }, 500);
 })(function () {
@@ -118,7 +212,7 @@ function _gangNote(text) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// АВТО-УГОН  (AUTO HACK из fkonst.js)
+// АВТО-УГОН  (AUTO HACK, раньше жил в fkonst.js)
 // При открытии интерфейса «Hacking» сам решает головоломку
 // с человекоподобными задержками между свапами.
 // ════════════════════════════════════════════════════════════════════════
