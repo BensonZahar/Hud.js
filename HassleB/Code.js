@@ -1024,7 +1024,12 @@ const _AL = {
     blockUntil: 0, lastSend: 0, lastOkNotify: 0,
     revealTimer: null, errObs: null, fallbackObs: null, styleEl: null, hideToken: 0,
     patched: (typeof WeakSet === 'function') ? new WeakSet() : null,
-    hooks: {}
+    hooks: {},
+    // ── курсор и готовность Login ──
+    CURSOR_HOLD_MAX_MS: 60000, // страховка: подавление курсора никогда не живёт дольше
+    CURSOR_GRACE_MS: 5000,     // окно уже закрыто, а Loading ещё не открылся — ждём его
+    LOGIN_READY_MAX_MS: 3000,  // сколько ждать монтирования Login перед отправкой пароля
+    cursorHold: false, holdTimer: null, sendAt: 0, openAt: 0, fireToken: 0
 };
 
 // CSS: только visibility. Анимации/переходы НЕ трогаем — иначе при показе
@@ -1038,9 +1043,46 @@ try {
 } catch (e) {}
 
 function _alIsHidden() { return document.documentElement.classList.contains(_AL.HIDE_CLASS); }
-function _alHideUI() { _AL.hideToken++; document.documentElement.classList.add(_AL.HIDE_CLASS); }
+// ── Курсор ──────────────────────────────────────────────────────────
+// Пока идёт автовход, курсор не нужен ни окну авторизации, ни экрану загрузки, который сервер
+// открывает сразу после верного пароля (Authorization:ShowLoading → SHOW_INTERFACE "Loading").
+// Игра включает курсор в showInterface() через setCursorStatus(<имя интерфейса>, true),
+// поэтому гасим эти вызовы для обоих имён. Возвращаем курсор, только если окно авторизации
+// реально показано (ошибка пароля / код 2FA / таймаут).
+const _AL_CURSOR_NAMES = { Authorization: 1, Loading: 1 };
+function _alHoldOn() {
+    _AL.cursorHold = true;
+    clearTimeout(_AL.holdTimer);
+    _AL.holdTimer = setTimeout(_alHoldOff, _AL.CURSOR_HOLD_MAX_MS);
+}
+function _alHoldOff() { _AL.cursorHold = false; clearTimeout(_AL.holdTimer); _AL.holdTimer = null; }
+function _alHoldGrace() { clearTimeout(_AL.holdTimer); _AL.holdTimer = setTimeout(_alHoldOff, _AL.CURSOR_GRACE_MS); }
+function _alIsOpen(n) { try { return !!window.getInterfaceStatus(n); } catch (e) { return false; } }
+// Окно авторизации действительно на экране (не закрыто и не перекрыто экраном Loading)
+function _alAuthOnScreen() {
+    try {
+        if (!_alIsOpen('Authorization') || _alIsOpen('Loading')) return false;
+        const c = window.component && window.component('Authorization');
+        return !c || c.show !== false;
+    } catch (e) { return false; }
+}
+
+function _alHideUI() { _AL.hideToken++; _alHoldOn(); document.documentElement.classList.add(_AL.HIDE_CLASS); }
 function _alShowUI() {
     document.documentElement.classList.remove(_AL.HIDE_CLASS);
+    if (_AL.cursorHold) {
+        if (_alAuthOnScreen()) {
+            // Окно возвращается (ошибка пароля / код 2FA / таймаут) — включаем курсор так,
+            // как это сделала бы игра при показе окна.
+            _alHoldOff();
+            try { if (typeof window.setCursorStatus === 'function') window.setCursorStatus('Authorization', true, false); }
+            catch (e) { debugLog('[AUTOLOGIN] cursor show error: ' + e.message); }
+        } else if (_alIsOpen('Loading')) {
+            // идёт загрузка после верного пароля — держим, снимется при закрытии Loading
+        } else {
+            _alHoldGrace(); // окно уже закрыто; Loading мог ещё не открыться
+        }
+    }
     clearTimeout(_AL.revealTimer); _AL.revealTimer = null;
     if (_AL.errObs) { _AL.errObs.disconnect(); _AL.errObs = null; }
 }
@@ -1063,7 +1105,7 @@ function _alOnServerProblem(why) {
     _AL.blockUntil = Date.now() + _AL.RETRY_BLOCK_MS;
     clearTimeout(_AL.sentTimer); _AL.sentTimer = null;
     _alShowUI();
-    debugLog(`[AUTOLOGIN] ${why} — окно показано`);
+    debugLog(`[AUTOLOGIN] ${why} — окно показано` + (_AL.sendAt ? ` (+${Date.now() - _AL.sendAt} мс после отправки)` : ''));
     if (wasSent) {
         try {
             sendToTelegram(`❌ <b>Автовход не удался (${displayName})</b>\n${why}\nНужен ручной ввод`, false, null);
@@ -1123,12 +1165,56 @@ function _alCanAuto() {
            typeof window.sendClientEvent === 'function' && !!window.gm;
 }
 
+// Окно Authorization грузится лениво: пока Login не смонтирован, window.interface('Authorization')
+// возвращает false, а серверный вызов interface("Authorization").$refs.auth.setError(...) падает
+// с TypeError и ошибка ТЕРЯЕТСЯ. Если пароль ушёл раньше монтирования, а ответ сервера (особенно
+// на быстром/локальном сервере) пришёл раньше Login — окно вернулось бы только по таймеру.
+// Поэтому шлём пароль, когда Login уже готов и его setError обёрнут.
+function _alLoginReady() {
+    try {
+        const c = window.interface && window.interface('Authorization');
+        return !!(c && c.$refs && c.$refs.auth);
+    } catch (e) { return false; }
+}
+
+function _alFireFail(err) {
+    _AL.sent = false;
+    _AL.blockUntil = Date.now() + _AL.RETRY_BLOCK_MS; // без цикла повторов
+    _alShowUI();
+    const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
+    debugLog(errorMsg);
+    try { sendToTelegram(errorMsg, false, null); } catch (e) {}
+}
+
+function _alDoSend() {
+    _AL.sendAt = Date.now();
+    _AL.lastSend = _AL.sendAt;
+    clearTimeout(_AL.revealTimer);
+    _AL.revealTimer = setTimeout(_alShowUI, _AL.REVEAL_MS);
+    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', autoLoginConfig.password);
+    debugLog(`[AUTOLOGIN][${displayName}] Пароль отправлен (Login готов через ${_AL.sendAt - _AL.openAt} мс)`);
+    // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
+    // hpLastValue = null означает: следующий тик после спавна
+    // только запишет baseline, без сравнения — как при первом входе.
+    // Grace period сбрасывается здесь тоже — trackPlayerHp запустит его заново.
+    globalState.hpLastValue       = null;
+    globalState._hpGraceUntil     = null;
+    globalState._hpGraceActive    = false;
+    globalState.hpLastHitTime     = null;
+    globalState.hpAlertMessageIds = [];
+    // Сброс флага спавна и профиля для нового входа
+    globalState._spawnProfileLoaded = false;
+    try { config.accountInfo.profile.loaded = false; } catch (e) {}
+}
+
 function _alFire() {
     try {
         _AL.sent = true; _AL.problem = false; _AL.lastSend = Date.now();
+        _AL.openAt = _AL.lastSend; _AL.sendAt = 0;
         const myAttempt = ++_AL.attempt;
+        const token = ++_AL.fireToken;
         _alWatchProblems();
-        _AL.revealTimer = setTimeout(_alShowUI, _AL.REVEAL_MS);
+        _AL.revealTimer = setTimeout(_alShowUI, _AL.REVEAL_MS + _AL.LOGIN_READY_MAX_MS);
         // Watchdog: раньше при «тишине» сервера sent залипал в true навсегда,
         // и ВСЕ следующие автовходы молча отключались (окно висело, ни ✅, ни ❌).
         clearTimeout(_AL.sentTimer);
@@ -1149,27 +1235,17 @@ function _alFire() {
                 } catch (e) {}
             }
         }, _AL.SENT_TIMEOUT_MS);
-        window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', autoLoginConfig.password);
-        debugLog(`[AUTOLOGIN][${displayName}] Пароль отправлен мгновенно`);
-        // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
-        // hpLastValue = null означает: следующий тик после спавна
-        // только запишет baseline, без сравнения — как при первом входе.
-        // Grace period сбрасывается здесь тоже — trackPlayerHp запустит его заново.
-        globalState.hpLastValue       = null;
-        globalState._hpGraceUntil     = null;
-        globalState._hpGraceActive    = false;
-        globalState.hpLastHitTime     = null;
-        globalState.hpAlertMessageIds = [];
-        // Сброс флага спавна и профиля для нового входа
-        globalState._spawnProfileLoaded = false;
-        try { config.accountInfo.profile.loaded = false; } catch (e) {}
+        (function waitReady() {
+            if (_AL.dead || !_AL.sent || token !== _AL.fireToken) return; // окно уже закрыто/перезапущено
+            _alTryPatch();
+            if (_alLoginReady() || Date.now() - _AL.openAt >= _AL.LOGIN_READY_MAX_MS) {
+                try { _alDoSend(); } catch (err) { _alFireFail(err); }
+                return;
+            }
+            setTimeout(waitReady, 8);
+        })();
     } catch (err) {
-        _AL.sent = false;
-        _AL.blockUntil = Date.now() + _AL.RETRY_BLOCK_MS; // без цикла повторов
-        _alShowUI();
-        const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
-        debugLog(errorMsg);
-        try { sendToTelegram(errorMsg, false, null); } catch (e) {}
+        _alFireFail(err);
     }
 }
 
@@ -1274,6 +1350,26 @@ _alHook('closeInterface', function(orig) {
             if (wasSent && !hadProblem) { try { _alOnLoginSuccess(); } catch (e) {} }
             return r;
         }
+        if (!_AL.dead && name === 'Loading') {
+            const r2 = orig.apply(this, arguments);
+            if (_AL.cursorHold) {
+                _alHoldOff(); // загрузка закончилась — подавление курсора не нужно
+                // если под ней оказалось окно авторизации — вернуть ему курсор как обычно
+                if (_alAuthOnScreen()) { try { window.setCursorStatus('Authorization', true, false); } catch (e) {} }
+            }
+            return r2;
+        }
+        return orig.apply(this, arguments);
+    };
+});
+
+// Курсор: пока окно авторизации спрятано автовходом — игра не должна включать курсор
+// (ни для Authorization, ни для Loading, который открывается сразу после верного пароля).
+_alHook('setCursorStatus', function(orig) {
+    return function(name, status) {
+        if (!_AL.dead && _AL.cursorHold && _AL_CURSOR_NAMES[name] && (status === true || status === 1)) {
+            return; // курсор не включаем; вернём его в _alShowUI(), если понадобится ручной ввод
+        }
         return orig.apply(this, arguments);
     };
 });
@@ -1312,10 +1408,10 @@ window.__hassleAL = {
         try { _AL.fallbackObs && _AL.fallbackObs.disconnect(); } catch (e) {}
         try { _AL.errObs && _AL.errObs.disconnect(); } catch (e) {}
         clearTimeout(_AL.revealTimer);
-        clearTimeout(_AL.sentTimer); clearTimeout(_AL.cooldownTimer);
+        clearTimeout(_AL.sentTimer); clearTimeout(_AL.cooldownTimer); clearTimeout(_AL.holdTimer);
         try { document.documentElement.classList.remove(_AL.HIDE_CLASS); } catch (e) {}
         try { _AL.styleEl && _AL.styleEl.remove(); } catch (e) {}
-        ['interface', 'closeInterface'].forEach(function(p) {
+        ['interface', 'closeInterface', 'setCursorStatus'].forEach(function(p) {
             const h = _AL.hooks[p];
             if (h && window[p] === h.wrapper) window[p] = h.orig;
         });
@@ -1329,6 +1425,9 @@ window.__hassleAL = {
 const originalOpenInterface = window._hassleOrig_openInterface || window.openInterface;
 window.openInterface = function(interfaceName, params, additionalParams) {
     const _alGo = (interfaceName === "Authorization") ? _alBeforeOpen(params) : false;
+    // Новое окно авторизации БЕЗ автовхода (ручной ввод, сервер переоткрыл окно после ошибки) —
+    // курсор должен включиться игрой как обычно, остаток подавления сбрасываем.
+    if (interfaceName === "Authorization" && !_alGo && !_alIsOpen('Authorization')) _alHoldOff();
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);
     if (interfaceName === "Authorization") {
         _alTryPatch();
