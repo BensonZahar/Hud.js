@@ -1258,11 +1258,13 @@ class InstallerAPI:
                 self._set_status("st-code","Установлен","cr-val ok")
                 current = load_settings()
                 if department == 'gang':
-                    # Банда: сохраняем только структуру и свою кнопку меню —
+                    # Банда: сохраняем структуру, свою кнопку меню и автопароль —
                     # настройки фракций (позывной, снаряжение, бинды и т.д.) не трогаем
                     save_settings({
                         'department': 'gang',
                         'gang_menu_key': safe_menu_key,
+                        'auto_password': auto_password,
+                        'use_auto_password': bool(auto_password),
                         'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
                     })
                 else:
@@ -1644,8 +1646,12 @@ class InstallerAPI:
         _lh = bool(licensor_helper) and _is_pravo
         # save_settings делает merge, поэтому auto_grab и остальные ПК-настройки не затираются.
         if _dept == 'gang':
-            # Банда: только своя кнопка меню — настройки фракций не трогаем
-            save_settings({'gang_menu_key': menu_key or 'Alt+0'})
+            # Банда: своя кнопка меню и автопароль — настройки фракций не трогаем
+            save_settings({
+                'gang_menu_key':     menu_key or 'Alt+0',
+                'auto_password':     auto_password,
+                'use_auto_password': bool(auto_password),
+            })
         else:
             save_settings({
                 'callsign':         callsign if use_callsign else '',
