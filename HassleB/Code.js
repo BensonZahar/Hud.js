@@ -7986,44 +7986,56 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: MENU VERSION LABEL                              ║
 // ║  Описание: Версия Code / Code2 (дата + сообщение коммита)║
-// ║             выводится в меню Menu (Menu2.js), где берётся ║
-// ║             ник (menu/nickName): блок .menu-player —     ║
-// ║             под строкой «Сервер N», экраны main и pause. ║
+// ║             выводится в интерфейсе Menu (Menu2.js):      ║
+// ║             • welcome — экран «Добро пожаловать» с вводом ║
+// ║               ника (внизу слева)                         ║
+// ║             • main / pause — блок ника .menu-player      ║
+// ║               (под строкой «Сервер N»)                   ║
 // ║             Оформление — как в Menu2.css (vh-размеры,    ║
-// ║             #ffffffb3 / #ffffff73, тонкая линия-«slug»)  ║
+// ║             #ffffffb3 / #ffffff73, линия-«slug»)         ║
 // ║  Зависимости: window.CODE_COMMIT_INFO,                   ║
 // ║               window.CODE2_COMMIT_INFO (ставит Load.js)  ║
 // ╚══════════════════════════════════════════════════════════╝
 // START MENU VERSION LABEL MODULE //
 (function setupMenuVersionLabel() {
-    var LABEL_ID = 'hassle-menu-version';
     var STYLE_ID = 'hassle-menu-version-style';
-    // Menu2.js → компонент Player: .menu-player__data = [.name (ник), .server («Сервер N»)].
-    // Показывается на экранах main и pause (на welcome с вводом ника блока нет)
-    var DATA_SEL = '.menu-player__data';
+
+    // Куда вставляем (Menu2.js):
+    //  welcome → корень .menu-welcome (position:relative, padding 7.31vh 9.6vw) — блок в левом нижнем углу
+    //  player  → .menu-player__data = [.name (ник), .server («Сервер N»)] — экраны main и pause
+    var PLACES = [
+        { id: 'hassle-menu-version-welcome', sel: '.menu-welcome',      mod: 'hmv--welcome' },
+        { id: 'hassle-menu-version',         sel: '.menu-player__data', mod: 'hmv--player'  }
+    ];
 
     // Стили взяты из Menu2.css:
-    //   .menu-player__data .server      → 1.85vh / #ffffffb3 (вторичный текст)
+    //   .menu-player__data .server      → #ffffffb3 (вторичный текст)
     //   .menu-server__online .gray      → #ffffff73, weight 800 (приглушённая подпись)
     //   .menu-welcome__form-input__slug → короткая линия 1.4vh × 0.09vh, #ffffff80
     //   .menu-welcome__input-hint__content-row → #f8f6ed (кремовый акцент)
-    //   .menu .fade-enter-active        → плавное появление
+    //   .menu-welcome_hidden .menu-welcome__content → при выборе сервера контент гаснет (opacity .25)
     function ensureStyle() {
         if (document.getElementById(STYLE_ID)) return;
-        var L = '#' + LABEL_ID;
         var st = document.createElement('style');
         st.id = STYLE_ID;
         st.textContent =
             '@keyframes hassle-menu-version-in{from{opacity:0}to{opacity:1}}' +
-            L + '{display:block;max-width:50vh;margin-top:1.11vh;pointer-events:none;' +
-                'font-family:inherit;text-align:right;animation:hassle-menu-version-in .5s ease}' +
-            // короткая линия над блоком — как «slug» у поля ввода ника, прижата вправо
-            L + ':before{content:"";display:block;width:1.4vh;height:0.09vh;margin:0 0 0.74vh auto;background:#ffffff80}' +
-            L + ' .hmv-row{display:flex;justify-content:flex-end;align-items:baseline;' +
-                'font-size:1.48vh;line-height:2.04vh;white-space:nowrap;overflow:hidden}' +
-            L + ' .hmv-k{flex:none;color:#ffffff73;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;margin-right:0.93vh}' +
-            L + ' .hmv-d{flex:none;color:#f8f6ed;font-weight:400}' +
-            L + ' .hmv-m{min-width:0;overflow:hidden;text-overflow:ellipsis;color:#ffffffb3;font-weight:400;margin-left:0.93vh}';
+            '.hmv{display:block;max-width:60vh;pointer-events:none;font-family:inherit;' +
+                'animation:hassle-menu-version-in .5s ease;transition:opacity .25s}' +
+            '.hmv:before{content:"";display:block;width:1.4vh;height:0.09vh;background:#ffffff80}' +
+            '.hmv .hmv-row{display:flex;align-items:baseline;font-size:1.48vh;line-height:2.04vh;white-space:nowrap;overflow:hidden}' +
+            '.hmv .hmv-k{flex:none;color:#ffffff73;font-weight:800;letter-spacing:0.1em;text-transform:uppercase}' +
+            '.hmv .hmv-d{flex:none;color:#f8f6ed;font-weight:400;margin-left:0.93vh}' +
+            '.hmv .hmv-m{min-width:0;overflow:hidden;text-overflow:ellipsis;color:#ffffffb3;font-weight:400;margin-left:0.93vh}' +
+            // welcome: левый нижний угол, по полям экрана (padding .menu-welcome = 7.31vh 9.6vw)
+            '.hmv--welcome{position:absolute;left:9.6vw;bottom:7.31vh;text-align:left}' +
+            '.hmv--welcome:before{margin:0 0 0.74vh 0}' +
+            '.hmv--welcome .hmv-row{justify-content:flex-start}' +
+            '.menu-welcome_hidden .hmv--welcome{opacity:.25}' +
+            // main / pause: под «Сервер N», прижато вправо
+            '.hmv--player{margin-top:1.11vh;text-align:right}' +
+            '.hmv--player:before{margin:0 0 0.74vh auto}' +
+            '.hmv--player .hmv-row{justify-content:flex-end}';
         (document.head || document.documentElement).appendChild(st);
     }
 
@@ -8051,28 +8063,21 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         return s;
     }
 
-    function renderLabel() {
-        if (window._hassleReloading) return;
-        var data = document.querySelector(DATA_SEL);
-        if (!data) return; // меню Menu с ником сейчас не открыто
-
-        var old = document.getElementById(LABEL_ID);
-        var lines = collectLines();
-
-        if (!lines.length) {            // данных о коммитах ещё нет (или GitHub API недоступен)
+    function renderPlace(place, lines, key) {
+        var target = document.querySelector(place.sel);
+        var old = document.getElementById(place.id);
+        if (!target || !lines.length) {          // меню сейчас не открыто / данных о коммитах ещё нет
             if (old) old.remove();
             return;
         }
-
-        var key = lines.map(function (l) { return l.k + '|' + l.d + '|' + l.m; }).join('\n');
-        // Уже на месте (последний в .menu-player__data) и текст тот же — ничего не трогаем,
-        // иначе наш же MutationObserver зациклится
-        if (old && old.getAttribute('data-key') === key && old.parentNode === data && data.lastElementChild === old) return;
+        // Уже на месте и текст тот же — ничего не трогаем, иначе наш же MutationObserver зациклится
+        if (old && old.parentNode === target && old.getAttribute('data-key') === key) return;
         if (old) old.remove();
 
         ensureStyle();
         var el = document.createElement('div');
-        el.id = LABEL_ID;
+        el.id = place.id;
+        el.className = 'hmv ' + place.mod;
         el.setAttribute('data-key', key);
         lines.forEach(function (l) {
             var row = document.createElement('div');
@@ -8083,7 +8088,15 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             if (l.m) row.appendChild(makeSpan('hmv-m', l.m));
             el.appendChild(row);
         });
-        data.appendChild(el);
+        target.appendChild(el);
+        console.log('[MenuVersion] версия показана в меню (' + place.mod + ')');
+    }
+
+    function renderLabel() {
+        if (window._hassleReloading) return;
+        var lines = collectLines();
+        var key = lines.map(function (l) { return l.k + '|' + l.d + '|' + l.m; }).join('\n');
+        for (var i = 0; i < PLACES.length; i++) renderPlace(PLACES[i], lines, key);
     }
 
     var scheduled = false;
@@ -8092,20 +8105,39 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         scheduled = true;
         requestAnimationFrame(function () {
             scheduled = false;
-            try { renderLabel(); } catch (e) {}
+            try { renderLabel(); } catch (e) { console.warn('[MenuVersion]', e); }
         });
     }
 
-    // Повторный eval Code.js: старый наблюдатель снимаем, чтобы не копились
+    // Повторный eval Code.js: старые наблюдатель и таймер снимаем, чтобы не копились
     try { if (window.__hassleMenuVersionObserver) window.__hassleMenuVersionObserver.disconnect(); } catch (e) {}
+    try { if (window.__hassleMenuVersionTimer) clearInterval(window.__hassleMenuVersionTimer); } catch (e) {}
 
-    // Menu монтируется/размонтируется Vue-ом (welcome → main → pause) — следим за появлением блока с ником
+    // Menu монтируется/размонтируется Vue-ом (welcome → main → pause) — следим за появлением блоков
     var root = document.body || document.documentElement;
     var obs = new MutationObserver(schedule);
     obs.observe(root, { childList: true, subtree: true });
     window.__hassleMenuVersionObserver = obs;
 
-    // Load.js вызывает это, когда подтянулись CODE_COMMIT_INFO / CODE2_COMMIT_INFO
+    // Load.js кладёт window.CODE_COMMIT_INFO / CODE2_COMMIT_INFO, когда ответит GitHub API.
+    // Сеттер перерисовывает метку сам — даже если Load.js не обновлён и ничего не вызывает.
+    // На статичном экране welcome DOM не меняется, и без этого MutationObserver мог бы так и не сработать.
+    ['CODE_COMMIT_INFO', 'CODE2_COMMIT_INFO'].forEach(function (name) {
+        try {
+            var cur = window[name];
+            Object.defineProperty(window, name, {
+                configurable: true,
+                enumerable: true,
+                get: function () { return cur; },
+                set: function (v) { cur = v; schedule(); }
+            });
+        } catch (e) {}
+    });
+
+    // Страховка: раз в 2 с проверяем, что метка на месте (дёшево: querySelector + сравнение ключа)
+    window.__hassleMenuVersionTimer = setInterval(schedule, 2000);
+
+    // Load.js вызывает это явно, когда подтянулись данные о коммитах
     window.updateMenuVersionLabel = schedule;
 
     schedule();
