@@ -5,11 +5,14 @@
 // Умеет:
 //   1) Авто-угон — сам решает головоломку интерфейса «Hacking»
 //      (модуль AUTO HACK перенесён сюда из fkonst.js — в fkonst.js его больше нет).
-//   2) Меню АХК — открывается хоткеем MENU_KEY или командой /dahk,
-//      в нём авто-угон включается и выключается.
+//   2) Авто перебив VIN — сам «нажимает Y» в прогресс-баре перебива VIN
+//      (ProgressBar), с безопасным интервалом. Мобилка — тап по бару,
+//      ПК — виртуальная клавиша Y через onScreenControlTouchStart.
+//   3) Меню АХК — открывается хоткеем MENU_KEY или командой /dahk,
+//      в нём авто-угон и авто перебив VIN включаются и выключаются.
 //   + команды /console (консоль разработчика) и /int (просмотрщик интерфейсов из fkonst.js).
 //
-// По умолчанию авто-угон ВЫКЛЮЧЕН — включается из меню.
+// По умолчанию авто-угон и авто перебив VIN ВЫКЛЮЧЕНЫ — включаются из меню.
 // ═══════════════════════════════════════════════════════════════════════
 
 // ПРОВЕРКА НИКА — как в fsin.js. Добавляй/убирай ники здесь.
@@ -372,10 +375,151 @@ _waitFor(function () { return typeof window.openInterface === 'function'; }, fun
         if (autoHack.enabled && name === 'Hacking' && !autoHack.solving) {
             setTimeout(_hackStartSolving, 600);
         }
+        if (autoVin.enabled && name === 'ProgressBar' && !autoVin.running) {
+            setTimeout(_vinStart, 500);
+        }
         return result;
     };
     console.log('[AUTO-HACK] Модуль загружен');
 });
+
+// ════════════════════════════════════════════════════════════════════════
+// АВТО ПЕРЕБИВ VIN
+// В моде (auto.pwn) перебив VIN = прогресс-бар «Нажимайте Y», 20 нажатий
+// (add_progress = 5 из 100). Сервер считает нажатие ошибкой, если оно пришло
+// раньше чем через 700 мс после предыдущего; 5 ошибок = провал.
+//   • Мобилка (Hassle): «нажатие» — тап по бару, интерфейс ProgressBar шлёт
+//     серверу OnProgressBarClick(index). Делаем тот же тап (pb.onBarClick).
+//   • ПК: сервер принимает только настоящую клавишу Y (OnPlayerKeyStateChange),
+//     OnProgressBarClick он игнорирует. Поэтому подаём виртуальную клавишу тем же
+//     механизмом, которым HUD жмёт F/G/C: onScreenControlTouchStart("<Keyboard>/y")
+//     → короткое удержание → onScreenControlTouchEnd. Работает, если клиент не
+//     «legacy» (App.engine != 'legacy'). Пока идёт перебив, другие клавиши не жми:
+//     сервер засчитывает Y только когда зажата одна эта клавиша.
+// Интервал между нажатиями 800–1100 мс (запас над 700 мс).
+// Прогресс-бар у перебива VIN общий с другими (взлом дверей, рем.комплект…),
+// поэтому режим включай только на время перебива.
+// ════════════════════════════════════════════════════════════════════════
+var autoVin = {
+    enabled: false,   // вкл/выкл из меню АХК
+    running: false,
+    timer: null,
+    mode: 'tap',      // 'tap' — мобилка, 'key' — ПК (виртуальная Y)
+    pcWarned: false
+};
+
+function _vinStop() {
+    if (autoVin.running && autoVin.mode === 'key') {
+        try { window.onScreenControlTouchEnd('<Keyboard>/y'); } catch (e) {}
+    }
+    autoVin.running = false;
+    if (autoVin.timer) {
+        clearTimeout(autoVin.timer);
+        autoVin.timer = null;
+    }
+}
+
+function _vinBarOpen() {
+    try {
+        return typeof window.getInterfaceStatus === 'function' && !!window.getInterfaceStatus('ProgressBar');
+    } catch (e) { return false; }
+}
+
+function _vinStart() {
+    if (!autoVin.enabled || autoVin.running || !_vinBarOpen()) return;
+
+    var pb = window.interface && window.interface('ProgressBar');
+    if (!pb) {
+        setTimeout(_vinStart, 200);
+        return;
+    }
+
+    // Как «нажимать»: мобилка — тап по бару, ПК — виртуальная клавиша Y
+    var mobile = false;
+    try { mobile = !!pb.isMobile; } catch (e) {}
+    autoVin.mode = mobile ? 'tap' : 'key';
+
+    if (autoVin.mode === 'key') {
+        var engineOk = false;
+        try {
+            engineOk = typeof window.onScreenControlTouchStart === 'function' &&
+                       typeof window.onScreenControlTouchEnd === 'function' &&
+                       window.App && window.App.engine !== 'legacy';
+        } catch (e) {}
+        if (!engineOk) {
+            if (!autoVin.pcWarned) {
+                autoVin.pcWarned = true;
+                _gangNote('~w~Авто VIN~n~~r~Клиент без виртуальных клавиш');
+                console.warn('[AUTO-VIN] onScreenControl* недоступен (engine=' + (window.App && window.App.engine) + ') — авто-Y не запущен');
+            }
+            return;
+        }
+    }
+
+    autoVin.running = true;
+    console.log('[AUTO-VIN] Начинаю перебив VIN, режим: ' + autoVin.mode);
+    // Первая пауза чуть длиннее — как у человека, который только что увидел бар
+    autoVin.timer = setTimeout(function () { _vinTick(); }, 700 + Math.floor(Math.random() * 400));
+}
+
+function _vinTick() {
+    autoVin.timer = null;
+    if (!autoVin.running || !autoVin.enabled || !_vinBarOpen()) {
+        _vinStop();
+        return;
+    }
+
+    var pb = window.interface && window.interface('ProgressBar');
+    if (!pb || !pb.list || !pb.list.length) {
+        _vinStop();
+        return;
+    }
+
+    // Первый бар, который ещё не заполнен
+    var idx = -1;
+    for (var i = 0; i < pb.list.length; i++) {
+        if (pb.list[i] && pb.list[i].fill < 100) { idx = i; break; }
+    }
+    if (idx === -1) {
+        _vinStop();
+        return;
+    }
+
+    try {
+        if (autoVin.mode === 'key') {
+            // ПК: виртуальная Y — короткое удержание, чтобы попасть в sync-пакет
+            var YKEY = '<Keyboard>/y';
+            window.onScreenControlTouchStart(YKEY);
+            setTimeout(function () {
+                try { window.onScreenControlTouchEnd(YKEY); } catch (e) {}
+            }, 90 + Math.floor(Math.random() * 60));
+        } else {
+            pb.onBarClick(idx);   // мобилка: тот же тап, что и у игрока → OnProgressBarClick(idx)
+        }
+    } catch (e) {
+        console.log('[AUTO-VIN] Ошибка нажатия: ' + e.message);
+        _vinStop();
+        return;
+    }
+
+    // Интервал 800–1100 мс: сервер требует > 700 мс между нажатиями
+    var delay = 800 + Math.floor(Math.random() * 300);
+    autoVin.timer = setTimeout(_vinTick, delay);
+}
+
+// Включить/выключить авто перебив VIN (вызывается из меню)
+function setAutoVin(on) {
+    autoVin.enabled = !!on;
+    autoVin.pcWarned = false;
+    if (!autoVin.enabled) {
+        _vinStop();
+    } else if (_vinBarOpen()) {
+        // Прогресс-бар уже открыт — сразу начинаем
+        setTimeout(_vinStart, 300);
+    }
+    _gangNote('~w~Авто перебив VIN~n~' + (autoVin.enabled ? '~g~Вкл' : '~r~Выкл'));
+    console.log('[AUTO-VIN] ' + (autoVin.enabled ? 'включён' : 'выключен'));
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // МЕНЮ АХК «БАНДА»
@@ -389,7 +533,8 @@ var _gangMenuOpen = false;   // перехватываем ответ диало
 
 function _gangMenuItems() {
     return [
-        { id: 'autohack', name: 'Авто-угон | ' + (autoHack.enabled ? '{00FF00}Вкл' : '{FF0000}Выкл') }
+        { id: 'autohack', name: 'Авто-угон | ' + (autoHack.enabled ? '{00FF00}Вкл' : '{FF0000}Выкл') },
+        { id: 'autovin',  name: 'Авто перебив VIN | ' + (autoVin.enabled ? '{00FF00}Вкл' : '{FF0000}Выкл') }
     ];
 }
 
@@ -407,6 +552,9 @@ function _gangMenuSelect(index) {
     if (!it) return;
     if (it.id === 'autohack') {
         setAutoHack(!autoHack.enabled);
+        setTimeout(showGangMenu, 50);
+    } else if (it.id === 'autovin') {
+        setAutoVin(!autoVin.enabled);
         setTimeout(showGangMenu, 50);
     }
 }
