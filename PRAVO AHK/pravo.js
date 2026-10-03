@@ -2851,7 +2851,8 @@ var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата пр�
 var PRAVO_SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
 var PRAVO_SMS_LABEL = 'Ответ'; // надпись на кнопке (закрыто: стрелка вниз = можно открыть)
 var PRAVO_SMS_LABEL_CLOSE = 'Закрыть'; // надпись, пока выбор раскрыт (стрелка вверх = можно закрыть)
-var PRAVO_SMS_OPT_SCALE = 1.15; // кнопки «Место / Ценовая политика» во столько раз крупнее кнопки «Ответ»
+var PRAVO_SMS_OPT_SCALE = 1; // размер кнопок «Место / Ценовая политика» относительно «Ответ» / «Закрыть» (1 = одинаковые)
+var PRAVO_SMS_OPT_LINE = 1.15; // высота кнопок выбора в размерах шрифта (так движок рисует «Ответ»: ~19px при шрифте ~16.8px); выросла/упала разница - подправьте
 var PRAVO_SMS_OUTLINE_COLOR = 'rgba(255,255,255,.65)'; // цвет контура вокруг сообщения + кнопок при раскрытии ('' = без контура)
 var PRAVO_SMS_OUTLINE_RADIUS = '1.4vh'; // скругление углов рамки
 var PRAVO_SMS_MENU_TIMEOUT = 30000; // мс: через сколько авто-свернуть раскрытый выбор, если ничего не нажали (0 = не сворачивать)
@@ -2865,6 +2866,11 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
     if (document.getElementById(id)) return;
     var pcH = 1.85 * PRAVO_SMS_PC_SCALE;              // высота на ПК (штатный кружок 1.85vh * scale)
     var mbH = 2.78 * PRAVO_SMS_MOBILE_SCALE;          // высота на Хасле (штатные 2.78vh * scale)
+    var cssOpt = function (h) {
+        return 'height:auto!important;min-width:' + (h * 1.85).toFixed(2) + 'vh!important;' +
+               'padding:0 ' + (h * 0.38).toFixed(2) + 'vh!important;border-radius:' + (h / 2).toFixed(2) + 'vh!important;' +
+               'font-size:' + (h * 0.56).toFixed(2) + 'vh!important;line-height:' + PRAVO_SMS_OPT_LINE + '!important;';
+    };
     var css = function (h) {
         return 'height:' + h + 'vh!important;min-width:' + (h * 1.85).toFixed(2) + 'vh!important;' +
                'padding:0 ' + (h * 0.38).toFixed(2) + 'vh!important;border-radius:' + (h / 2).toFixed(2) + 'vh!important;' +
@@ -2897,12 +2903,17 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
             '.pravo-sms-menu.pravo-sms-menu--attached{background-color:rgba(255,255,255,.08);border:.16vh solid ' + PRAVO_SMS_OUTLINE_COLOR + ';border-top:0;' +
                 'border-radius:0 0 ' + PRAVO_SMS_OUTLINE_RADIUS + ' ' + PRAVO_SMS_OUTLINE_RADIUS + ';}'
         : '') +
-        '.pravo-sms-opt{' + css(pcH * PRAVO_SMS_OPT_SCALE) +
+        // кнопки выбора = тот же вид, что у «Ответ / Закрыть»: тот же шрифт, отступы, скругление, межбуквенный интервал, обводка текста.
+        // Высоту НЕ задаём: у «Ответ» (она внутри строки чата) движок игнорирует height и берёт высоту по шрифту, поэтому и тут высота по шрифту.
+        '.pravo-sms-opt{' + cssOpt(pcH * PRAVO_SMS_OPT_SCALE) +
             'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.6vh;position:relative;' +
-            'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:#fff;font-weight:700;line-height:1;' +
-            'letter-spacing:.03em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;transition:all .25s ease;}' +
-        '.pravo-sms-opt.pravo-sms-opt--mobile{' + css(mbH * PRAVO_SMS_OPT_SCALE) + '}' +
-        '.pravo-sms-opt:hover{background:#fff;color:#000;}';
+            'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:#fff;font-weight:700;' +
+            'letter-spacing:.05em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;transition:all .25s ease;' +
+            'text-shadow:-0.05vw -0.05vw 0 #000,0 -0.05vw 0 #000,0.05vw -0.05vw 0 #000,0.05vw 0 0 #000,0.05vw 0.05vw 0 #000,0 0.05vw 0 #000,-0.05vw 0.05vw 0 #000,-0.05vw 0 0 #000;}' +
+        '.pravo-sms-opt.pravo-sms-opt--mobile{' + cssOpt(mbH * PRAVO_SMS_OPT_SCALE) + '}' +
+        '.pravo-sms-opt:hover{background:#fff;color:#000;}' +
+        // сообщение в одну строку не переносим: «Ответ» -> «Закрыть» длиннее, иначе кнопка уезжает на вторую строку
+        '.chat-message.pravo-sms-row--nowrap .chat-message-content{white-space:nowrap!important;}';
     document.head.appendChild(s);
 })();
 
@@ -2954,6 +2965,7 @@ function _pravoSmsCollapse(menu) {
         if (menu._pravoRow && menu._pravoRow.classList) {
             var r = menu._pravoRow;
             r.classList.remove('pravo-sms-row--active');
+            r.classList.remove('pravo-sms-row--nowrap');
             r.style.width = r.style.boxSizing = r.style.paddingLeft = r.style.paddingRight = '';
             r.style.flexGrow = r.style.flexShrink = r.style.alignSelf = '';
         }
@@ -2979,10 +2991,15 @@ function _pravoSmsRow(btn) {
 // Размеры берём из getBoundingClientRect (экранные px) и переводим в px вёрстки через эталон: у чата может быть scale/transform.
 function _pravoSmsFit(row, menu, btn) {
     try {
-        if (!PRAVO_SMS_OUTLINE_COLOR || !row || !menu) return;
+        if (!PRAVO_SMS_OUTLINE_COLOR || !row || !menu || !menu.parentNode) return;
         var kids = row.children, lastR = kids && kids.length ? kids[kids.length - 1] : null;
         var lastM = menu.lastElementChild;
         if (!lastR || !lastM) return;
+        // 0) сброс прошлой подгонки (функция вызывается несколько раз): иначе замер упрётся в уже выставленную ширину
+        row.style.width = row.style.boxSizing = row.style.paddingLeft = row.style.paddingRight = '';
+        row.style.flexGrow = row.style.flexShrink = row.style.alignSelf = '';
+        menu.style.width = menu.style.flexWrap = menu.style.flexGrow = menu.style.flexShrink = menu.style.alignSelf = '';
+        row.classList.remove('pravo-sms-row--nowrap');
         // 1) эталон масштаба: ставим меню ширину ровно 200px и смотрим, сколько это на экране
         var prevW = menu.style.width;
         menu.style.width = '200px';
@@ -2990,23 +3007,6 @@ function _pravoSmsFit(row, menu, btn) {
         menu.style.width = prevW;
         var scale = ref / 200;
         if (!(scale > 0.05 && scale < 20)) scale = 1;
-        // 1b) размер кнопок выбора = реальный размер кнопки «Ответ» * PRAVO_SMS_OPT_SCALE (замер, а не расчёт - движок может масштабировать иначе)
-        try {
-            var bh = btn ? btn.getBoundingClientRect().height / scale : 0;
-            var bcs = btn ? getComputedStyle(btn) : null;
-            var bfs = bcs ? parseFloat(bcs.fontSize) : 0, bpad = bcs ? parseFloat(bcs.paddingLeft) : 0;
-            if (bh > 2 && bfs > 2) {
-                var K = PRAVO_SMS_OPT_SCALE, hh = bh * K;
-                for (var oi = 0; oi < menu.children.length; oi++) {
-                    var st = menu.children[oi].style;
-                    st.setProperty('height', hh + 'px', 'important');
-                    st.setProperty('font-size', (bfs * K) + 'px', 'important');
-                    st.setProperty('border-radius', (hh / 2) + 'px', 'important');
-                    st.setProperty('padding', '0 ' + ((bpad || hh * 0.38 / K) * K) + 'px', 'important');
-                    st.setProperty('min-width', (hh * 1.85) + 'px', 'important');
-                }
-            }
-        } catch (_) {}
         // 2) естественные ширины (до наших отступов)
         var rr = row.getBoundingClientRect(), mm = menu.getBoundingClientRect();
         var lr = lastR.getBoundingClientRect(), lm = lastM.getBoundingClientRect();
@@ -3016,10 +3016,20 @@ function _pravoSmsFit(row, menu, btn) {
         var mR = parseFloat(getComputedStyle(lastM).marginRight) || 0;
         var w1 = (lr.right - rr.left) / scale + padR * 2 + bw * 2; // сообщение
         var w2 = (lm.right - mm.left) / scale + mR + padM + bw * 2; // кнопки
+        // 2b) подпись «Ответ» -> «Закрыть» длиннее на ~2 буквы, а движок пересчитывает её не сразу.
+        //     Если кнопка ещё не выросла по сравнению с закрытым видом - закладываем запас вручную, иначе «Закрыть» не влезает и переносится вниз.
+        var reserve = 0;
+        try {
+            var bcs = getComputedStyle(btn), bfs = parseFloat(bcs.fontSize) || 16;
+            var wNow = btn.getBoundingClientRect().width, wClosed = btn._pravoClosedW || 0;
+            var grown = wClosed > 0 && wNow >= wClosed + 2;
+            if (!grown) reserve = Math.max(0, PRAVO_SMS_LABEL_CLOSE.length - PRAVO_SMS_LABEL.length) * bfs * 0.62;
+        } catch (_) {}
+        w1 += reserve;
         var full = rr.width / scale;                        // ширина списка сообщений
-        var W = Math.ceil(Math.max(w1, w2)) + 3;            // +3px запаса: иначе из-за округления текст/кнопки могут перенестись
+        var W = Math.ceil(Math.max(w1, w2)) + 4;            // +4px запаса: иначе из-за округления текст/кнопки могут перенестись
         if (full > 0) W = Math.min(W, Math.floor(full));
-        try { console.log('[PRAVO][SMS] рамка: scale=' + scale.toFixed(3) + ' сообщение=' + Math.round(w1) + ' кнопки=' + Math.round(w2) + ' список=' + Math.round(full) + ' -> ' + W + 'px'); } catch (_) {}
+        try { console.log('[PRAVO][SMS] рамка: scale=' + scale.toFixed(3) + ' сообщение=' + Math.round(w1) + ' (запас ' + Math.round(reserve) + ') кнопки=' + Math.round(w2) + ' список=' + Math.round(full) + ' -> ' + W + 'px'); } catch (_) {}
         if (!(W > 0)) return;
         // 3) обе части одной ширины = одна рамка
         row.style.boxSizing = 'border-box';
@@ -3030,6 +3040,8 @@ function _pravoSmsFit(row, menu, btn) {
         menu.style.width = W + 'px';
         menu.style.flexWrap = 'nowrap';
         menu.style.flexGrow = '0'; menu.style.flexShrink = '0'; menu.style.alignSelf = 'flex-start';
+        // 4) сообщение, которое и так умещалось в одну строку, держим в одну строку; длинные (в несколько строк) переносятся как обычно
+        if (full > 0 && w1 + 40 < full) row.classList.add('pravo-sms-row--nowrap');
     } catch (e) { try { console.log('[PRAVO][SMS] ошибка подгонки рамки', e); } catch (_) {} }
 }
 function _pravoSmsExpand(btn, number) {
@@ -3059,6 +3071,7 @@ function _pravoSmsExpand(btn, number) {
             });
             menu.appendChild(b);
         });
+        try { btn._pravoClosedW = btn.getBoundingClientRect().width; } catch (_) { btn._pravoClosedW = 0; } // ширина «Ответ» до смены подписи
         btn.classList.add('pravo-sms-btn--open'); // «Закрыть» + стрелка вверх (до замеров рамки: подпись меняет ширину)
         var row = _pravoSmsRow(btn);
         if (row && row.parentNode) {
@@ -3067,6 +3080,10 @@ function _pravoSmsExpand(btn, number) {
             menu.classList.add('pravo-sms-menu--attached');
             menu._pravoRow = row;
             _pravoSmsFit(row, menu, btn);
+            // повторные подгонки: движок применяет новую подпись «Закрыть» с задержкой (после сворачивания меню уже нет в DOM - пропускаем)
+            [60, 220].forEach(function (ms) {
+                setTimeout(function () { if (menu.parentNode && btn._pravoMenu === menu) _pravoSmsFit(row, menu, btn); }, ms);
+            });
         } else btn.parentNode.appendChild(menu);
         btn._pravoMenu = menu;
         if (PRAVO_SMS_MENU_TIMEOUT > 0) menu._pravoTimer = setTimeout(function () { _pravoSmsCollapse(menu); }, PRAVO_SMS_MENU_TIMEOUT);
