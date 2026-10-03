@@ -3182,110 +3182,176 @@ function buildWelcomeAccountInfo() {
 }
 
 // ── Версия Code / Code2 в меню «Menu» (экран, где читается/меняется ник: menu/nickName) ──
-// Меню (Menu2.js) состоит из страниц: welcome (ввод ника + выбор сервера), main («Играть /
-// Настройки / Выбор сервера») и pause. Корневые классы страниц: .menu-welcome, .menu-main,
-// .menu-pause. Пока любая из них на экране — показываем отдельную плашку поверх меню
-// (position:fixed, не зависит от вёрстки меню и от scoped-стилей Vue):
-//   Code   #a1b2c3d  сообщение коммита  ·  04.10.2026 00:10
-//   Code2  #e4f5a6b  сообщение коммита  ·  04.10.2026 00:11
-// Данные обновляются через window.hbUpdateMenuVersion() (её вызывает Load.js,
-// когда приходит инфо о коммитах с GitHub).
+// Панель справа внизу, пока открыто меню (Menu2.js: страницы welcome / main / pause).
+// • Shadow DOM — глобальные стили игры (span/div и т.п.) на панель не влияют, а сама панель
+//   не ломает вёрстку игры.
+// • Шрифты игры: «Open sans» (текст), «Open Sans Condensed» italic 700 (заголовки) — они уже
+//   загружены страницей, поэтому кириллица отображается (системный Arial её не показывал).
+// • Показ/скрытие: события showInterface / hideInterface / closeInterface для "Menu"
+//   (хуки ставятся один раз), плюс запасная проверка состояния компонента и DOM.
+// • Данные обновляются через window.hbUpdateMenuVersion() (вызывает Load.js, когда
+//   приходит инфо о коммитах с GitHub).
+// Отладка: в консоли window.hbMenuVersionDebug() — покажет, почему панель видна/скрыта.
 (function setupMenuVersionLabel() {
-    const ID = 'hb-menu-version';
+    const HOST_ID = 'hb-menu-version';
     const MENU_SELECTOR = '.menu-welcome, .menu-main, .menu-pause';
+    const FONT_TEXT  = "'Open sans','Open Sans','OpenSans','GothamPro',Arial,sans-serif";
+    const FONT_TITLE = "'Open Sans Condensed','Open sans','Open Sans','GothamPro',Arial,sans-serif";
 
-    function span(text, color) {
-        const s = document.createElement('span');
-        s.textContent = text;           // textContent — сообщение коммита не может внедрить HTML
-        if (color) s.style.color = color;
-        return s;
+    const CSS = `
+        :host { all: initial; }
+        .panel {
+            position: fixed; right: 3vh; bottom: 3vh; z-index: 2147483000;
+            box-sizing: border-box; min-width: 40vh; max-width: 56vh;
+            padding: 1.6vh 2.2vh 0.8vh; border-radius: 1.4vh;
+            background: linear-gradient(180deg, rgba(36,34,30,0.86), rgba(16,15,13,0.9));
+            border: 0.15vh solid rgba(248,246,237,0.25);
+            box-shadow: 0 0.6vh 2.2vh rgba(0,0,0,0.5);
+            color: #F8F6ED; pointer-events: none; text-align: left;
+            font-family: ${FONT_TEXT}; font-size: 2.1vh; font-weight: 400; line-height: 1.35;
+            display: none;
+        }
+        .title {
+            font-family: ${FONT_TITLE}; font-style: italic; font-weight: 700;
+            font-size: 2.8vh; letter-spacing: 0.1vh; text-transform: uppercase;
+            color: #EAD57C; margin-bottom: 1vh;
+        }
+        .row { padding: 0.9vh 0; border-top: 0.1vh solid rgba(248,246,237,0.18); }
+        .head { display: flex; justify-content: space-between; align-items: baseline; }
+        .name { font-weight: 700; letter-spacing: 0.06vh; }
+        .sha  { color: #EAD57C; font-weight: 600; }
+        .msg  { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: rgba(248,246,237,0.92); }
+        .date { font-size: 1.7vh; color: rgba(248,246,237,0.5); }
+        .dim  { color: rgba(248,246,237,0.5); }
+        .err  { color: #FF7A6B; }
+    `;
+
+    function el(tag, cls, text) {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined) e.textContent = text;   // textContent — коммит не может внедрить HTML
+        return e;
     }
 
     function row(label, info) {
-        const div = document.createElement('div');
-        div.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-        div.appendChild(span(label + '  ', 'rgba(255,255,255,0.6)'));
+        const r = el('div', 'row');
+        const head = el('div', 'head');
+        head.appendChild(el('span', 'name', label));
         if (info === undefined) {
-            div.appendChild(span('загрузка...', 'rgba(255,255,255,0.45)'));
+            head.appendChild(el('span', 'dim', 'загрузка...'));
+            r.appendChild(head);
         } else if (!info) {
-            div.appendChild(span('версия недоступна', '#FF6666'));
+            head.appendChild(el('span', 'err', 'недоступна'));
+            r.appendChild(head);
         } else {
-            div.appendChild(span('#' + (info.sha || '?') + '  ', '#00BFFF'));
-            div.appendChild(span(info.msg || '', 'rgba(255,255,255,0.95)'));
-            div.appendChild(span('  ·  ' + (info.date || ''), 'rgba(255,255,255,0.5)'));
+            head.appendChild(el('span', 'sha', '#' + (info.sha || '?')));
+            r.appendChild(head);
+            r.appendChild(el('div', 'msg', info.msg || ''));
+            r.appendChild(el('div', 'date', info.date || ''));
         }
-        return div;
+        return r;
     }
 
-    function render(box) {
-        box.textContent = '';
-        box.appendChild(row('Code',  window.CODE_COMMIT_INFO));
-        box.appendChild(row('Code2', window.CODE2_COMMIT_INFO));
+    function render(panel) {
+        panel.textContent = '';
+        panel.appendChild(el('div', 'title', 'Версия скрипта'));
+        panel.appendChild(row('Code',  window.CODE_COMMIT_INFO));
+        panel.appendChild(row('Code2', window.CODE2_COMMIT_INFO));
     }
 
-    function isMenuOnScreen() {
-        // 1) Состояние интерфейса в клиенте: Play → hideInterface("Menu") ставит show=false
-        //    (open.status при этом остаётся true, а DOM меню остаётся в документе)
+    function getPanel() {
+        let host = document.getElementById(HOST_ID);
+        if (!host) {
+            host = document.createElement('div');
+            host.id = HOST_ID;
+            (document.body || document.documentElement).appendChild(host);
+            const root = host.attachShadow({ mode: 'open' });
+            const st = document.createElement('style');
+            st.textContent = CSS;
+            const panel = el('div', 'panel');
+            root.appendChild(st);
+            root.appendChild(panel);
+            render(panel);
+        }
+        return host.shadowRoot.querySelector('.panel');
+    }
+
+    // ── Определение «меню на экране» ──
+    // forced: true/false после событий интерфейса; null — событий ещё не было (проверяем состояние)
+    let forced = null;
+
+    function domVisible(n) {
+        if (n.getClientRects().length === 0) return false;
+        for (let x = n; x && x.nodeType === 1; x = x.parentElement) {   // вся цепочка предков
+            const st = window.getComputedStyle(x);
+            if (st.display === 'none' || st.visibility === 'hidden' || parseFloat(st.opacity) === 0) return false;
+        }
+        const r = n.getBoundingClientRect();
+        return r.width > 20 && r.height > 20;
+    }
+
+    function menuState() {
+        const info = { forced, show: undefined, status: undefined, inOrder: undefined, dom: false };
         try {
             const c = window.component && window.component('Menu');
-            if (c) {
-                if (c.show === false) return false;
-                if (c.open && c.open.status === false) return false;
-            }
+            if (c) { info.show = c.show; info.status = c.open && c.open.status; }
         } catch (e) {}
-        // 2) Страница меню реально отрисована (а не display:none / удалена)
-        const nodes = document.querySelectorAll(MENU_SELECTOR);
-        for (const n of nodes) {
-            if (n.getClientRects().length === 0) continue;
-            const st = window.getComputedStyle(n);
-            if (st.visibility === 'hidden' || st.display === 'none' || parseFloat(st.opacity) === 0) continue;
-            return true;
-        }
-        return false;
+        try {
+            if (Array.isArray(window.visibleInterfaceOrder)) info.inOrder = window.visibleInterfaceOrder.indexOf('Menu') !== -1;
+        } catch (e) {}
+        try {
+            info.dom = Array.prototype.some.call(document.querySelectorAll(MENU_SELECTOR), domVisible);
+        } catch (e) {}
+
+        let visible;
+        if (forced !== null)             visible = forced;
+        else if (info.show === false)    visible = false;
+        else if (info.status === false)  visible = false;
+        else                             visible = info.dom;
+        info.visible = visible;
+        return info;
     }
 
-    function getBox() {
-        let box = document.getElementById(ID);
-        if (!box) {
-            box = document.createElement('div');
-            box.id = ID;
-            box.style.cssText =
-                'position:fixed;left:50%;bottom:2vh;transform:translateX(-50%);' +
-                'z-index:2147483000;pointer-events:none;display:none;' +
-                'max-width:80vw;padding:0.7vh 1.6vh;border-radius:0.8vh;' +
-                'background:rgba(0,0,0,0.5);font-size:1.5vh;line-height:1.4;' +
-                'font-weight:400;font-style:normal;text-align:left;' +
-                // системные шрифты с кириллицей; !important — чтобы не подхватить шрифт игры без неё
-                'font-family:Arial,Roboto,"Noto Sans","DejaVu Sans","Segoe UI",Helvetica,sans-serif !important;';
-            (document.body || document.documentElement).appendChild(box);
-            render(box);
-        }
-        return box;
-    }
-
-    let shownLogged = false;
+    let lastVisible = null;
     function tick() {
-        const on = isMenuOnScreen();
-        const box = getBox();
-        const want = on ? 'block' : 'none';
-        if (box.style.display !== want) {
-            box.style.display = want;
-            if (on && !shownLogged) {
-                shownLogged = true;
-                console.log('[MenuVersion] плашка версии показана в меню');
-            }
+        let st;
+        try { st = menuState(); } catch (e) { return; }
+        const panel = getPanel();
+        panel.style.display = st.visible ? 'block' : 'none';
+        if (st.visible !== lastVisible) {
+            lastVisible = st.visible;
+            console.log('[MenuVersion] панель ' + (st.visible ? 'показана' : 'скрыта'), JSON.stringify(st));
         }
     }
 
+    window.hbMenuVersionDebug = menuState;
     window.hbUpdateMenuVersion = function () {
-        render(getBox());
+        render(getPanel());
         tick();
     };
+    // Вызывается хуками (переназначается при каждой загрузке скрипта — хуки ставятся один раз)
+    window.__hbMenuVerForce = function (v) { forced = v; tick(); };
 
-    // Повторная загрузка скрипта — снимаем старый таймер и старую плашку (без дублей)
+    // ── Хуки на show/hide/close интерфейса «Menu» (один раз за жизнь страницы) ──
+    if (!window.__hbMenuVerHooked) {
+        window.__hbMenuVerHooked = true;
+        const wrap = (fn, value) => {
+            const orig = window[fn];
+            if (typeof orig !== 'function') return;
+            window[fn] = function (name) {
+                const r = orig.apply(this, arguments);
+                try { if (name === 'Menu' && window.__hbMenuVerForce) window.__hbMenuVerForce(value); } catch (e) {}
+                return r;
+            };
+        };
+        wrap('showInterface', true);
+        wrap('hideInterface', false);
+        wrap('closeInterface', false);
+    }
+
+    // Повторная загрузка скрипта — снимаем старый таймер и старую панель (без дублей)
     try { if (window.__hbMenuVerTimer) clearInterval(window.__hbMenuVerTimer); } catch (e) {}
-    try { if (window.__hbMenuVerObserver) window.__hbMenuVerObserver.disconnect(); } catch (e) {}
-    try { const old = document.getElementById(ID); if (old) old.remove(); } catch (e) {}
+    try { const old = document.getElementById(HOST_ID); if (old) old.remove(); } catch (e) {}
     window.__hbMenuVerTimer = setInterval(tick, 500);
     tick();
 })();
