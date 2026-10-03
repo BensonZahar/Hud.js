@@ -5126,6 +5126,21 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 'use strict';
 var _fetching = false;
 
+// ── Кэш профиля (ник + звание) между запусками игры ──────────────────────────
+// Звание есть только на сервере, поэтому раньше каждый вход требовал запроса и ожидания ответа.
+// Теперь прошлый результат лежит в localStorage и подхватывается сразу, как только известен ник;
+// актуальность проверяется фоновой тихой сверкой (без окон и мерцания).
+var _PRAVO_PROFILE_CACHE_KEY = 'pravo_profile_v1';
+function _currentNick() {
+    try { return window.App.$store.getters['player/nickName'] || ''; } catch(e) { return ''; }
+}
+function _cacheRead() {
+    try { var raw = localStorage.getItem(_PRAVO_PROFILE_CACHE_KEY); return raw ? JSON.parse(raw) : null; } catch(e) { return null; }
+}
+function _cacheWrite(nick, rank) {
+    try { if (nick) localStorage.setItem(_PRAVO_PROFILE_CACHE_KEY, JSON.stringify({ nick: nick, rank: rank || '', ts: Date.now() })); } catch(e) {}
+}
+
 // Аварийная очистка при (пере)загрузке скрипта: если предыдущий экземпляр оставил "залипший" стиль (например, скрипт был перезапущен посред...
 try {
     var _leftoverStyle = document.getElementById('mvd-profile-styles');
@@ -5275,9 +5290,10 @@ function extractProfileData(mm) {
 }
 
 // ── Основная функция: считывает ОДИН РАЗ, дальше возвращает сохранённые данные ──
-function loadPlayerProfile(callback) {
-    // Если данные уже загружены — НЕ открываем профиль повторно
-    if (window._pravoFirstName && window._pravoLastName && window._pravoRank) {
+function loadPlayerProfile(callback, force) {
+    // Если профиль уже считан (даже без звания — игрок не в организации) — НЕ открываем повторно.
+    // force=true — фоновая сверка: идём на сервер, даже если данные уже есть.
+    if (!force && (window._pravoProfileChecked || (window._pravoFirstName && window._pravoLastName && window._pravoRank))) {
         console.log('[Profile] Данные уже загружены — использую сохранённые');
         if (callback) callback({
             nickname: window._pravoCallsign,
@@ -5317,6 +5333,14 @@ function loadPlayerProfile(callback) {
         }
         if (data) { // ответ пришёл, но звания нет (не в организации) — запоминать нечего
             console.log('[Profile] Тихое чтение: звания нет');
+            applyProfileResult(data.nickname, '');
+            _fetching = false;
+            window._mvdProfileLoading = false;
+            if (callback) callback({ nickname: window._pravoCallsign, orgRangName: window._pravoRank });
+            return;
+        }
+        if (force && window._pravoProfileChecked) { // фоновая сверка: данные из кэша уже есть — окно не открываем
+            console.log('[Profile] Сверка не удалась — остаются данные из кэша');
             _fetching = false;
             window._mvdProfileLoading = false;
             if (callback) callback({ nickname: window._pravoCallsign, orgRangName: window._pravoRank });
@@ -5441,6 +5465,8 @@ function loadPlayerProfile(callback) {
                     window._pravoLastName = nickParts[1] || '';
 
                     console.log('[Profile] Запомнено: ' + window._pravoRank + ' ' + window._pravoFirstName + ' ' + window._pravoLastName);
+                    window._pravoProfileChecked = true;
+                    _cacheWrite(window._pravoCallsign, window._pravoRank);
                 } else {
                     console.warn('[Profile] Таймаут — данные не получены');
                 }
@@ -5457,7 +5483,9 @@ function loadPlayerProfile(callback) {
     } // конец readViaUI
 }
 
-function applyProfileResult(nick, rank) {
+function applyProfileResult(nick, rank, fromCache) {
+    window._pravoProfileChecked = true;
+    if (!fromCache) _cacheWrite(nick, rank);
     window._pravoCallsign = nick || '';
     window._pravoRank = rank || '';
     var nickParts = (nick || '').split(/[_\s]+/);
@@ -5546,6 +5574,7 @@ waitForApp(function() {
                 window._pravoLastName = null;
                 window._pravoRank = null;
                 window._pravoCallsign = null;
+                window._pravoProfileChecked = false;
                 loadPlayerProfile(function(data) {
                     if (data) {
                         try {
@@ -5570,27 +5599,48 @@ waitForApp(function() {
     function _pravoWaitConnected(cb, n) {
         var ok = false;
         try { ok = !!window.App.$store.getters['player/isPlayerConnected']; } catch(e) {}
-        if (ok) { setTimeout(cb, 1500); return; }
+        // Есть кэш — спешить некуда (данные уже применены); нет кэша — стартуем быстрее
+        if (ok) { setTimeout(cb, window._pravoProfileChecked ? 1500 : 600); return; }
         if ((n || 0) < 600) setTimeout(function() { _pravoWaitConnected(cb, (n || 0) + 1); }, 1000);
     }
+
+    // ── Мгновенная подгрузка из кэша, как только стал известен ник ───────────
+    (function _pravoHydrateProfile(n) {
+        if (window._pravoProfileChecked) return;
+        var nick = _currentNick();
+        if (nick) {
+            var c = _cacheRead();
+            if (c && c.nick === nick) {
+                applyProfileResult(nick, c.rank, true);
+                console.log('[Profile] ⚡ Профиль из кэша: ' + (c.rank || 'без звания') + ' ' + nick);
+            }
+            return;
+        }
+        if ((n || 0) < 300) setTimeout(function() { _pravoHydrateProfile((n || 0) + 1); }, 100);
+    })(0);
+
     _pravoWaitConnected(function() {
-        if (window._pravoFirstName && window._pravoLastName && window._pravoRank) return;
-        console.log('[Profile] 🔄 Фоновая предзагрузка профиля после входа в игру...');
+        var _hadCache = !!window._pravoProfileChecked;
+        var _prevRank = window._pravoRank || '';
+        function _hassleShow() {
+            // Hassle (мобилка): сразу показываем Interaction, не дожидаясь первого открытия меню
+            if (window.App && window.App.isMobile) {
+                setTimeout(function() {
+                    _pravoUpdateHassleInteraction(-1);
+                    console.log('[PRAVO] 📱 Hassle Interaction показан при старте');
+                }, 500);
+            }
+        }
+        if (_hadCache) _hassleShow();
+        console.log('[Profile] 🔄 Фоновая ' + (_hadCache ? 'сверка' : 'предзагрузка') + ' профиля после входа в игру...');
         loadPlayerProfile(function(data) {
             if (data && data.orgRangName) {
-                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._pravoFirstName||'') + ' ' + (window._pravoLastName||''));
-                // Если мы на Hassle — сразу показываем Interaction для всех рангов,
-                // не дожидаясь первого открытия меню.
-                if (window.App && window.App.isMobile) {
-                    setTimeout(function() {
-                        _pravoUpdateHassleInteraction(-1);
-                        console.log('[PRAVO] 📱 Hassle Interaction показан при старте');
-                    }, 500); // небольшая пауза — даём интерфейсам полностью смонтироваться
-                }
-            } else {
+                console.log('[Profile] ✅ Профиль актуален: ' + data.orgRangName + ' ' + (window._pravoFirstName||'') + ' ' + (window._pravoLastName||''));
+                if (!_hadCache || (window._pravoRank || '') !== _prevRank) _hassleShow();
+            } else if (!_hadCache) {
                 console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
             }
-        });
+        }, true);
     });
 });
 
