@@ -312,7 +312,28 @@ if (AUTO_PASSWORD) {
         var HIDE_CLASS = 'pravo-autologin';
 
         var sent = false, blockUntil = 0, lastSend = 0, revealTimer = null, errObs = null, hideToken = 0;
-        var cursorSuppressed = false;   // true = окно спрятано, курсор для него не включаем
+        // ── Курсор ──────────────────────────────────────────────────────────
+        // Пока идёт авто-вход, курсор не нужен ни окну авторизации, ни экрану загрузки,
+        // который сервер открывает сразу после верного пароля (Authorization:ShowLoading →
+        // SHOW_INTERFACE "Loading" "[3000]"). Игра включает курсор в showInterface() через
+        // setCursorStatus(<имя интерфейса>, true), поэтому гасим эти вызовы для обоих имён.
+        // Возвращаем курсор только если окно авторизации реально показано (ошибка/код/таймаут).
+        var CURSOR_HOLD_NAMES = { Authorization: 1, Loading: 1 };
+        var CURSOR_HOLD_MAX_MS = 60000;   // страховка: удержание никогда не живёт дольше
+        var CURSOR_GRACE_MS    = 5000;    // окно закрыто, а Loading ещё не открылся — ждём его
+        var cursorHold = false, holdTimer = null;
+        function holdOn()  { cursorHold = true; clearTimeout(holdTimer); holdTimer = setTimeout(holdOff, CURSOR_HOLD_MAX_MS); }
+        function holdOff() { cursorHold = false; clearTimeout(holdTimer); holdTimer = null; }
+        function holdGrace() { clearTimeout(holdTimer); holdTimer = setTimeout(holdOff, CURSOR_GRACE_MS); }
+        function isOpen(n) { try { return !!window.getInterfaceStatus(n); } catch (e) { return false; } }
+        // Окно авторизации действительно на экране (не закрыто и не перекрыто экраном Loading)
+        function authOnScreen() {
+            try {
+                if (!isOpen('Authorization') || isOpen('Loading')) return false;
+                var c = window.component && window.component('Authorization');
+                return !c || c.show !== false;
+            } catch (e) { return false; }
+        }
         var patched = (typeof WeakSet === 'function') ? new WeakSet() : null;
 
         // CSS: только visibility. Анимации/переходы НЕ трогаем — иначе при показе
@@ -324,21 +345,22 @@ if (AUTO_PASSWORD) {
         (document.head || document.documentElement).appendChild(st);
 
         function isHidden() { return document.documentElement.classList.contains(HIDE_CLASS); }
-        function hideUI() { hideToken++; cursorSuppressed = true; document.documentElement.classList.add(HIDE_CLASS); }
+        function hideUI() { hideToken++; holdOn(); document.documentElement.classList.add(HIDE_CLASS); }
 
         function showUI() {
-            var wasSuppressed = cursorSuppressed;
-            cursorSuppressed = false;
             document.documentElement.classList.remove(HIDE_CLASS);
-            // Окно возвращается (ошибка пароля / код 2FA / таймаут) — включаем курсор ровно так,
-            // как это сделала бы игра при показе окна. Если окно уже закрыто (успешный вход) — курсор не нужен.
-            if (wasSuppressed) {
-                try {
-                    if (window.getInterfaceStatus && window.getInterfaceStatus('Authorization') &&
-                        typeof window.setCursorStatus === 'function') {
-                        window.setCursorStatus('Authorization', true, false);
-                    }
-                } catch (e) { console.error('[PRAVO AHK AUTO-PWD] cursor show error:', e); }
+            if (cursorHold) {
+                if (authOnScreen()) {
+                    // Окно возвращается (ошибка пароля / код 2FA / таймаут) — включаем курсор так,
+                    // как это сделала бы игра при показе окна.
+                    holdOff();
+                    try { if (typeof window.setCursorStatus === 'function') window.setCursorStatus('Authorization', true, false); }
+                    catch (e) { console.error('[PRAVO AHK AUTO-PWD] cursor show error:', e); }
+                } else if (isOpen('Loading')) {
+                    // идёт загрузка после верного пароля — держим, снимется при закрытии Loading
+                } else {
+                    holdGrace();   // окно уже закрыто; Loading мог ещё не открыться
+                }
             }
             clearTimeout(revealTimer); revealTimer = null;
             if (errObs) { errObs.disconnect(); errObs = null; }
@@ -482,7 +504,7 @@ if (AUTO_PASSWORD) {
         // Игра делает это в showInterface() через window.setCursorStatus('Authorization', true, ...).
         hook('setCursorStatus', function(orig) {
             return function(name, status) {
-                if (cursorSuppressed && name === 'Authorization' && (status === true || status === 1)) {
+                if (cursorHold && CURSOR_HOLD_NAMES[name] && (status === true || status === 1)) {
                     return;   // курсор не включаем; вернём его в showUI(), если понадобится ручной ввод
                 }
                 return orig.apply(this, arguments);
@@ -493,10 +515,18 @@ if (AUTO_PASSWORD) {
             return function(name) {
                 if (name === 'Authorization') {
                     sent = false;
-                    cursorSuppressed = false;   // окно закрыто: курсор показывать больше не нужно
                     var r = orig.apply(this, arguments);
                     if (isHidden()) releaseWhenGone(); else showUI();
                     return r;
+                }
+                if (name === 'Loading') {
+                    var r2 = orig.apply(this, arguments);
+                    if (cursorHold) {
+                        holdOff();   // загрузка закончилась — удержание не нужно
+                        // если под ней оказалось окно авторизации — вернуть ему курсор как обычно
+                        if (authOnScreen()) { try { window.setCursorStatus('Authorization', true, false); } catch (e) {} }
+                    }
+                    return r2;
                 }
                 return orig.apply(this, arguments);
             };
