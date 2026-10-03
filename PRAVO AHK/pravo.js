@@ -222,7 +222,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.9 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.444 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -4962,6 +4962,7 @@ function restoreMainMenuOptions() {
 // перебивает CSS-анимацию появления. Правило снимается только после того,
 // как .main-menu реально исчез из DOM (опрос 50 мс, предел 1200 мс).
 var HIDE_STYLE_ID = 'mvd-profile-styles';
+var _hideGuard = null;
 
 function _hideOn() {
     try {
@@ -4970,6 +4971,11 @@ function _hideOn() {
         s.id = HIDE_STYLE_ID;
         s.textContent = '.main-menu{opacity:0!important;visibility:hidden!important;pointer-events:none!important;animation:none!important;transition:none!important;}';
         (document.head || document.documentElement).appendChild(s);
+        // Страховка: правило не может пережить загрузку (макс. 30 с), даже если что-то пошло не так
+        if (_hideGuard) clearTimeout(_hideGuard);
+        _hideGuard = setTimeout(function() {
+            try { var el = document.getElementById(HIDE_STYLE_ID); if (el && el.parentNode) el.parentNode.removeChild(el); } catch(e) {}
+        }, 30000);
     } catch(e) {}
 }
 
@@ -4989,25 +4995,96 @@ function _hideOff() {
     })();
 }
 
+// ── Сервер хранит «меню открыто на вкладке N» (MAIN_MENU_CURRENT_TYPE_INTERFACE). ──
+// Если прошлое закрытие не дошло до сервера, он «помнит» вкладку Statistics, на повторную
+// смену вкладки возвращает false и НЕ шлёт данные — а M, /menu, /gps перестают открываться.
+// Игровой sendClientEvent молча выбрасывает событие, если открыт чат (isOpenedChat()),
+// поэтому используем «сырой» sendClientEventHandle (как в Code.js).
+function _srvSend(eventName, arg) {
+    var args = (arg === undefined) ? [eventName] : [eventName, arg];
+    try {
+        if (typeof window.sendClientEventHandle === 'function') {
+            window.sendClientEventHandle.apply(window, [0].concat(args));
+            return true;
+        }
+    } catch(e) {}
+    try {
+        if (typeof window.sendClientEvent === 'function') {
+            window.sendClientEvent.apply(window, [0, { ignoreChat: true }].concat(args));
+            return true;
+        }
+    } catch(e) {}
+    return false;
+}
+function _srvResetMenuState() {
+    _srvSend('MainMenu_OnPlayerCloseInterface');
+}
+function _srvAskStats(mm) {
+    try {
+        var idx = 1; // MAIN_MENU_TAB_STATISTICS
+        try {
+            if (mm && mm.tabs && mm.tabs.findIndex) {
+                var ti = mm.tabs.findIndex(function(t) { return t && t.name === 'Statistics'; });
+                if (ti >= 0) idx = ti;
+            }
+        } catch(e) {}
+        _srvSend('MainMenu_OnPlayerCloseInterface');
+        _srvSend('MainMenu_OnPlayerChangeTab', idx);
+    } catch(e) {}
+}
+
+// showInterface/hideInterface дёргают Hud.setKeyButtonsDisplay(false/true) — экранные
+// кнопки (мобильный Hassle) на секунду пропадают. На время чтения глушим этот вызов.
+var _kbHud = null, _kbOrig = null;
+function _kbSuppress() {
+    try {
+        var h = window.interface && window.interface('Hud');
+        if (h && typeof h.setKeyButtonsDisplay === 'function' && !_kbOrig) {
+            _kbHud = h; _kbOrig = h.setKeyButtonsDisplay;
+            h.setKeyButtonsDisplay = function() {};
+        }
+    } catch(e) {}
+}
+function _kbRestore() {
+    try { if (_kbHud && _kbOrig) _kbHud.setKeyButtonsDisplay = _kbOrig; } catch(e) {}
+    _kbHud = null; _kbOrig = null;
+}
+
+// Открыт ли какой-то другой интерфейс? openInterface() прячет верхний интерфейс
+// (PauseMenu, диалог, телефон) и потом показывает заново — это видимое мерцание.
+function _otherInterfaceOpen() {
+    try {
+        if (window.blockInterfaces) return true;
+        if (typeof window.getOpenedControllableInterfaces === 'function') {
+            var list = window.getOpenedControllableInterfaces() || [];
+            var mm = window.interface('MainMenu');
+            for (var i = 0; i < list.length; i++) {
+                if (list[i] && list[i] !== mm) return true;
+            }
+        }
+    } catch(e) {}
+    return false;
+}
+
 // ── Извлечение данных из профиля ──
 function extractProfileData(mm) {
     try {
         var s = mm.statistics;
-        if (!s) return null;
+        // isLoading=true, пока сервер не прислал данные (в MainMenu.js стоит заглушка)
+        if (!s || s.isLoading) return null;
         var org  = s.organization || {};
         var info = s.info || {};
 
-        // ── Заглушка MainMenu.js: до прихода данных с сервера
-        // organization содержит mock-значения "Officer" / "Police departament".
-        // Принимать их нельзя — ждём настоящий ответ сервера.
-        if (org.rangName === 'Officer' || org.title === 'Police departament') {
-            console.log('[Profile] ⏳ Пропускаем mock-данные (Officer / Police departament) — ждём сервер...');
+        // Заглушка MainMenu.js: rang 2 / «Officer» / «Police departament» / bgName «org-2».
+        // Отбрасываем только если совпали ВСЕ признаки — иначе потеряем реальные данные.
+        if (!s.organization ||
+            (org.rangName === 'Officer' && org.title === 'Police departament' && org.bgName === 'org-2')) {
             return null;
         }
 
         var realNick = null;
         try {
-            realNick = window.App && window.App.$store && 
+            realNick = window.App && window.App.$store &&
                        window.App.$store.getters['player/nickName'];
         } catch(e) {}
         return {
@@ -5021,6 +5098,7 @@ function extractProfileData(mm) {
 }
 
 // ── Основная функция: считывает ОДИН РАЗ, дальше возвращает сохранённые данные ──
+// Механизм перенесён из Code.js (loadPlayerProfile).
 function loadPlayerProfile(callback) {
     // Если данные уже загружены — НЕ открываем профиль повторно
     if (window._pravoFirstName && window._pravoLastName && window._pravoRank) {
@@ -5031,7 +5109,7 @@ function loadPlayerProfile(callback) {
         });
         return;
     }
-    
+
     if (_fetching) {
         // Уже идёт загрузка — ждём завершения
         var waitPoll = setInterval(function() {
@@ -5045,136 +5123,160 @@ function loadPlayerProfile(callback) {
         }, 100);
         return;
     }
-    
+
     _fetching = true;
-    window._mvdProfileLoading = true; // блокируем патч вкладки пока читаем профиль
     console.log('[Profile] Загрузка данных персонажа (первый раз)...');
 
-    var _done = false;
-    var _watchdog = null;
+    var _done = false, _wd = null, _poll = null;
+    var _wasOpen = false;
+    var _openP = null; // промис игрового openInterface (он async: ждёт импорт стора)
 
-    // Если игрок уже сам открыл MainMenu (например, нажал M) — не трогаем
-    // его открытие/закрытие вообще, просто читаем то, что уже на экране.
-    var _wasAlreadyOpen = false;
-    try { _wasAlreadyOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
-
-    // Единая точка выхода.
-    function finishFlow(result) {
+    function _finish(data) {
         if (_done) return;
         _done = true;
-        if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
+        if (_wd)   { clearTimeout(_wd);   _wd = null; }
+        if (_poll) { clearInterval(_poll); _poll = null; }
 
-        // Закрываем ТОЛЬКО если открывали сами — и обязательно уведомляем об этом сервер тем же событием, что уходит при нажатии ESC.
-        if (!_wasAlreadyOpen) {
-            try {
-                var mmForClose = window.interface('MainMenu');
-                if (mmForClose && typeof mmForClose.sendCloseEvent === 'function') {
-                    mmForClose.sendCloseEvent();
-                } else if (typeof window.sendClientEvent === 'function') {
-                    window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
-                }
-            } catch(e) {}
-            try { window.closeInterface('MainMenu'); } catch(e) {}
+        if (data && data.nickname && data.orgRangName) {
+            // Сохраняем в window НАВСЕГДА
+            window._pravoCallsign = data.nickname || '';
+            window._pravoRank = data.orgRangName || '';
+            // Парсим ник на Имя и Фамилию
+            var nickParts = (data.nickname || '').split(/[_\s]+/);
+            window._pravoFirstName = nickParts[0] || '';
+            window._pravoLastName = nickParts[1] || '';
+            console.log('[Profile] Запомнено: ' + window._pravoRank + ' ' + window._pravoFirstName + ' ' + window._pravoLastName);
+        } else {
+            console.warn('[Profile] Данные не получены');
         }
 
-        restoreMainMenuOptions();
-        restoreCursorPatch();
-        if (!_wasAlreadyOpen) _hideOff();
-        _fetching = false;
-        window._mvdProfileLoading = false; // разблокируем патч вкладки
-        if (callback) callback(result);
-    }
+        // Разбор интерфейса делаем ПОСЛЕ того, как игровой openInterface дошёл до конца.
+        // Иначе closeInterface срабатывает раньше showInterface: open.status уже false,
+        // а курсор/счётчики HUD/стек интерфейсов потом всё равно «включаются» и зависают.
+        var _tornDown = false;
+        function _teardown() {
+            if (_tornDown) return;
+            _tornDown = true;
 
-    // ── Аварийный предохранитель: что бы ни пошло не так дальше
-    // (подвисший поллинг, ошибка в чужом коде, перерендер интерфейса),
-    // авточтение не может провисеть дольше 8 секунд. ──
-    _watchdog = setTimeout(function() {
-        console.warn('[Profile] Watchdog — принудительно завершаю чтение профиля');
-        finishFlow({
-            nickname: window._pravoCallsign || '',
-            orgRangName: window._pravoRank || ''
-        });
-    }, 8000);
-
-    patchMainMenuOptions();
-    applyCursorPatch();
-    if (!_wasAlreadyOpen) _hideOn(); // меню уже открыто игроком — не трогаем
-
-    if (!_wasAlreadyOpen) {
-        try {
-            window.openInterface('MainMenu');
-        } catch(e) {
-            console.error('[Profile] Ошибка открытия профиля:', e);
-            finishFlow(null);
-            return;
-        }
-    }
-
-    setTimeout(function() {
-        if (_done) return; // watchdog уже всё снял — дальше не лезем
-        var mm = window.interface('MainMenu');
-        if (!mm) {
-            console.error('[Profile] Профиль не найден');
-            finishFlow(null);
-            return;
-        }
-        try {
-            if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
-        } catch(e) {}
-
-        var attempts = 0;
-        var maxAttempts = 30;
-        // Стабилизация: не принимаем данные по первому же непустому результату — сервер может сперва прислать заглушку (например, звание по умолчан...
-        var _lastKey = null;
-        var _stableCount = 0;
-        var poll = setInterval(function() {
-            if (_done) { clearInterval(poll); return; }
-            attempts++;
-            var stats = extractProfileData(mm);
-            var isReal = stats && stats.nickname && stats.orgRangName;
-
-            if (isReal) {
-                var key = stats.nickname + '|' + stats.orgRangName;
-                if (key === _lastKey) {
-                    _stableCount++;
-                } else {
-                    _lastKey = key;
-                    _stableCount = 1;
-                }
-            } else {
-                _lastKey = null;
-                _stableCount = 0;
-            }
-
-            if ((isReal && _stableCount >= 2) || attempts >= maxAttempts) {
-                clearInterval(poll);
-
-                if (stats && isReal) {
-                    console.log('[Profile] Данные успешно загружены:', stats);
-
-                    // Сохраняем в window НАВСЕГДА
-                    window._pravoCallsign = stats.nickname || '';
-                    window._pravoRank = stats.orgRangName || '';
-
-                    // Парсим ник на Имя и Фамилию
-                    var nickParts = (stats.nickname || '').split(/[_\s]+/);
-                    window._pravoFirstName = nickParts[0] || '';
-                    window._pravoLastName = nickParts[1] || '';
-
-                    console.log('[Profile] Запомнено: ' + window._pravoRank + ' ' + window._pravoFirstName + ' ' + window._pravoLastName);
-                } else {
-                    console.warn('[Profile] Таймаут — данные не получены');
-                }
-
+            if (!_wasOpen) {
+                // 1) серверу — «меню закрыто» (мимо проверки чата)
+                _srvSend('MainMenu_OnPlayerCloseInterface');
+                // 2) закрываем интерфейс на клиенте
+                try { window.closeInterface('MainMenu'); } catch(e) {}
+                // 3) страховка: если событие потерялось — повторяем, но только если игрок меню не открыл
                 setTimeout(function() {
-                    finishFlow({
-                        nickname: window._pravoCallsign,
-                        orgRangName: window._pravoRank
-                    });
-                }, 150);
+                    try {
+                        if (!window._mvdProfileLoading && !window.getInterfaceStatus('MainMenu')) {
+                            _srvSend('MainMenu_OnPlayerCloseInterface');
+                        }
+                    } catch(e) {}
+                }, 1500);
             }
-        }, 100); // ↓ 200→100ms: быстрее считываем данные
-    }, 250);  // ↓ 600→250ms: Vue успевает примонтироваться, но не ждём лишнего
+            restoreMainMenuOptions();
+            restoreCursorPatch();
+            _kbRestore();
+            if (!_wasOpen) _hideOff();
+            _fetching = false;
+            window._mvdProfileLoading = false; // разблокируем патч вкладки
+            if (callback) callback({
+                nickname: window._pravoCallsign,
+                orgRangName: window._pravoRank
+            });
+        }
+        if (!_wasOpen && _openP && typeof _openP.then === 'function') {
+            _openP.then(_teardown, _teardown);
+            setTimeout(_teardown, 1500); // промис не должен держать нас бесконечно
+        } else {
+            _teardown();
+        }
+    }
+
+    function _begin() {
+        if (_done) return;
+        try { _wasOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+        window._mvdProfileLoading = true; // блокируем патч вкладки пока читаем профиль
+
+        // Аварийный предохранитель: 20 сек на запуск+чтение
+        _wd = setTimeout(function() {
+            console.warn('[Profile] Watchdog — принудительно завершаю чтение профиля');
+            _finish(null);
+        }, 20000);
+
+        patchMainMenuOptions();
+        applyCursorPatch();
+
+        if (!_wasOpen) {
+            _hideOn();            // правило-невидимка ДО открытия
+            _kbSuppress();
+            _srvResetMenuState(); // сервер не должен «помнить» старую вкладку
+            try { _openP = window.openInterface('MainMenu'); }
+            catch(e) {
+                console.error('[Profile] Ошибка открытия профиля:', e);
+                _finish(null);
+                return;
+            }
+        }
+
+        var t0 = Date.now(), reopened = false, selected = false;
+        var askedAt = 0, asks = 0, lastKey = null, stable = 0;
+
+        // Один опрос вместо «слепой» паузы: ждём монтирования компонента, выбираем вкладку,
+        // переспрашиваем сервер, если данные не пришли.
+        _poll = setInterval(function() {
+            if (_done) { clearInterval(_poll); return; }
+
+            var mm = null;
+            try { mm = window.interface('MainMenu'); } catch(e) {}
+
+            if (!mm) {
+                // Компонент ещё не смонтирован (openInterface асинхронный) — ждём, а не сдаёмся.
+                // Если за 1.5с интерфейс так и не открылся (его заблокировали) — пробуем ещё раз.
+                if (!_wasOpen && !reopened && Date.now() - t0 > 1500) {
+                    var st = false;
+                    try { st = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+                    if (!st) { reopened = true; try { _openP = window.openInterface('MainMenu'); } catch(e) {} }
+                }
+                return;
+            }
+
+            if (!selected) {
+                selected = true;
+                askedAt = Date.now();
+                // Если игрок сам держит меню открытым — не переключаем ему вкладку
+                if (!_wasOpen) { try { if (typeof mm.selectTab === 'function') mm.selectTab('Statistics'); } catch(e) {} }
+            }
+
+            var d = extractProfileData(mm);
+            var isReal = d && d.nickname && d.orgRangName;
+            if (isReal) {
+                var key = d.nickname + '|' + d.orgRangName;
+                if (key === lastKey) { stable++; } else { lastKey = key; stable = 1; }
+            } else {
+                lastKey = null; stable = 0;
+                // Данные не пришли — повторно просим сервер (до 3 раз, раз в 3 сек)
+                if (asks < 3 && Date.now() - askedAt > 3000) {
+                    asks++; askedAt = Date.now();
+                    console.log('[Profile] ↻ Данные не пришли, повторный запрос серверу (' + asks + '/3)');
+                    // mm.sendServerEvent('Statistics') тут не годится: сервер уже считает вкладку открытой
+                    // и вернёт false без данных. Сначала сброс, потом смена вкладки.
+                    if (!_wasOpen) _srvAskStats(mm);
+                }
+            }
+            if (isReal && stable >= 2) {
+                clearInterval(_poll); _poll = null;
+                console.log('[Profile] Данные успешно загружены:', d);
+                setTimeout(function() { _finish(d); }, 100);
+            }
+        }, 150);
+    }
+
+    // Перед открытием ждём, пока закроются другие интерфейсы (PauseMenu, диалоги и т.д.),
+    // иначе игра прячет их и показывает заново — это мерцание. Максимум 20 сек.
+    (function waitFree(tries) {
+        if (_done) return;
+        if (!_otherInterfaceOpen() || tries >= 40) { _begin(); return; }
+        setTimeout(function() { waitFree(tries + 1); }, 500);
+    })(0);
 }
 
 // ── Команда /mmenu для принудительного обновления данных ──
