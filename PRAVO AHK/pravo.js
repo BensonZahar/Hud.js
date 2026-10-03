@@ -2773,7 +2773,21 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
 // ══════ Кнопка авто-ответа «Нахожусь в правительстве» у входящих SMS ══════
 var PRAVO_SMS_BTN_ENABLED = true;
-var PRAVO_SMS_TEXT = 'Здравствуйте, нахожусь в правительстве [/gps - Правительство]';
+var PRAVO_SMS_TEXT = 'Здравствуйте, нахожусь в правительстве [/gps - Правительство]'; // текст пункта «Место»
+// Пункты, в которые раскрывается кнопка SMS: подпись -> что отправить в /sms
+var PRAVO_SMS_LABEL_PLACE = 'Место';
+var PRAVO_SMS_LABEL_PRICE = 'Ценовая политика';
+// Текст «Ценовой политики» собирается из _GIVE_LIC_TYPES (те же цены, что в меню выдачи). Хочешь свой текст - впиши строку сюда.
+var PRAVO_SMS_TEXT_PRICE = '';
+function _pravoSmsPriceText() {
+    if (PRAVO_SMS_TEXT_PRICE) return PRAVO_SMS_TEXT_PRICE;
+    try {
+        var parts = _GIVE_LIC_TYPES.map(function (t) { return t.name + ' ' + Math.round(t.price / 1000) + 'к'; });
+        return 'Ценовая политика: ' + parts.join(', ');
+    } catch (e) {
+        return 'Ценовая политика: Права 10к, Проф. права 40к, Оружие 85к, Рыбалка 40к, Охота 65к';
+    }
+}
 // Входящее: "SMS: текст | Отправитель: {v:Ник} [т.333351]"; группа 1 = номер
 var PRAVO_SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
 var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
@@ -2803,7 +2817,17 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
         (PRAVO_SMS_HOVER_INVERT ? '.chat-message-content__action.pravo-sms-btn:hover{background:#fff;color:#000;}' : '') +
         '.chat-message-content__action.pravo-sms-btn>*{display:none!important;}' +
         '.chat-message-content__action.pravo-sms-btn::after{content:"' + PRAVO_SMS_LABEL + '";}' +
-        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}';
+        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}' +
+        // свернули кнопку SMS, пока раскрыт выбор
+        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--hidden{display:none!important;}' +
+        // раскрытый выбор: те же размеры/вид, что у кнопки SMS (свои элементы без data-v -> штатные стили чата не действуют)
+        '.pravo-sms-menu{display:inline-flex;align-items:center;vertical-align:middle;}' +
+        '.pravo-sms-opt{' + css(pcH) +
+            'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.6vh;position:relative;' +
+            'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:inherit;font-weight:700;line-height:1;' +
+            'letter-spacing:.03em;font-family:inherit;user-select:none;-webkit-user-select:none;transition:all .25s ease;}' +
+        '.pravo-sms-opt.pravo-sms-opt--mobile{' + css(mbH) + '}' +
+        '.pravo-sms-opt:hover{background:#fff;color:#000;}';
     document.head.appendChild(s);
 })();
 
@@ -2843,6 +2867,67 @@ function _pravoMarkSmsBtns(root) {
     })();
 })();
 
+// ── Раскрытие кнопки SMS в выбор «Место / Ценовая политика» ───────────────────
+var _pravoSmsLastBtn = null; // кнопка SMS, по которой кликнули (DOM-элемент); значение номера придёт в onChatMessageAction
+
+function _pravoSmsCollapse(menu) {
+    try {
+        if (!menu) return;
+        var btn = menu._pravoBtn;
+        if (btn && btn.classList) btn.classList.remove('pravo-sms-btn--hidden');
+        if (menu.parentNode) menu.parentNode.removeChild(menu);
+    } catch (e) {}
+}
+function _pravoSmsCollapseAll() {
+    try {
+        var menus = document.querySelectorAll('.pravo-sms-menu');
+        for (var i = 0; i < menus.length; i++) _pravoSmsCollapse(menus[i]);
+    } catch (e) {}
+}
+function _pravoSmsExpand(btn, number) {
+    try {
+        if (!btn || !btn.parentNode) return false;
+        _pravoSmsCollapseAll(); // одновременно раскрыта только одна кнопка
+        var mobile = btn.classList.contains('pravo-sms-btn--mobile');
+        var menu = document.createElement('span');
+        menu.className = 'pravo-sms-menu';
+        menu._pravoBtn = btn;
+        var opts = [
+            { label: PRAVO_SMS_LABEL_PLACE, text: function () { return PRAVO_SMS_TEXT; } },
+            { label: PRAVO_SMS_LABEL_PRICE, text: _pravoSmsPriceText }
+        ];
+        opts.forEach(function (o) {
+            var b = document.createElement('span');
+            b.className = 'pravo-sms-opt' + (mobile ? ' pravo-sms-opt--mobile' : '');
+            b.textContent = o.label;
+            b.addEventListener('click', function (ev) {
+                try { ev.stopPropagation(); ev.preventDefault(); } catch (_) {}
+                try { _pravoSendCmd('/sms ' + number + ' ' + o.text()); } catch (e) {
+                    try { console.log('[PRAVO] SMS: ошибка отправки', e); } catch (_) {}
+                }
+                _pravoSmsCollapse(menu); // отправили -> снова одна кнопка SMS
+            });
+            menu.appendChild(b);
+        });
+        btn.classList.add('pravo-sms-btn--hidden');
+        btn.parentNode.insertBefore(menu, btn.nextSibling);
+        return true;
+    } catch (e) { return false; }
+}
+// Запоминаем, по какой именно кнопке SMS кликнули (capture: срабатывает раньше обработчика Vue)
+(function _pravoSmsClickTracker() {
+    var tries = 0;
+    (function start() {
+        if (!document.body) { if (++tries < 100) setTimeout(start, 100); return; }
+        document.addEventListener('click', function (e) {
+            try {
+                var t = e.target;
+                _pravoSmsLastBtn = (t && t.closest) ? t.closest('.pravo-sms-btn') : null;
+            } catch (_) { _pravoSmsLastBtn = null; }
+        }, true);
+    })();
+})();
+
 function _pravoAddSmsButton(message) {
     try {
         if (!PRAVO_SMS_BTN_ENABLED || typeof message !== 'string') return message;
@@ -2864,7 +2949,9 @@ function _pravoAddSmsButton(message) {
         }
         window.onChatMessageAction = function (button, action, value) {
             if (String(action) === String(PRAVO_SMS_ACTION)) {
-                _pravoSendCmd('/sms ' + value + ' ' + PRAVO_SMS_TEXT);
+                var _b = _pravoSmsLastBtn; _pravoSmsLastBtn = null;
+                // Раскрываем выбор «Место / Ценовая политика»; если кнопку в DOM не нашли - шлём «Место» как раньше
+                if (!_pravoSmsExpand(_b, value)) _pravoSendCmd('/sms ' + value + ' ' + PRAVO_SMS_TEXT);
                 return;
             }
             return orig.apply(this, arguments);
