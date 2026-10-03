@@ -2995,18 +2995,13 @@ function _pravoSmsFit(row, menu, btn) {
         var kids = row.children, lastR = kids && kids.length ? kids[kids.length - 1] : null;
         var lastM = menu.lastElementChild;
         if (!lastR || !lastM) return;
-        // 0) сброс прошлой подгонки (функция вызывается несколько раз): иначе замер упрётся в уже выставленную ширину
-        row.style.width = row.style.boxSizing = row.style.paddingLeft = row.style.paddingRight = '';
-        row.style.flexGrow = row.style.flexShrink = row.style.alignSelf = '';
-        menu.style.width = menu.style.flexWrap = menu.style.flexGrow = menu.style.flexShrink = menu.style.alignSelf = '';
-        row.classList.remove('pravo-sms-row--nowrap');
-        // 1) эталон масштаба: ставим меню ширину ровно 200px и смотрим, сколько это на экране
-        var prevW = menu.style.width;
-        menu.style.width = '200px';
-        var ref = menu.getBoundingClientRect().width;
-        menu.style.width = prevW;
-        var scale = ref / 200;
-        if (!(scale > 0.05 && scale < 20)) scale = 1;
+        // 1) масштаб чата (экранные px -> px вёрстки): отношение экранной ширины строки к её offsetWidth; без масштаба = 1
+        var scale = 1;
+        try {
+            var _rw = row.getBoundingClientRect().width, _ow = row.offsetWidth;
+            if (_rw > 0 && _ow > 0) scale = _rw / _ow;
+            if (!(scale > 0.4 && scale < 2.5) || Math.abs(scale - 1) < 0.03) scale = 1;
+        } catch (_) { scale = 1; }
         // 2) естественные ширины (до наших отступов)
         var rr = row.getBoundingClientRect(), mm = menu.getBoundingClientRect();
         var lr = lastR.getBoundingClientRect(), lm = lastM.getBoundingClientRect();
@@ -3017,13 +3012,11 @@ function _pravoSmsFit(row, menu, btn) {
         var w1 = (lr.right - rr.left) / scale + padR * 2 + bw * 2; // сообщение
         var w2 = (lm.right - mm.left) / scale + mR + padM + bw * 2; // кнопки
         // 2b) подпись «Ответ» -> «Закрыть» длиннее на ~2 буквы, а движок пересчитывает её не сразу.
-        //     Если кнопка ещё не выросла по сравнению с закрытым видом - закладываем запас вручную, иначе «Закрыть» не влезает и переносится вниз.
+        //     Движок отдаёт размеры прошлого кадра (с подписью «Ответ»), поэтому запас закладываем вручную, иначе «Закрыть» не влезает и переносится вниз.
         var reserve = 0;
         try {
-            var bcs = getComputedStyle(btn), bfs = parseFloat(bcs.fontSize) || 16;
-            var wNow = btn.getBoundingClientRect().width, wClosed = btn._pravoClosedW || 0;
-            var grown = wClosed > 0 && wNow >= wClosed + 2;
-            if (!grown) reserve = Math.max(0, PRAVO_SMS_LABEL_CLOSE.length - PRAVO_SMS_LABEL.length) * bfs * 0.62;
+            var bfs = parseFloat(getComputedStyle(btn).fontSize) || 16;
+            reserve = Math.max(0, PRAVO_SMS_LABEL_CLOSE.length - PRAVO_SMS_LABEL.length) * bfs * 0.62;
         } catch (_) {}
         w1 += reserve;
         var full = rr.width / scale;                        // ширина списка сообщений
@@ -3071,7 +3064,6 @@ function _pravoSmsExpand(btn, number) {
             });
             menu.appendChild(b);
         });
-        try { btn._pravoClosedW = btn.getBoundingClientRect().width; } catch (_) { btn._pravoClosedW = 0; } // ширина «Ответ» до смены подписи
         btn.classList.add('pravo-sms-btn--open'); // «Закрыть» + стрелка вверх (до замеров рамки: подпись меняет ширину)
         var row = _pravoSmsRow(btn);
         if (row && row.parentNode) {
@@ -3080,10 +3072,6 @@ function _pravoSmsExpand(btn, number) {
             menu.classList.add('pravo-sms-menu--attached');
             menu._pravoRow = row;
             _pravoSmsFit(row, menu, btn);
-            // повторные подгонки: движок применяет новую подпись «Закрыть» с задержкой (после сворачивания меню уже нет в DOM - пропускаем)
-            [60, 220].forEach(function (ms) {
-                setTimeout(function () { if (menu.parentNode && btn._pravoMenu === menu) _pravoSmsFit(row, menu, btn); }, ms);
-            });
         } else btn.parentNode.appendChild(menu);
         btn._pravoMenu = menu;
         if (PRAVO_SMS_MENU_TIMEOUT > 0) menu._pravoTimer = setTimeout(function () { _pravoSmsCollapse(menu); }, PRAVO_SMS_MENU_TIMEOUT);
