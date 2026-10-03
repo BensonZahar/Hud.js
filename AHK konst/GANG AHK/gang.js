@@ -22,7 +22,7 @@ const _ALLOWED_NICKS = [
     "Denis_Galievskiy",
 	"Fura_Morales",
     "Sergey_Gaben",
-	"Steel_Soprano"
+	"Extrim_Neverdie"
 ];
 
 // Показ уведомления о запрете доступа.
