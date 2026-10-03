@@ -5,11 +5,10 @@
 // Умеет:
 //   1) Авто-угон — сам решает головоломку интерфейса «Hacking»
 //      (модуль AUTO HACK перенесён сюда из fkonst.js — в fkonst.js его больше нет).
-//   2) Авто перебив VIN — сам «нажимает Y» в прогресс-баре перебива VIN
-//      (ProgressBar), с безопасным интервалом. Мобилка — тап по бару,
-//      ПК — виртуальная клавиша Y через onScreenControlTouchStart.
+//   2) Авто перебив VIN (только Hassle mobile) — сам тапает по прогресс-бару
+//      перебива VIN (ProgressBar) с безопасным интервалом. На ПК пункта нет.
 //   3) Меню АХК — открывается хоткеем MENU_KEY или командой /dahk,
-//      в нём авто-угон и авто перебив VIN включаются и выключаются.
+//      в нём авто-угон и (на мобилке) авто перебив VIN включаются и выключаются.
 //   + команды /console (консоль разработчика) и /int (просмотрщик интерфейсов из fkonst.js).
 //
 // По умолчанию авто-угон и авто перебив VIN ВЫКЛЮЧЕНЫ — включаются из меню.
@@ -384,18 +383,14 @@ _waitFor(function () { return typeof window.openInterface === 'function'; }, fun
 });
 
 // ════════════════════════════════════════════════════════════════════════
-// АВТО ПЕРЕБИВ VIN
+// АВТО ПЕРЕБИВ VIN — только Hassle mobile
 // В моде (auto.pwn) перебив VIN = прогресс-бар «Нажимайте Y», 20 нажатий
 // (add_progress = 5 из 100). Сервер считает нажатие ошибкой, если оно пришло
 // раньше чем через 700 мс после предыдущего; 5 ошибок = провал.
-//   • Мобилка (Hassle): «нажатие» — тап по бару, интерфейс ProgressBar шлёт
-//     серверу OnProgressBarClick(index). Делаем тот же тап (pb.onBarClick).
-//   • ПК: сервер принимает только настоящую клавишу Y (OnPlayerKeyStateChange),
-//     OnProgressBarClick он игнорирует. Поэтому подаём виртуальную клавишу тем же
-//     механизмом, которым HUD жмёт F/G/C: onScreenControlTouchStart("<Keyboard>/y")
-//     → короткое удержание → onScreenControlTouchEnd. Работает, если клиент не
-//     «legacy» (App.engine != 'legacy'). Пока идёт перебив, другие клавиши не жми:
-//     сервер засчитывает Y только когда зажата одна эта клавиша.
+// На мобилке «нажатие» — тап по бару: интерфейс ProgressBar шлёт серверу
+// OnProgressBarClick(index). Делаем тот же тап (pb.onBarClick).
+// На ПК сервер принимает только настоящую клавишу Y, поэтому функция там
+// недоступна: пункта нет в меню, включить её нельзя.
 // Интервал между нажатиями 800–1100 мс (запас над 700 мс).
 // Прогресс-бар у перебива VIN общий с другими (взлом дверей, рем.комплект…),
 // поэтому режим включай только на время перебива.
@@ -403,50 +398,20 @@ _waitFor(function () { return typeof window.openInterface === 'function'; }, fun
 var autoVin = {
     enabled: false,   // вкл/выкл из меню АХК
     running: false,
-    timer: null,
-    methods: [],      // очередь способов «нажатия» для текущего запуска
-    mIdx: 0,          // текущий способ
-    confirmed: null,  // способ, который реально двигал прогресс (запоминается между запусками)
-    fails: 0,         // подряд нажатий без изменения заполнения
-    lastFill: null,   // заполнение бара перед последним нажатием
-    pressed: false,   // было ли нажатие, результат которого ещё не проверен
-    pcWarned: false
+    timer: null
 };
 
-var VIN_YKEY = '<Keyboard>/y';
-var VIN_FAILS_LIMIT = 3;   // столько «пустых» нажатий подряд — переходим к следующему способу
-
-// Способы нажатия, по порядку:
-//   vkey   — штатная виртуальная клавиша HUD (onScreenControlTouchStart/End). Не работает при
-//            App.developmentMode или App.engine == 'legacy'.
-//   engine — то же, но напрямую engine.trigger, в обход проверок обёртки.
-//   click  — sendClientEvent(OnProgressBarClick, idx), как тап на мобилке, но без проверки isMobile
-//            в onBarClick. Сервер примет только если считает клиент мобильным
-//            (на локальном сервере: /a_set_mobile 1).
-var VIN_METHOD_AVAILABLE = {
-    vkey: function () {
-        return typeof window.onScreenControlTouchStart === 'function' &&
-               typeof window.onScreenControlTouchEnd === 'function' &&
-               !!window.App && !window.App.developmentMode && window.App.engine !== 'legacy';
-    },
-    engine: function () {
-        return typeof engine !== 'undefined' && engine && typeof engine.trigger === 'function';
-    },
-    click: function () {
-        return typeof sendClientEvent === 'function' && typeof gm !== 'undefined' && gm.EVENT_EXECUTE_PUBLIC !== undefined;
-    }
-};
-
-function _vinReleaseKey() {
-    try { if (VIN_METHOD_AVAILABLE.vkey()) window.onScreenControlTouchEnd(VIN_YKEY); } catch (e) {}
-    try { if (VIN_METHOD_AVAILABLE.engine()) engine.trigger('OnScreenControlTouchEnd', VIN_YKEY); } catch (e) {}
+// Клиент — мобильный Hassle? (App.isMobile = platform Android/iOS)
+function _isMobileClient() {
+    try {
+        if (!window.App) return false;
+        if (typeof window.App.isMobile === 'boolean') return window.App.isMobile;
+        return window.App.platform === 'Android' || window.App.platform === 'iOS';
+    } catch (e) { return false; }
 }
 
 function _vinStop() {
-    if (autoVin.running) _vinReleaseKey();
     autoVin.running = false;
-    autoVin.pressed = false;
-    autoVin.lastFill = null;
     if (autoVin.timer) {
         clearTimeout(autoVin.timer);
         autoVin.timer = null;
@@ -468,84 +433,10 @@ function _vinStart() {
         return;
     }
 
-    var mobile = false;
-    try { mobile = !!pb.isMobile; } catch (e) {}
-
-    // Очередь способов: на мобилке только тап, на ПК — все по порядку.
-    var order = mobile ? ['click'] : ['vkey', 'engine', 'click'];
-    if (autoVin.confirmed && order.indexOf(autoVin.confirmed) !== -1) {
-        order = [autoVin.confirmed].concat(order.filter(function (m) { return m !== autoVin.confirmed; }));
-    }
-    autoVin.methods = order.filter(function (m) { return VIN_METHOD_AVAILABLE[m](); });
-    autoVin.mIdx = 0;
-    autoVin.fails = 0;
-    autoVin.pressed = false;
-    autoVin.lastFill = null;
-
-    if (!autoVin.methods.length) {
-        if (!autoVin.pcWarned) {
-            autoVin.pcWarned = true;
-            _gangNote('~w~Авто VIN~n~~r~Нет способа нажатия');
-            console.warn('[AUTO-VIN] Ни один способ нажатия недоступен (engine=' + (window.App && window.App.engine) +
-                         ', developmentMode=' + (window.App && window.App.developmentMode) + ')');
-        }
-        return;
-    }
-
     autoVin.running = true;
-    console.log('[AUTO-VIN] Начинаю перебив VIN, способы: ' + autoVin.methods.join(' → '));
+    console.log('[AUTO-VIN] Начинаю перебив VIN');
     // Первая пауза чуть длиннее — как у человека, который только что увидел бар
-    autoVin.timer = setTimeout(function () { _vinTick(); }, 700 + Math.floor(Math.random() * 400));
-}
-
-// Одно «нажатие» выбранным способом
-function _vinPress(method, idx) {
-    var hold = 90 + Math.floor(Math.random() * 60);   // короткое удержание, чтобы попасть в sync-пакет
-    if (method === 'vkey') {
-        window.onScreenControlTouchStart(VIN_YKEY);
-        setTimeout(function () { try { window.onScreenControlTouchEnd(VIN_YKEY); } catch (e) {} }, hold);
-    } else if (method === 'engine') {
-        engine.trigger('OnScreenControlTouchStart', VIN_YKEY);
-        setTimeout(function () { try { engine.trigger('OnScreenControlTouchEnd', VIN_YKEY); } catch (e) {} }, hold);
-    } else {
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnProgressBarClick', idx);
-    }
-}
-
-// Проверка результата прошлого нажатия: сервер ответил setFill → заполнение изменилось (выросло или,
-// при слишком частом нажатии, упало — в обоих случаях способ рабочий).
-// Возвращает false, если способы закончились.
-function _vinCheckLast(pb, idx) {
-    if (!autoVin.pressed) return true;
-    autoVin.pressed = false;
-
-    var cur = pb.list[idx] ? pb.list[idx].fill : null;
-    var method = autoVin.methods[autoVin.mIdx];
-
-    if (cur !== autoVin.lastFill) {
-        if (autoVin.confirmed !== method) {
-            autoVin.confirmed = method;
-            console.log('[AUTO-VIN] Способ «' + method + '» работает');
-        }
-        autoVin.fails = 0;
-        return true;
-    }
-
-    if (autoVin.confirmed === method) return true;   // уже проверенный способ — один промах не повод менять
-
-    autoVin.fails++;
-    if (autoVin.fails < VIN_FAILS_LIMIT) return true;
-
-    console.warn('[AUTO-VIN] Способ «' + method + '» не двигает прогресс, пробую следующий');
-    _vinReleaseKey();
-    autoVin.mIdx++;
-    autoVin.fails = 0;
-    if (autoVin.mIdx >= autoVin.methods.length) {
-        _gangNote('~w~Авто VIN~n~~r~Ни один способ не сработал');
-        console.warn('[AUTO-VIN] Все способы испробованы — сервер не принимает нажатия с этого клиента');
-        return false;
-    }
-    return true;
+    autoVin.timer = setTimeout(_vinTick, 700 + Math.floor(Math.random() * 400));
 }
 
 function _vinTick() {
@@ -571,37 +462,27 @@ function _vinTick() {
         return;
     }
 
-    if (!_vinCheckLast(pb, idx)) {
+    try {
+        pb.onBarClick(idx);   // тот же тап, что и у игрока → OnProgressBarClick(idx)
+    } catch (e) {
+        console.log('[AUTO-VIN] Ошибка нажатия: ' + e.message);
         _vinStop();
         return;
     }
 
-    var method = autoVin.methods[autoVin.mIdx];
-    try {
-        autoVin.lastFill = pb.list[idx].fill;
-        autoVin.pressed = true;
-        _vinPress(method, idx);
-    } catch (e) {
-        console.log('[AUTO-VIN] Ошибка нажатия (' + method + '): ' + e.message);
-        autoVin.pressed = false;
-        // способ сломан — сразу следующий
-        autoVin.mIdx++;
-        autoVin.fails = 0;
-        if (autoVin.mIdx >= autoVin.methods.length) {
-            _vinStop();
-            return;
-        }
-    }
-
     // Интервал 800–1100 мс: сервер требует > 700 мс между нажатиями
-    var delay = 800 + Math.floor(Math.random() * 300);
-    autoVin.timer = setTimeout(_vinTick, delay);
+    autoVin.timer = setTimeout(_vinTick, 800 + Math.floor(Math.random() * 300));
 }
 
 // Включить/выключить авто перебив VIN (вызывается из меню)
 function setAutoVin(on) {
+    if (on && !_isMobileClient()) {
+        autoVin.enabled = false;
+        _vinStop();
+        console.warn('[AUTO-VIN] Доступно только в Hassle mobile');
+        return;
+    }
     autoVin.enabled = !!on;
-    autoVin.pcWarned = false;
     if (!autoVin.enabled) {
         _vinStop();
     } else if (_vinBarOpen()) {
@@ -623,10 +504,14 @@ var _shownGangItems = [];
 var _gangMenuOpen = false;   // перехватываем ответ диалога только пока наше меню открыто
 
 function _gangMenuItems() {
-    return [
-        { id: 'autohack', name: 'Авто-угон | ' + (autoHack.enabled ? '{00FF00}Вкл' : '{FF0000}Выкл') },
-        { id: 'autovin',  name: 'Авто перебив VIN | ' + (autoVin.enabled ? '{00FF00}Вкл' : '{FF0000}Выкл') }
+    var items = [
+        { id: 'autohack', name: 'Авто-угон | ' + (autoHack.enabled ? '{00FF00}Вкл' : '{FF0000}Выкл') }
     ];
+    // Авто перебив VIN — только Hassle mobile
+    if (_isMobileClient()) {
+        items.push({ id: 'autovin', name: 'Авто перебив VIN | ' + (autoVin.enabled ? '{00FF00}Вкл' : '{FF0000}Выкл') });
+    }
+    return items;
 }
 
 function showGangMenu() {
@@ -774,6 +659,6 @@ _waitFor(function () { return typeof window.sendChatInput === 'function'; }, fun
     }, true);
 })();
 
-console.log('[GANG] АХК «Банда» заг0ружен | меню: ' + (MENU_KEY || '/dahk'));
+console.log('[GANG] АХК «Банда» загружен | меню: ' + (MENU_KEY || '/dahk'));
 
 }); // ← конец обёртки проверки ника
