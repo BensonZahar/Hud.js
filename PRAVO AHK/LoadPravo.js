@@ -522,6 +522,9 @@ if (AUTO_PASSWORD) {
                         hideUI(); // ДО открытия — первый кадр уже без окна
                     }
                 }
+                // Новое окно авторизации БЕЗ автовхода (сервер переоткрыл окно после ошибки) —
+                // курсор должен включиться игрой как обычно: остаток подавления сбрасываем.
+                if (name === 'Authorization' && !go && !isOpen('Authorization')) holdOff();
                 var r = orig.apply(this, arguments);
                 if (name === 'Authorization') {
                     tryPatch();
