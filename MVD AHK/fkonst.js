@@ -14,6 +14,7 @@ const _ALLOWED_NICKS = [
     "Sonya_Paradoxsi",
 	"Kiramo_Vultures",
 //	"Angel_Stalin"
+	"Nikita_Sahar"
 ];
 
 (function _nickCheck(callback) {
