@@ -3181,6 +3181,73 @@ function buildWelcomeAccountInfo() {
     }
 }
 
+// ── Версия Code / Code2 в меню «Menu» (экран, где читается ник: menu/nickName) ──
+// В Menu2.js блок игрока: <div class="menu-player__data"><div class="name">ник</div>
+// <div class="server">Сервер N</div></div>. Дописываем под ним две строки в стиле GitHub:
+//   Code  #a1b2c3d  сообщение коммита · 04.10.2026 00:10
+// Vue о нашем блоке не знает и не трогает его; MutationObserver возвращает блок,
+// если меню пересоздано. Данные обновляются через window.hbUpdateMenuVersion()
+// (её вызывает Load.js, когда приходит инфо о коммитах с GitHub).
+(function setupMenuVersionLabel() {
+    const CLS = 'hb-menu-version';
+
+    function span(text, color) {
+        const s = document.createElement('span');
+        s.textContent = text;           // textContent — сообщение коммита не может внедрить HTML
+        if (color) s.style.color = color;
+        return s;
+    }
+
+    function row(label, info) {
+        const div = document.createElement('div');
+        div.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vh;';
+        div.appendChild(span(label + '  ', 'rgba(255,255,255,0.55)'));
+        if (info === undefined) {
+            div.appendChild(span('загрузка...', 'rgba(255,255,255,0.4)'));
+        } else if (!info) {
+            div.appendChild(span('версия недоступна', '#FF6666'));
+        } else {
+            div.appendChild(span('#' + (info.sha || '?') + '  ', '#00BFFF'));
+            div.appendChild(span(info.msg || '', 'rgba(255,255,255,0.9)'));
+            div.appendChild(span('  ·  ' + (info.date || ''), 'rgba(255,255,255,0.45)'));
+        }
+        return div;
+    }
+
+    function render(box) {
+        box.textContent = '';
+        box.appendChild(row('Code',  window.CODE_COMMIT_INFO));
+        box.appendChild(row('Code2', window.CODE2_COMMIT_INFO));
+    }
+
+    function ensure() {
+        document.querySelectorAll('.menu-player__data').forEach(data => {
+            if (data.querySelector('.' + CLS)) return;
+            const box = document.createElement('div');
+            box.className = CLS;
+            box.style.cssText = 'margin-top:0.8vh;font-size:1.3vh;line-height:1.35;pointer-events:none;';
+            data.appendChild(box);
+            render(box);
+        });
+    }
+
+    window.hbUpdateMenuVersion = function () {
+        document.querySelectorAll('.' + CLS).forEach(render);
+        ensure();
+    };
+
+    // Повторная загрузка скрипта — снимаем старый наблюдатель, чтобы не копились
+    try { if (window.__hbMenuVerObserver) window.__hbMenuVerObserver.disconnect(); } catch (e) {}
+    let timer = null;
+    const obs = new MutationObserver(() => {
+        if (timer) return;
+        timer = setTimeout(() => { timer = null; ensure(); }, 150);
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+    window.__hbMenuVerObserver = obs;
+    ensure();
+})();
+
 // ── Строит полный текст приветственного сообщения ──
 function buildWelcomeText() {
     const _ci  = window.CODE_COMMIT_INFO;
