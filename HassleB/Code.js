@@ -3224,9 +3224,22 @@ function buildWelcomeAccountInfo() {
     }
 
     function isMenuOnScreen() {
+        // 1) Состояние интерфейса в клиенте: Play → hideInterface("Menu") ставит show=false
+        //    (open.status при этом остаётся true, а DOM меню остаётся в документе)
+        try {
+            const c = window.component && window.component('Menu');
+            if (c) {
+                if (c.show === false) return false;
+                if (c.open && c.open.status === false) return false;
+            }
+        } catch (e) {}
+        // 2) Страница меню реально отрисована (а не display:none / удалена)
         const nodes = document.querySelectorAll(MENU_SELECTOR);
         for (const n of nodes) {
-            if (n.getClientRects().length > 0) return true;   // реально отображается
+            if (n.getClientRects().length === 0) continue;
+            const st = window.getComputedStyle(n);
+            if (st.visibility === 'hidden' || st.display === 'none' || parseFloat(st.opacity) === 0) continue;
+            return true;
         }
         return false;
     }
@@ -3241,7 +3254,9 @@ function buildWelcomeAccountInfo() {
                 'z-index:2147483000;pointer-events:none;display:none;' +
                 'max-width:80vw;padding:0.7vh 1.6vh;border-radius:0.8vh;' +
                 'background:rgba(0,0,0,0.5);font-size:1.5vh;line-height:1.4;' +
-                'font-family:inherit;text-align:left;';
+                'font-weight:400;font-style:normal;text-align:left;' +
+                // системные шрифты с кириллицей; !important — чтобы не подхватить шрифт игры без неё
+                'font-family:Arial,Roboto,"Noto Sans","DejaVu Sans","Segoe UI",Helvetica,sans-serif !important;';
             (document.body || document.documentElement).appendChild(box);
             render(box);
         }
