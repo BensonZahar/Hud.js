@@ -383,7 +383,11 @@ async function initializeScripts() {
         ]).then(([codeInfo, code2Info]) => {
             window.CODE_COMMIT_INFO  = codeInfo  || null;
             window.CODE2_COMMIT_INFO = code2Info || null;
-            console.log('📝 Инфо о коммитах загружено — обновляем велком');
+            console.log('📝 Инфо о коммитах загружено — обновляем велком и меню');
+            // Версия Code/Code2 в меню Menu (блок с ником и сервером)
+            if (typeof window.updateMenuVersionLabel === 'function') {
+                try { window.updateMenuVersionLabel(); } catch (e) {}
+            }
             // Редактируем уже отправленное велком-сообщение с версиями
             if (typeof window.sendWelcomeMessage === 'function') {
                 window.sendWelcomeMessage();
