@@ -404,15 +404,49 @@ var autoVin = {
     enabled: false,   // вкл/выкл из меню АХК
     running: false,
     timer: null,
-    mode: 'tap',      // 'tap' — мобилка, 'key' — ПК (виртуальная Y)
+    methods: [],      // очередь способов «нажатия» для текущего запуска
+    mIdx: 0,          // текущий способ
+    confirmed: null,  // способ, который реально двигал прогресс (запоминается между запусками)
+    fails: 0,         // подряд нажатий без изменения заполнения
+    lastFill: null,   // заполнение бара перед последним нажатием
+    pressed: false,   // было ли нажатие, результат которого ещё не проверен
     pcWarned: false
 };
 
-function _vinStop() {
-    if (autoVin.running && autoVin.mode === 'key') {
-        try { window.onScreenControlTouchEnd('<Keyboard>/y'); } catch (e) {}
+var VIN_YKEY = '<Keyboard>/y';
+var VIN_FAILS_LIMIT = 3;   // столько «пустых» нажатий подряд — переходим к следующему способу
+
+// Способы нажатия, по порядку:
+//   vkey   — штатная виртуальная клавиша HUD (onScreenControlTouchStart/End). Не работает при
+//            App.developmentMode или App.engine == 'legacy'.
+//   engine — то же, но напрямую engine.trigger, в обход проверок обёртки.
+//   click  — sendClientEvent(OnProgressBarClick, idx), как тап на мобилке, но без проверки isMobile
+//            в onBarClick. Сервер примет только если считает клиент мобильным
+//            (на локальном сервере: /a_set_mobile 1).
+var VIN_METHOD_AVAILABLE = {
+    vkey: function () {
+        return typeof window.onScreenControlTouchStart === 'function' &&
+               typeof window.onScreenControlTouchEnd === 'function' &&
+               !!window.App && !window.App.developmentMode && window.App.engine !== 'legacy';
+    },
+    engine: function () {
+        return typeof engine !== 'undefined' && engine && typeof engine.trigger === 'function';
+    },
+    click: function () {
+        return typeof sendClientEvent === 'function' && typeof gm !== 'undefined' && gm.EVENT_EXECUTE_PUBLIC !== undefined;
     }
+};
+
+function _vinReleaseKey() {
+    try { if (VIN_METHOD_AVAILABLE.vkey()) window.onScreenControlTouchEnd(VIN_YKEY); } catch (e) {}
+    try { if (VIN_METHOD_AVAILABLE.engine()) engine.trigger('OnScreenControlTouchEnd', VIN_YKEY); } catch (e) {}
+}
+
+function _vinStop() {
+    if (autoVin.running) _vinReleaseKey();
     autoVin.running = false;
+    autoVin.pressed = false;
+    autoVin.lastFill = null;
     if (autoVin.timer) {
         clearTimeout(autoVin.timer);
         autoVin.timer = null;
@@ -434,32 +468,84 @@ function _vinStart() {
         return;
     }
 
-    // Как «нажимать»: мобилка — тап по бару, ПК — виртуальная клавиша Y
     var mobile = false;
     try { mobile = !!pb.isMobile; } catch (e) {}
-    autoVin.mode = mobile ? 'tap' : 'key';
 
-    if (autoVin.mode === 'key') {
-        var engineOk = false;
-        try {
-            engineOk = typeof window.onScreenControlTouchStart === 'function' &&
-                       typeof window.onScreenControlTouchEnd === 'function' &&
-                       window.App && window.App.engine !== 'legacy';
-        } catch (e) {}
-        if (!engineOk) {
-            if (!autoVin.pcWarned) {
-                autoVin.pcWarned = true;
-                _gangNote('~w~Авто VIN~n~~r~Клиент без виртуальных клавиш');
-                console.warn('[AUTO-VIN] onScreenControl* недоступен (engine=' + (window.App && window.App.engine) + ') — авто-Y не запущен');
-            }
-            return;
+    // Очередь способов: на мобилке только тап, на ПК — все по порядку.
+    var order = mobile ? ['click'] : ['vkey', 'engine', 'click'];
+    if (autoVin.confirmed && order.indexOf(autoVin.confirmed) !== -1) {
+        order = [autoVin.confirmed].concat(order.filter(function (m) { return m !== autoVin.confirmed; }));
+    }
+    autoVin.methods = order.filter(function (m) { return VIN_METHOD_AVAILABLE[m](); });
+    autoVin.mIdx = 0;
+    autoVin.fails = 0;
+    autoVin.pressed = false;
+    autoVin.lastFill = null;
+
+    if (!autoVin.methods.length) {
+        if (!autoVin.pcWarned) {
+            autoVin.pcWarned = true;
+            _gangNote('~w~Авто VIN~n~~r~Нет способа нажатия');
+            console.warn('[AUTO-VIN] Ни один способ нажатия недоступен (engine=' + (window.App && window.App.engine) +
+                         ', developmentMode=' + (window.App && window.App.developmentMode) + ')');
         }
+        return;
     }
 
     autoVin.running = true;
-    console.log('[AUTO-VIN] Начинаю перебив VIN, режим: ' + autoVin.mode);
+    console.log('[AUTO-VIN] Начинаю перебив VIN, способы: ' + autoVin.methods.join(' → '));
     // Первая пауза чуть длиннее — как у человека, который только что увидел бар
     autoVin.timer = setTimeout(function () { _vinTick(); }, 700 + Math.floor(Math.random() * 400));
+}
+
+// Одно «нажатие» выбранным способом
+function _vinPress(method, idx) {
+    var hold = 90 + Math.floor(Math.random() * 60);   // короткое удержание, чтобы попасть в sync-пакет
+    if (method === 'vkey') {
+        window.onScreenControlTouchStart(VIN_YKEY);
+        setTimeout(function () { try { window.onScreenControlTouchEnd(VIN_YKEY); } catch (e) {} }, hold);
+    } else if (method === 'engine') {
+        engine.trigger('OnScreenControlTouchStart', VIN_YKEY);
+        setTimeout(function () { try { engine.trigger('OnScreenControlTouchEnd', VIN_YKEY); } catch (e) {} }, hold);
+    } else {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnProgressBarClick', idx);
+    }
+}
+
+// Проверка результата прошлого нажатия: сервер ответил setFill → заполнение изменилось (выросло или,
+// при слишком частом нажатии, упало — в обоих случаях способ рабочий).
+// Возвращает false, если способы закончились.
+function _vinCheckLast(pb, idx) {
+    if (!autoVin.pressed) return true;
+    autoVin.pressed = false;
+
+    var cur = pb.list[idx] ? pb.list[idx].fill : null;
+    var method = autoVin.methods[autoVin.mIdx];
+
+    if (cur !== autoVin.lastFill) {
+        if (autoVin.confirmed !== method) {
+            autoVin.confirmed = method;
+            console.log('[AUTO-VIN] Способ «' + method + '» работает');
+        }
+        autoVin.fails = 0;
+        return true;
+    }
+
+    if (autoVin.confirmed === method) return true;   // уже проверенный способ — один промах не повод менять
+
+    autoVin.fails++;
+    if (autoVin.fails < VIN_FAILS_LIMIT) return true;
+
+    console.warn('[AUTO-VIN] Способ «' + method + '» не двигает прогресс, пробую следующий');
+    _vinReleaseKey();
+    autoVin.mIdx++;
+    autoVin.fails = 0;
+    if (autoVin.mIdx >= autoVin.methods.length) {
+        _gangNote('~w~Авто VIN~n~~r~Ни один способ не сработал');
+        console.warn('[AUTO-VIN] Все способы испробованы — сервер не принимает нажатия с этого клиента');
+        return false;
+    }
+    return true;
 }
 
 function _vinTick() {
@@ -485,21 +571,26 @@ function _vinTick() {
         return;
     }
 
-    try {
-        if (autoVin.mode === 'key') {
-            // ПК: виртуальная Y — короткое удержание, чтобы попасть в sync-пакет
-            var YKEY = '<Keyboard>/y';
-            window.onScreenControlTouchStart(YKEY);
-            setTimeout(function () {
-                try { window.onScreenControlTouchEnd(YKEY); } catch (e) {}
-            }, 90 + Math.floor(Math.random() * 60));
-        } else {
-            pb.onBarClick(idx);   // мобилка: тот же тап, что и у игрока → OnProgressBarClick(idx)
-        }
-    } catch (e) {
-        console.log('[AUTO-VIN] Ошибка нажатия: ' + e.message);
+    if (!_vinCheckLast(pb, idx)) {
         _vinStop();
         return;
+    }
+
+    var method = autoVin.methods[autoVin.mIdx];
+    try {
+        autoVin.lastFill = pb.list[idx].fill;
+        autoVin.pressed = true;
+        _vinPress(method, idx);
+    } catch (e) {
+        console.log('[AUTO-VIN] Ошибка нажатия (' + method + '): ' + e.message);
+        autoVin.pressed = false;
+        // способ сломан — сразу следующий
+        autoVin.mIdx++;
+        autoVin.fails = 0;
+        if (autoVin.mIdx >= autoVin.methods.length) {
+            _vinStop();
+            return;
+        }
     }
 
     // Интервал 800–1100 мс: сервер требует > 700 мс между нажатиями
@@ -683,6 +774,6 @@ _waitFor(function () { return typeof window.sendChatInput === 'function'; }, fun
     }, true);
 })();
 
-console.log('[GANG] АХК «Банда» загружен | меню: ' + (MENU_KEY || '/dahk'));
+console.log('[GANG] АХК «Банда» заг0ружен | меню: ' + (MENU_KEY || '/dahk'));
 
 }); // ← конец обёртки проверки ника
