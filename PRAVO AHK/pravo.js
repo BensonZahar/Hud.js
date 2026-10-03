@@ -4716,7 +4716,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
              const el = document.querySelector('.iface-container.inventory')
                      || document.querySelector('.inventory')
                      || document.querySelector('[class*="InventoryNew"]')
-                     || document.querySelector('.iface-container');
+                     || document.querySelector('.iface-container:not(.main-menu)');
              if (el && el.style.visibility !== 'hidden') {
                  el.style.visibility = 'hidden';
                  el.style.pointerEvents = 'none';
@@ -5002,17 +5002,62 @@ function _hideOn() {
 // Страховка: если меню открыто игроком/сервером, а на его элементе осталась наша метка (например,
 // Vue переиспользовал узел) — снимаем её. Вызывается через ~0.5 с после открытия, когда fade-выход
 // старого меню уже закончился.
-window._pravoUnhideMenus = function() {
+window._pravoUnhideMenus = function(force) {
+    // Снимает инлайн-невидимость с .main-menu и глобальное правило-невидимку — но только когда
+    // загрузчик профиля СЕЙЧАС ничего не читает (иначе сломали бы собственное скрытие чтения).
+    var n = 0;
     try {
+        if (window._mvdProfileLoading && !force) return 0;
+        var st = document.getElementById(STYLE_ID);
+        if (st && st.parentNode) { st.parentNode.removeChild(st); _styleEl = null; n++; }
         var list = document.querySelectorAll('.main-menu');
         for (var i = 0; i < list.length; i++) {
-            var el = list[i];
-            if (!el.__pravoHidden) continue;
-            el.style.removeProperty('opacity'); el.style.removeProperty('visibility'); el.style.removeProperty('pointer-events');
-            el.__pravoHidden = false;
+            var el = list[i], cs = null;
+            try { cs = el.style; } catch(e) {}
+            if (!cs) continue;
+            if (el.__pravoHidden || cs.opacity === '0' || cs.visibility === 'hidden' || cs.pointerEvents === 'none') {
+                el.style.removeProperty('opacity'); el.style.removeProperty('visibility'); el.style.removeProperty('pointer-events');
+                el.__pravoHidden = false; n++;
+            }
         }
     } catch(e) {}
+    return n;
 };
+window._pravoDiag = function() {
+    var out = [];
+    function add(k, v) { out.push(k + '=' + v); }
+    try {
+        add('status', window.getInterfaceStatus && window.getInterfaceStatus('MainMenu'));
+        var comp = window.component && window.component('MainMenu');
+        add('show', comp && comp.show);
+        add('loading', !!window._mvdProfileLoading);
+        add('style', !!document.getElementById(STYLE_ID));
+        add('rank', window._pravoRank || '-');
+        var list = document.querySelectorAll('.main-menu');
+        add('menus', list.length);
+        for (var i = 0; i < list.length; i++) {
+            var el = list[i], cs = window.getComputedStyle(el), r = el.getBoundingClientRect();
+            add('m' + i + '.inline', (el.getAttribute('style') || '').replace(/\s+/g, ''));
+            add('m' + i + '.computed', 'op:' + cs.opacity + ' vis:' + cs.visibility + ' disp:' + cs.display);
+            add('m' + i + '.rect', Math.round(r.width) + 'x' + Math.round(r.height) + '@' + Math.round(r.left) + ',' + Math.round(r.top));
+            var p = el.parentElement, chain = [];
+            for (var k = 0; k < 3 && p; k++, p = p.parentElement) {
+                var pc = window.getComputedStyle(p);
+                chain.push((p.className || p.tagName) + '[op:' + pc.opacity + ' vis:' + pc.visibility + ' disp:' + pc.display + ']');
+            }
+            add('m' + i + '.parents', chain.join(' < '));
+            add('m' + i + '.hasMap', !!el.querySelector('.main-map'));
+        }
+    } catch(e) { add('err', e && e.message); }
+    var text = out.join(' | ');
+    console.log('[Profile][DIAG] ' + text);
+    try {
+        var sn = window.ZkmScreenNotification;
+        if (sn && typeof sn.add === 'function') sn.add('[1, "Диагностика меню", "' + text.replace(/"/g, "'").slice(0, 300) + '", "00AAFF", 9000]');
+    } catch(e) {}
+    return text;
+};
+
 function _hideStop() {
     try { if (_mmObserver) { _mmObserver.disconnect(); _mmObserver = null; } } catch(e) {}
 }
@@ -5453,6 +5498,10 @@ waitForApp(function() {
             });
             return;
         }
+        if (typeof cmd === 'string' && cmd.trim().toLowerCase() === '/pdiag') {
+            try { window._pravoDiag(); } catch(e) { console.error('[Profile] diag error', e); }
+            return;
+        }
         if (typeof cmd === 'string') {
             var trimmed = cmd.trim().toLowerCase();
             if (trimmed === '/mmenu') {
@@ -5540,12 +5589,16 @@ function applyMainMenuTabPatch() {
         function go() {
             var result = _origOI.apply(self, args);
             if (name === 'MainMenu' && !window._pravoOwnOpen) {
-                setTimeout(function() {
-                    try {
-                        if (!window._mvdProfileLoading && window.getInterfaceStatus('MainMenu')
-                            && typeof window._pravoUnhideMenus === 'function') window._pravoUnhideMenus();
-                    } catch(e) {}
-                }, 450);
+                [0, 120, 400, 900, 2000].forEach(function(ms) {
+                    setTimeout(function() {
+                        try {
+                            if (window.getInterfaceStatus('MainMenu') && typeof window._pravoUnhideMenus === 'function') {
+                                var k = window._pravoUnhideMenus();
+                                if (k) console.log('[Profile] 🩹 Снята невидимость главного меню (' + k + ') через ' + ms + ' мс');
+                            }
+                        } catch(e) {}
+                    }, ms);
+                });
             }
             if (name === 'MainMenu' && !window._mvdProfileLoading && !_serverPickedTab(params)) {
                 // Vue-компонент монтируется асинхронно — ждём его появления (до ~1 сек), а не бьём вслепую
