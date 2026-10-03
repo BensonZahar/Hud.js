@@ -7986,11 +7986,13 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: MENU VERSION LABEL                              ║
 // ║  Описание: Версия Code / Code2 (дата + сообщение коммита)║
-// ║             выводится в интерфейсе Menu (Menu2.js):      ║
-// ║             • welcome — экран «Добро пожаловать» с вводом ║
-// ║               ника (внизу слева)                         ║
-// ║             • main / pause — блок ника .menu-player      ║
-// ║               (под строкой «Сервер N»)                   ║
+// ║             поверх интерфейса Menu (Menu2.js):           ║
+// ║             • welcome — справа от «Добро пожаловать»,    ║
+// ║               где вводится ник                           ║
+// ║             • main / pause — под строкой «Сервер N»      ║
+// ║             Метка — отдельный fixed-слой в <body> с      ║
+// ║             максимальным z-index (Vue его не трогает и   ║
+// ║             FullScreenPreloader/другие окна не перекроют)║
 // ║             Оформление — как в Menu2.css (vh-размеры,    ║
 // ║             #ffffffb3 / #ffffff73, линия-«slug»)         ║
 // ║  Зависимости: window.CODE_COMMIT_INFO,                   ║
@@ -7998,48 +8000,58 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 // ╚══════════════════════════════════════════════════════════╝
 // START MENU VERSION LABEL MODULE //
 (function setupMenuVersionLabel() {
-    var STYLE_ID = 'hassle-menu-version-style';
+    var OVERLAY_ID = 'hassle-menu-version';
+    var STYLE_ID   = 'hassle-menu-version-style';
 
-    // Куда вставляем (Menu2.js):
-    //  welcome → корень .menu-welcome (position:relative, padding 7.31vh 9.6vw) — блок в левом нижнем углу
-    //  player  → .menu-player__data = [.name (ник), .server («Сервер N»)] — экраны main и pause
-    var PLACES = [
-        { id: 'hassle-menu-version-welcome', sel: '.menu-welcome',      mod: 'hmv--welcome' },
-        { id: 'hassle-menu-version',         sel: '.menu-player__data', mod: 'hmv--player'  }
-    ];
+    // Повторный eval Code.js: прошлый наблюдатель/таймер/слой снимаем, старый цикл гасим по токену
+    var token = window.__hassleMenuVersionToken = (window.__hassleMenuVersionToken || 0) + 1;
+    try { if (window.__hassleMenuVersionObserver) window.__hassleMenuVersionObserver.disconnect(); } catch (e) {}
+    try { if (window.__hassleMenuVersionTimer) clearInterval(window.__hassleMenuVersionTimer); } catch (e) {}
+    try { var _old = document.getElementById(OVERLAY_ID); if (_old) _old.remove(); } catch (e) {}
+
+    var overlay = null;
+    var running = false;      // в очереди есть requestAnimationFrame(tick)
+    var lastKey = '';         // что сейчас нарисовано (строки + вариант)
+    var warnedNoInfo = false; // диагностика в консоль — один раз
 
     // Стили взяты из Menu2.css:
     //   .menu-player__data .server      → #ffffffb3 (вторичный текст)
     //   .menu-server__online .gray      → #ffffff73, weight 800 (приглушённая подпись)
     //   .menu-welcome__form-input__slug → короткая линия 1.4vh × 0.09vh, #ffffff80
     //   .menu-welcome__input-hint__content-row → #f8f6ed (кремовый акцент)
-    //   .menu-welcome_hidden .menu-welcome__content → при выборе сервера контент гаснет (opacity .25)
+    //   ScreenNotification.css          → text-shadow под текст поверх картинки
     function ensureStyle() {
         if (document.getElementById(STYLE_ID)) return;
         var st = document.createElement('style');
         st.id = STYLE_ID;
+        var O = '#' + OVERLAY_ID;
         st.textContent =
             '@keyframes hassle-menu-version-in{from{opacity:0}to{opacity:1}}' +
-            '.hmv{display:block;max-width:60vh;pointer-events:none;font-family:inherit;' +
-                'animation:hassle-menu-version-in .5s ease;transition:opacity .25s}' +
-            '.hmv:before{content:"";display:block;width:1.4vh;height:0.09vh;background:#ffffff80}' +
-            '.hmv .hmv-row{display:flex;align-items:baseline;font-size:1.48vh;line-height:2.04vh;white-space:nowrap;overflow:hidden}' +
-            '.hmv .hmv-k{flex:none;color:#ffffff73;font-weight:800;letter-spacing:0.1em;text-transform:uppercase}' +
-            '.hmv .hmv-d{flex:none;color:#f8f6ed;font-weight:400;margin-left:0.93vh}' +
-            '.hmv .hmv-m{min-width:0;overflow:hidden;text-overflow:ellipsis;color:#ffffffb3;font-weight:400;margin-left:0.93vh}' +
-            // welcome: левый нижний угол, по полям экрана (padding .menu-welcome = 7.31vh 9.6vw)
-            '.hmv--welcome{position:absolute;left:9.6vw;bottom:7.31vh;text-align:left}' +
-            '.hmv--welcome:before{margin:0 0 0.74vh 0}' +
-            '.hmv--welcome .hmv-row{justify-content:flex-start}' +
-            '.menu-welcome_hidden .hmv--welcome{opacity:.25}' +
-            // main / pause: под «Сервер N», прижато вправо
-            '.hmv--player{margin-top:1.11vh;text-align:right}' +
-            '.hmv--player:before{margin:0 0 0.74vh auto}' +
-            '.hmv--player .hmv-row{justify-content:flex-end}';
+            O + '{position:fixed;z-index:2147483000;display:none;pointer-events:none;box-sizing:border-box;' +
+                'font-family:inherit;text-shadow:0vh 0.09vh 0.19vh #000000b3;animation:hassle-menu-version-in .5s ease}' +
+            O + ':before{content:"";display:block;width:1.4vh;height:0.09vh;background:#ffffff80;margin-bottom:0.74vh}' +
+            O + '.hmv--welcome{text-align:left}' +
+            O + '.hmv--player{text-align:right}' +
+            O + '.hmv--player:before{margin-left:auto}' +
+            O + ' .hmv-row{display:flex;align-items:baseline;font-size:1.48vh;line-height:2.04vh;white-space:nowrap;overflow:hidden}' +
+            O + '.hmv--welcome .hmv-row{justify-content:flex-start}' +
+            O + '.hmv--player .hmv-row{justify-content:flex-end}' +
+            O + ' .hmv-k{flex:none;color:#ffffff73;font-weight:800;letter-spacing:0.1em;text-transform:uppercase}' +
+            O + ' .hmv-d{flex:none;color:#f8f6ed;font-weight:400;margin-left:0.93vh}' +
+            O + ' .hmv-m{min-width:0;overflow:hidden;text-overflow:ellipsis;color:#ffffffb3;font-weight:400;margin-left:0.93vh}';
         (document.head || document.documentElement).appendChild(st);
     }
 
-    // Строки версии: { k, d, m, title }
+    function ensureOverlay() {
+        if (overlay && overlay.parentNode) return overlay;
+        ensureStyle();
+        overlay = document.createElement('div');
+        overlay.id = OVERLAY_ID;
+        (document.body || document.documentElement).appendChild(overlay);
+        return overlay;
+    }
+
+    // Строки версии: { k, d, m }
     function collectLines() {
         var lines = [];
         var list = [
@@ -8049,9 +8061,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         for (var i = 0; i < list.length; i++) {
             var ci = list[i][1];
             if (!ci) continue;
-            var title = list[i][0] + ': ' + ci.date + ' \u2014 ' + ci.msg +
-                        (ci.author ? '\n' + ci.author : '') + (ci.sha ? ' #' + ci.sha : '');
-            lines.push({ k: list[i][0], d: String(ci.date || ''), m: String(ci.msg || ''), title: title });
+            lines.push({ k: list[i][0], d: String(ci.date || ''), m: String(ci.msg || '') });
         }
         return lines;
     }
@@ -8063,55 +8073,124 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         return s;
     }
 
-    function renderPlace(place, lines, key) {
-        var target = document.querySelector(place.sel);
-        var old = document.getElementById(place.id);
-        if (!target || !lines.length) {          // меню сейчас не открыто / данных о коммитах ещё нет
-            if (old) old.remove();
-            return;
+    function isVisible(el) {
+        if (!el) return false;
+        var r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+    }
+
+    // Где сейчас показывать метку. null — меню на экране нет (или его перекрывает прелоадер)
+    function findTarget() {
+        // Стартовый чёрный экран закрывает меню — метку поверх него не рисуем
+        var pre = document.querySelector('.full-screen-preloader');
+        if (pre && isVisible(pre)) return null;
+
+        // 1) welcome: «Добро пожаловать» + ввод ника (Menu2.js, класс .menu-welcome)
+        var welcome = document.querySelector('.menu-welcome');
+        if (welcome && isVisible(welcome)) {
+            // открыт выбор сервера — контент гаснет (blur + opacity .25), метку тоже прячем
+            if (welcome.classList.contains('menu-welcome_hidden')) return null;
+            var h = welcome.querySelector('.heading');
+            if (h && isVisible(h)) {
+                // .heading — блок на всю ширину колонки; нужен правый край именно текста
+                // («пожаловать» — самая длинная строка), его даёт Range
+                var tr = null;
+                try {
+                    var rg = document.createRange();
+                    rg.selectNodeContents(h);
+                    tr = rg.getBoundingClientRect();
+                } catch (e) {}
+                if (!tr || !(tr.width > 0)) tr = h.getBoundingClientRect();
+                return { mod: 'hmv--welcome', rect: tr };
+            }
         }
-        // Уже на месте и текст тот же — ничего не трогаем, иначе наш же MutationObserver зациклится
-        if (old && old.parentNode === target && old.getAttribute('data-key') === key) return;
-        if (old) old.remove();
 
-        ensureStyle();
-        var el = document.createElement('div');
-        el.id = place.id;
-        el.className = 'hmv ' + place.mod;
-        el.setAttribute('data-key', key);
-        lines.forEach(function (l) {
-            var row = document.createElement('div');
-            row.className = 'hmv-row';
-            row.title = l.title;
-            row.appendChild(makeSpan('hmv-k', l.k));
-            row.appendChild(makeSpan('hmv-d', l.d));
-            if (l.m) row.appendChild(makeSpan('hmv-m', l.m));
-            el.appendChild(row);
-        });
-        target.appendChild(el);
-        console.log('[MenuVersion] версия показана в меню (' + place.mod + ')');
+        // 2) main / pause: блок ника и сервера .menu-player__data
+        var data = document.querySelector('.menu-player__data');
+        if (data && isVisible(data)) return { mod: 'hmv--player', rect: data.getBoundingClientRect() };
+
+        return null;
     }
 
-    function renderLabel() {
-        if (window._hassleReloading) return;
-        var lines = collectLines();
-        var key = lines.map(function (l) { return l.k + '|' + l.d + '|' + l.m; }).join('\n');
-        for (var i = 0; i < PLACES.length; i++) renderPlace(PLACES[i], lines, key);
+    function hide() {
+        if (overlay && overlay.style.display !== 'none') overlay.style.display = 'none';
+        lastKey = '';
     }
 
-    var scheduled = false;
+    function show(t, lines) {
+        var el = ensureOverlay();
+        var key = t.mod + '\n' + lines.map(function (l) { return l.k + '|' + l.d + '|' + l.m; }).join('\n');
+        var fresh = el.style.display === 'none' || el.style.display === '';
+        if (key !== lastKey) {
+            lastKey = key;
+            el.className = t.mod;
+            while (el.firstChild) el.removeChild(el.firstChild);
+            lines.forEach(function (l) {
+                var row = document.createElement('div');
+                row.className = 'hmv-row';
+                row.appendChild(makeSpan('hmv-k', l.k));
+                row.appendChild(makeSpan('hmv-d', l.d));
+                if (l.m) row.appendChild(makeSpan('hmv-m', l.m));
+                el.appendChild(row);
+            });
+            console.log('[MenuVersion] версия показана в меню (' + t.mod + ')');
+        }
+        el.style.display = 'block';
+
+        var vh = window.innerHeight / 100;
+        var r = t.rect;
+        if (t.mod === 'hmv--welcome') {
+            // справа от «Добро пожаловать», по центру текста заголовка по вертикали
+            var left = r.right + 3.7 * vh;
+            // не заходим на вертикальную линию .menu-welcome__after (right: 9.6vw; width: 11.85vh)
+            var limit = window.innerWidth * 0.904 - 11.85 * vh - 2 * vh;
+            el.style.left = left + 'px';
+            el.style.right = 'auto';
+            el.style.top = (r.top + r.height / 2) + 'px';
+            el.style.transform = 'translateY(-50%)';
+            el.style.maxWidth = Math.max(12 * vh, Math.min(60 * vh, limit - left)) + 'px';
+        } else {
+            // под строкой «Сервер N», по правому краю текста (у .menu-player__data padding-right 2.96vh)
+            el.style.left = 'auto';
+            el.style.right = (window.innerWidth - (r.right - 2.96 * vh)) + 'px';
+            el.style.top = (r.bottom + 1.11 * vh) + 'px';
+            el.style.transform = 'none';
+            el.style.maxWidth = (50 * vh) + 'px';
+        }
+        return fresh;
+    }
+
+    // Пока меню на экране — подстраиваем позицию каждый кадр (fade-переходы, ресайз, смена экрана);
+    // когда меню нет — цикл останавливается, его перезапускают MutationObserver и таймер
+    function tick() {
+        if (token !== window.__hassleMenuVersionToken) return; // был повторный eval Code.js
+        running = false;
+        try {
+            if (window._hassleReloading) { hide(); return; }
+            var t = findTarget();
+            if (!t) { hide(); return; }
+            var lines = collectLines();
+            if (!lines.length) {
+                hide();
+                if (!warnedNoInfo) {
+                    warnedNoInfo = true;
+                    console.log('[MenuVersion] меню найдено, но CODE_COMMIT_INFO / CODE2_COMMIT_INFO ещё нет (ждём ответ GitHub API)');
+                }
+                return;   // как только Load.js положит данные — сработает сеттер ниже
+            }
+            show(t, lines);
+            running = true;
+            requestAnimationFrame(tick);
+        } catch (e) {
+            console.warn('[MenuVersion]', e);
+        }
+    }
+
     function schedule() {
-        if (scheduled) return;
-        scheduled = true;
-        requestAnimationFrame(function () {
-            scheduled = false;
-            try { renderLabel(); } catch (e) { console.warn('[MenuVersion]', e); }
-        });
+        if (running) return;
+        running = true;
+        requestAnimationFrame(tick);
     }
-
-    // Повторный eval Code.js: старые наблюдатель и таймер снимаем, чтобы не копились
-    try { if (window.__hassleMenuVersionObserver) window.__hassleMenuVersionObserver.disconnect(); } catch (e) {}
-    try { if (window.__hassleMenuVersionTimer) clearInterval(window.__hassleMenuVersionTimer); } catch (e) {}
 
     // Menu монтируется/размонтируется Vue-ом (welcome → main → pause) — следим за появлением блоков
     var root = document.body || document.documentElement;
@@ -8121,7 +8200,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
     // Load.js кладёт window.CODE_COMMIT_INFO / CODE2_COMMIT_INFO, когда ответит GitHub API.
     // Сеттер перерисовывает метку сам — даже если Load.js не обновлён и ничего не вызывает.
-    // На статичном экране welcome DOM не меняется, и без этого MutationObserver мог бы так и не сработать.
     ['CODE_COMMIT_INFO', 'CODE2_COMMIT_INFO'].forEach(function (name) {
         try {
             var cur = window[name];
@@ -8129,16 +8207,16 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 configurable: true,
                 enumerable: true,
                 get: function () { return cur; },
-                set: function (v) { cur = v; schedule(); }
+                set: function (v) { cur = v; lastKey = ''; schedule(); }
             });
         } catch (e) {}
     });
 
-    // Страховка: раз в 2 с проверяем, что метка на месте (дёшево: querySelector + сравнение ключа)
+    // Страховка: раз в 2 с будим цикл (дёшево: один querySelector, если меню нет)
     window.__hassleMenuVersionTimer = setInterval(schedule, 2000);
 
     // Load.js вызывает это явно, когда подтянулись данные о коммитах
-    window.updateMenuVersionLabel = schedule;
+    window.updateMenuVersionLabel = function () { lastKey = ''; schedule(); };
 
     schedule();
 })();
