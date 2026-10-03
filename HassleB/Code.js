@@ -709,11 +709,21 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 if (typeof window.openInterface === 'function' && !window._hassleOrig_openInterface) {
     window._hassleOrig_openInterface = window.openInterface;
 }
+// Открытия с сервера (MainMenu:Open → SHOW_INTERFACE) приходят с массивом [тип_данных:число, вкладка, json]
+// и уже содержат нужную вкладку: M и /menu сервер открывает на «Персонаж», /gps — на «Карту», J — на «Задания».
+// Переключаем ТОЛЬКО прямые клиентские открытия без вкладки (params пуст или ['not_from_server', 0, ...]).
+function _isBareClientOpen(p) {
+    try {
+        if (p === undefined || p === null || p === '') return true;
+        if (typeof p === 'string') p = JSON.parse(p.replace(/\n/, '\\n'));
+        return Array.isArray(p) && p[0] === 'not_from_server' && Number(p[1]) === 0;
+    } catch(e) { return false; }
+}
 function applyMainMenuTabPatch() {
     var _origOI = window.openInterface;
-    window.openInterface = function(name) {
+    window.openInterface = function(name, params) {
         var result = _origOI.apply(this, arguments);
-        if (name === 'MainMenu' && !window._hassleProfileLoading) {
+        if (name === 'MainMenu' && !window._hassleProfileLoading && _isBareClientOpen(params)) {
             // Небольшая задержка: Vue-компонент должен смонтироваться
             setTimeout(function() {
                 try {
