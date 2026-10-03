@@ -2793,6 +2793,7 @@ var PRAVO_SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
 var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
 var PRAVO_SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
 var PRAVO_SMS_LABEL = 'Ответ'; // надпись на кнопке
+var PRAVO_SMS_OUTLINE_COLOR = 'rgba(255,255,255,.65)'; // цвет контура вокруг сообщения + кнопок при раскрытии ('' = без контура)
 var PRAVO_SMS_MENU_TIMEOUT = 30000; // мс: через сколько авто-свернуть раскрытый выбор, если ничего не нажали (0 = не сворачивать)
 var PRAVO_SMS_MOBILE_SCALE = 2; // Хасл: во сколько раз кнопка больше, чем стандартная мобильная (2.78vh)
 var PRAVO_SMS_PC_SCALE = 1.5;    // ПК: во сколько раз кнопка больше штатного кружка (1.85vh); 1.5 = 2.78vh
@@ -2820,7 +2821,14 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
         '.chat-message-content__action.pravo-sms-btn::after{content:"' + PRAVO_SMS_LABEL + '";}' +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}' +
         // раскрытый выбор - отдельная строка под сообщением; вид тот же, что у кнопки «Ответ» (свои элементы без data-v -> штатные стили чата не действуют)
-        '.pravo-sms-menu{display:flex;align-items:center;flex-wrap:wrap;margin:.3vh 0 .2vh .6vh;color:#fff;font-weight:700;}' +
+        '.pravo-sms-menu{display:flex;align-items:center;flex-wrap:wrap;box-sizing:border-box;padding:.3vh .6vh .35vh;color:#fff;font-weight:700;}' +
+        // контур: сообщение (верх+бока) и строка кнопок (бока+низ) складываются в одну рамку; inset-тени не двигают вёрстку чата
+        (PRAVO_SMS_OUTLINE_COLOR ?
+            '.chat-message.pravo-sms-row--active{background:rgba(255,255,255,.08)!important;border-radius:.7vh .7vh 0 0!important;' +
+                'box-shadow:inset .14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset -.14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset 0 .14vh 0 ' + PRAVO_SMS_OUTLINE_COLOR + '!important;}' +
+            '.pravo-sms-menu.pravo-sms-menu--attached{background:rgba(255,255,255,.08);border-radius:0 0 .7vh .7vh;' +
+                'box-shadow:inset .14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset -.14vh 0 0 ' + PRAVO_SMS_OUTLINE_COLOR + ',inset 0 -.14vh 0 ' + PRAVO_SMS_OUTLINE_COLOR + ';}'
+        : '') +
         '.pravo-sms-opt{' + css(pcH) +
             'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.6vh;position:relative;' +
             'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:#fff;font-weight:700;line-height:1;' +
@@ -2875,6 +2883,7 @@ function _pravoSmsCollapse(menu) {
         if (menu._pravoTimer) { clearTimeout(menu._pravoTimer); menu._pravoTimer = 0; }
         var btn = menu._pravoBtn;
         if (btn) btn._pravoMenu = null;
+        if (menu._pravoRow && menu._pravoRow.classList) menu._pravoRow.classList.remove('pravo-sms-row--active');
         if (menu.parentNode) menu.parentNode.removeChild(menu);
     } catch (e) {}
 }
@@ -2921,8 +2930,12 @@ function _pravoSmsExpand(btn, number) {
             menu.appendChild(b);
         });
         var row = _pravoSmsRow(btn);
-        if (row && row.parentNode) row.parentNode.insertBefore(menu, row.nextSibling); // отдельной строкой под сообщением
-        else btn.parentNode.appendChild(menu);
+        if (row && row.parentNode) {
+            row.parentNode.insertBefore(menu, row.nextSibling); // отдельной строкой под сообщением
+            row.classList.add('pravo-sms-row--active');        // контур вокруг «своего» сообщения + строки кнопок
+            menu.classList.add('pravo-sms-menu--attached');
+            menu._pravoRow = row;
+        } else btn.parentNode.appendChild(menu);
         btn._pravoMenu = menu;
         if (PRAVO_SMS_MENU_TIMEOUT > 0) menu._pravoTimer = setTimeout(function () { _pravoSmsCollapse(menu); }, PRAVO_SMS_MENU_TIMEOUT);
         return true;
