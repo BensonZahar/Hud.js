@@ -2813,7 +2813,7 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
     s.textContent =
         '.chat-message-content__action.pravo-sms-btn{' + css(pcH) +
             'box-sizing:border-box;background:rgba(255,255,255,.25);color:inherit;font-weight:700;line-height:1;' +
-            'letter-spacing:.05em;font-family:inherit;user-select:none;-webkit-user-select:none;}' +
+            'letter-spacing:.05em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;}' +
         (PRAVO_SMS_HOVER_INVERT ? '.chat-message-content__action.pravo-sms-btn:hover{background:#fff;color:#000;}' : '') +
         '.chat-message-content__action.pravo-sms-btn>*{display:none!important;}' +
         '.chat-message-content__action.pravo-sms-btn::after{content:"' + PRAVO_SMS_LABEL + '";}' +
@@ -2825,7 +2825,7 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
         '.pravo-sms-opt{' + css(pcH) +
             'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.6vh;position:relative;' +
             'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:inherit;font-weight:700;line-height:1;' +
-            'letter-spacing:.03em;font-family:inherit;user-select:none;-webkit-user-select:none;transition:all .25s ease;}' +
+            'letter-spacing:.03em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;transition:all .25s ease;}' +
         '.pravo-sms-opt.pravo-sms-opt--mobile{' + css(mbH) + '}' +
         '.pravo-sms-opt:hover{background:#fff;color:#000;}';
     document.head.appendChild(s);
