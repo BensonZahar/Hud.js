@@ -1,4 +1,4 @@
-\// ┌──────────────────────────────────────────────────────────┐
+// ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
 const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
@@ -7981,6 +7981,136 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 })();
 // ==================== END WARNING CHECK MODULE ====================
 
+
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: MENU VERSION LABEL                              ║
+// ║  Описание: Версия Code / Code2 (дата + сообщение коммита)║
+// ║             выводится в меню Menu (Menu2.js), где берётся ║
+// ║             ник (menu/nickName): блок .menu-player —     ║
+// ║             под строкой «Сервер N», экраны main и pause. ║
+// ║             Оформление — как в Menu2.css (vh-размеры,    ║
+// ║             #ffffffb3 / #ffffff73, тонкая линия-«slug»)  ║
+// ║  Зависимости: window.CODE_COMMIT_INFO,                   ║
+// ║               window.CODE2_COMMIT_INFO (ставит Load.js)  ║
+// ╚══════════════════════════════════════════════════════════╝
+// START MENU VERSION LABEL MODULE //
+(function setupMenuVersionLabel() {
+    var LABEL_ID = 'hassle-menu-version';
+    var STYLE_ID = 'hassle-menu-version-style';
+    // Menu2.js → компонент Player: .menu-player__data = [.name (ник), .server («Сервер N»)].
+    // Показывается на экранах main и pause (на welcome с вводом ника блока нет)
+    var DATA_SEL = '.menu-player__data';
+
+    // Стили взяты из Menu2.css:
+    //   .menu-player__data .server      → 1.85vh / #ffffffb3 (вторичный текст)
+    //   .menu-server__online .gray      → #ffffff73, weight 800 (приглушённая подпись)
+    //   .menu-welcome__form-input__slug → короткая линия 1.4vh × 0.09vh, #ffffff80
+    //   .menu-welcome__input-hint__content-row → #f8f6ed (кремовый акцент)
+    //   .menu .fade-enter-active        → плавное появление
+    function ensureStyle() {
+        if (document.getElementById(STYLE_ID)) return;
+        var L = '#' + LABEL_ID;
+        var st = document.createElement('style');
+        st.id = STYLE_ID;
+        st.textContent =
+            '@keyframes hassle-menu-version-in{from{opacity:0}to{opacity:1}}' +
+            L + '{display:block;max-width:50vh;margin-top:1.11vh;pointer-events:none;' +
+                'font-family:inherit;text-align:right;animation:hassle-menu-version-in .5s ease}' +
+            // короткая линия над блоком — как «slug» у поля ввода ника, прижата вправо
+            L + ':before{content:"";display:block;width:1.4vh;height:0.09vh;margin:0 0 0.74vh auto;background:#ffffff80}' +
+            L + ' .hmv-row{display:flex;justify-content:flex-end;align-items:baseline;' +
+                'font-size:1.48vh;line-height:2.04vh;white-space:nowrap;overflow:hidden}' +
+            L + ' .hmv-k{flex:none;color:#ffffff73;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;margin-right:0.93vh}' +
+            L + ' .hmv-d{flex:none;color:#f8f6ed;font-weight:400}' +
+            L + ' .hmv-m{min-width:0;overflow:hidden;text-overflow:ellipsis;color:#ffffffb3;font-weight:400;margin-left:0.93vh}';
+        (document.head || document.documentElement).appendChild(st);
+    }
+
+    // Строки версии: { k, d, m, title }
+    function collectLines() {
+        var lines = [];
+        var list = [
+            ['Code',  window.CODE_COMMIT_INFO],
+            ['Code2', window.CODE2_COMMIT_INFO]
+        ];
+        for (var i = 0; i < list.length; i++) {
+            var ci = list[i][1];
+            if (!ci) continue;
+            var title = list[i][0] + ': ' + ci.date + ' \u2014 ' + ci.msg +
+                        (ci.author ? '\n' + ci.author : '') + (ci.sha ? ' #' + ci.sha : '');
+            lines.push({ k: list[i][0], d: String(ci.date || ''), m: String(ci.msg || ''), title: title });
+        }
+        return lines;
+    }
+
+    function makeSpan(cls, text) {
+        var s = document.createElement('span');
+        s.className = cls;
+        s.textContent = text;       // textContent: сообщение коммита не должно выполняться как HTML
+        return s;
+    }
+
+    function renderLabel() {
+        if (window._hassleReloading) return;
+        var data = document.querySelector(DATA_SEL);
+        if (!data) return; // меню Menu с ником сейчас не открыто
+
+        var old = document.getElementById(LABEL_ID);
+        var lines = collectLines();
+
+        if (!lines.length) {            // данных о коммитах ещё нет (или GitHub API недоступен)
+            if (old) old.remove();
+            return;
+        }
+
+        var key = lines.map(function (l) { return l.k + '|' + l.d + '|' + l.m; }).join('\n');
+        // Уже на месте (последний в .menu-player__data) и текст тот же — ничего не трогаем,
+        // иначе наш же MutationObserver зациклится
+        if (old && old.getAttribute('data-key') === key && old.parentNode === data && data.lastElementChild === old) return;
+        if (old) old.remove();
+
+        ensureStyle();
+        var el = document.createElement('div');
+        el.id = LABEL_ID;
+        el.setAttribute('data-key', key);
+        lines.forEach(function (l) {
+            var row = document.createElement('div');
+            row.className = 'hmv-row';
+            row.title = l.title;
+            row.appendChild(makeSpan('hmv-k', l.k));
+            row.appendChild(makeSpan('hmv-d', l.d));
+            if (l.m) row.appendChild(makeSpan('hmv-m', l.m));
+            el.appendChild(row);
+        });
+        data.appendChild(el);
+    }
+
+    var scheduled = false;
+    function schedule() {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(function () {
+            scheduled = false;
+            try { renderLabel(); } catch (e) {}
+        });
+    }
+
+    // Повторный eval Code.js: старый наблюдатель снимаем, чтобы не копились
+    try { if (window.__hassleMenuVersionObserver) window.__hassleMenuVersionObserver.disconnect(); } catch (e) {}
+
+    // Menu монтируется/размонтируется Vue-ом (welcome → main → pause) — следим за появлением блока с ником
+    var root = document.body || document.documentElement;
+    var obs = new MutationObserver(schedule);
+    obs.observe(root, { childList: true, subtree: true });
+    window.__hassleMenuVersionObserver = obs;
+
+    // Load.js вызывает это, когда подтянулись CODE_COMMIT_INFO / CODE2_COMMIT_INFO
+    window.updateMenuVersionLabel = schedule;
+
+    schedule();
+})();
+// END MENU VERSION LABEL MODULE //
 
 
 // Сигнал готовности — Code2.js ждёт этот флаг перед стартом
