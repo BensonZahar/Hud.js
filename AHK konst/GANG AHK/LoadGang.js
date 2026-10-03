@@ -43,12 +43,13 @@ const MENU_KEY = "Alt+0";
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
-const folder = 'GANG AHK';
+const folder = 'AHK konst/GANG AHK';
 const filename = 'gang.js';
 
 // Загрузка с GitHub с повторными попытками
 function loadScriptFromGitHub(retries) {
-    const path = folder ? `${encodeURIComponent(folder)}/` : '';
+    // Папка может быть вложенной («AHK konst/GANG AHK») — кодируем каждую часть отдельно, слэши оставляем
+    const path = folder ? folder.split('/').map(encodeURIComponent).join('/') + '/' : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
 
     function retry(reason) {
