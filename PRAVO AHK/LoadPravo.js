@@ -381,7 +381,7 @@ if (AUTO_PASSWORD) {
             if (!isHidden() && !sent) return;
             blockUntil = Date.now() + RETRY_BLOCK_MS;
             showUI();
-            console.log('[PRAVO AHK AUTO-PWD] ' + why + ' — окно показано');
+            console.log('[PRAVO AHK AUTO-PWD] ' + why + ' — окно показано' + (sendAt ? ' (+' + (Date.now() - sendAt) + ' мс после отправки)' : ''));
         }
 
         // Оборачиваем методы компонента Login: setError / setStage вызывает сервер
@@ -433,13 +433,45 @@ if (AUTO_PASSWORD) {
                    typeof window.sendClientEvent === 'function' && window.gm;
         }
 
+        // Окно Authorization грузится лениво: пока Login не смонтирован, window.interface('Authorization')
+        // возвращает false, а серверный вызов interface("Authorization").$refs.auth.setError(...)
+        // падает с TypeError и ошибка ТЕРЯЕТСЯ. Если пароль ушёл раньше монтирования, а ответ сервера
+        // (особенно на быстром/локальном сервере) пришёл раньше Login — окно вернулось бы только по таймеру.
+        // Поэтому шлём пароль, когда Login уже готов и его setError обёрнут.
+        var LOGIN_READY_MAX_MS = 3000;   // не дождались монтирования — шлём как есть (запасной путь)
+        var sendAt = 0, openAt = 0, fireToken = 0;
+
+        function loginReady() {
+            try {
+                var c = window.interface && window.interface('Authorization');
+                return !!(c && c.$refs && c.$refs.auth);
+            } catch (e) { return false; }
+        }
+
+        function doSend() {
+            sendAt = Date.now();
+            lastSend = sendAt;
+            clearTimeout(revealTimer);
+            revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS);
+            window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', AUTO_PASSWORD);
+            console.log('[PRAVO AHK AUTO-PWD] Пароль отправлен (Login готов через ' + (sendAt - openAt) + ' мс)');
+        }
+
         function fire() {
             try {
-                sent = true; lastSend = Date.now();
+                sent = true; openAt = Date.now();
+                var token = ++fireToken;
                 watchProblems();
-                revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS);
-                window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', AUTO_PASSWORD);
-                console.log('[PRAVO AHK AUTO-PWD] Пароль отправлен мгновенно');
+                revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS + LOGIN_READY_MAX_MS);
+                (function waitReady() {
+                    if (token !== fireToken || !sent) return;          // окно уже закрыто/перезапущено
+                    tryPatch();
+                    if (loginReady() || Date.now() - openAt >= LOGIN_READY_MAX_MS) {
+                        try { doSend(); } catch (e) { showUI(); console.error('[PRAVO AHK AUTO-PWD] Ошибка авто-входа:', e); }
+                        return;
+                    }
+                    setTimeout(waitReady, 8);
+                })();
             } catch (e) {
                 showUI();
                 console.error('[PRAVO AHK AUTO-PWD] Ошибка авто-входа:', e);
