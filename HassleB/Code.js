@@ -452,15 +452,15 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 rankNum:     org[0] || null,
                 orgTitle:    org[2] || null,
                 status:      arr[1] || null,
-                level:       lvl[0] || null,
-                xpCurrent:   lvl[1] || null,
+                level:       lvl[0] != null ? lvl[0] : null,
+                xpCurrent:   lvl[1] != null ? lvl[1] : null,
                 xpTarget:    lvl[2] || null,
                 cash:        _money.money,
                 bank:        _money.bankMoney,
                 phone:       misc[4] || null,
                 simBalance:  misc[5] || null,
-                stamina:     misc[0] || null,
-                strength:    misc[1] || null,
+                stamina:     misc[0] != null ? misc[0] : null,
+                strength:    misc[1] != null ? misc[1] : null,
                 housesCount: prop[0] || 0,
                 bizCount:    prop[1] || 0,
                 carsCount:   prop[2] || 0,
@@ -571,7 +571,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 debugLog('[Profile] ⚠️ Профиль не получен (меню открыто игроком / нет ответа сервера)');
                 if (globalState.profileRetry < 3) {
                     globalState.profileRetry++;
-                    var retryDelaySec = globalState.profileRetry * 15; // 15с, 30с, 45с
+                    var retryDelaySec = [3, 6, 10][globalState.profileRetry - 1] || 10; // 3с, 6с, 10с (было 15/30/45)
                     debugLog('[Profile] 🔄 Повтор через ' + retryDelaySec + 'с (попытка ' + globalState.profileRetry + '/3)');
                     // Обновляем сообщение — покажем частичные данные (фракция/скин уже известны)
                     if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
@@ -724,15 +724,21 @@ function applyMainMenuTabPatch() {
     window.openInterface = function(name, params) {
         var result = _origOI.apply(this, arguments);
         if (name === 'MainMenu' && !window._hassleProfileLoading && _isBareClientOpen(params)) {
-            // Небольшая задержка: Vue-компонент должен смонтироваться
-            setTimeout(function() {
+            // openInterface асинхронная: переключаем вкладку сразу как только компонент смонтирован,
+            // а не через фиксированные 80 мс (страховочный повтор остался).
+            var _selectStats = function() {
                 try {
                     var mm = window.interface && window.interface('MainMenu');
                     if (mm && typeof mm.selectTab === 'function') {
                         mm.selectTab('Statistics');
+                        return true;
                     }
                 } catch(e) {}
-            }, 80);
+                return false;
+            };
+            Promise.resolve(result).then(function() {
+                if (!_selectStats()) setTimeout(_selectStats, 60);
+            }, function() {});
         }
         return result;
     };
@@ -1626,12 +1632,26 @@ function getPlayerIdFromHUD() {
         return null;
     }
 }
+// Vuex store: window.App.$store создаётся при mount корневого приложения и доступен раньше,
+// чем компонент interface("Menu"). Раньше скрипт ждал именно Menu → фракция/профиль определялись с задержкой.
+function _getVuexStore() {
+    try {
+        if (window.App && window.App.$store) return window.App.$store;
+    } catch (e) {}
+    const names = ["Menu", "Hud", "MainMenu", "Authorization"];
+    for (let i = 0; i < names.length; i++) {
+        try {
+            const iface = window.interface(names[i]);
+            if (iface && iface.$store) return iface.$store;
+        } catch (e) {}
+    }
+    return null;
+}
 function getSkinIdFromStore() {
     try {
-        const menuInterface = window.interface("Menu");
-        if (menuInterface && menuInterface.$store && menuInterface.$store.getters["player/skinId"] !== undefined) {
-            const skinId = menuInterface.$store.getters["player/skinId"];
-            return skinId;
+        const st = _getVuexStore();
+        if (st && st.getters["player/skinId"] !== undefined) {
+            return st.getters["player/skinId"];
         }
         return null;
     } catch (e) {
@@ -2472,23 +2492,32 @@ function waitForSpawnThenLoadProfile() {
     if (globalState._spawnProfileLoaded) return;
     if (window._hassleReloading) { setTimeout(waitForSpawnThenLoadProfile, 1000); return; }
 
+    const store = _getVuexStore();
     let isConnected = false;
-    try {
-        if (window.App && window.App.$store) {
-            isConnected = window.App.$store.getters['player/isPlayerConnected'];
-        }
-    } catch(e) {}
+    try { if (store) isConnected = store.getters['player/isPlayerConnected']; } catch(e) {}
 
     if (!isConnected) {
-        // Ещё не заспавнились — ждём как HP-трекер
-        setTimeout(waitForSpawnThenLoadProfile, 500);
+        // Реактивно: сервер ставит isPlayerConnected=true сразу в PauseMenu:OnPlayerLogin (window.setPlayerConnectedStatus(1)).
+        // Один watch вместо поллинга; поллинг 250 мс остаётся страховкой (store ещё не создан / watch не удался).
+        if (store && !globalState._spawnWatchSet) {
+            try {
+                globalState._spawnWatchSet = true;
+                store.watch(
+                    function(state, getters) { return getters['player/isPlayerConnected']; },
+                    function(v) { if (v) waitForSpawnThenLoadProfile(); }
+                );
+            } catch(e) { globalState._spawnWatchSet = false; }
+        }
+        setTimeout(waitForSpawnThenLoadProfile, 250);
         return;
     }
 
     // Спавн подтверждён — помечаем чтобы не запускать повторно в этой сессии
+    if (globalState._spawnProfileLoaded) return;
     globalState._spawnProfileLoaded = true;
-    debugLog('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль через 3 сек...');
+    debugLog('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль...');
 
+    // Сервер отвечает на MainMenu_OnPlayerChangeTab синхронно, поэтому длинная пауза не нужна (было 3000 мс)
     setTimeout(function() {
         // Если профиль уже загружен (например, фракционный скин пришёл раньше спавна) — не дублируем
         if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
@@ -2496,7 +2525,7 @@ function waitForSpawnThenLoadProfile() {
         } else {
             debugLog('[Profile] ℹ️ Профиль уже загружен (фракция определена раньше спавна), пропускаем дублирование.');
         }
-    }, 3000);
+    }, 400);
 }
 
 
@@ -2512,12 +2541,12 @@ function updateFaction() {
                 // Именно здесь — сервер уже назначил скин, значит мы точно в игре
                 // и MainMenu отдаст реальные данные (не mock).
                 if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
-                    debugLog('[Profile] Фракция определена → загружаем профиль через 1 сек...');
+                    debugLog('[Profile] Фракция определена → загружаем профиль...');
                     // Помечаем спавн как обработанный — spawn-трекер дублировать не будет
                     globalState._spawnProfileLoaded = true;
                     setTimeout(function() {
                         window._hassleLoadPlayerProfile(null);
-                    }, 1000);
+                    }, 300);
                 }
                 // Если профиль уже загружен (игрок был без фракции, потом надел форму) —
                 // пересчитываем: фракционный статус мог измениться.
@@ -2533,7 +2562,7 @@ function updateFaction() {
                         config.accountInfo.profile.loaded = false;
                         setTimeout(function() {
                             window._hassleLoadPlayerProfile(null);
-                        }, 1500);
+                        }, 500);
                     }
                 }
                 // /c 60 теперь запускается только через кнопку «Отыгровка 27 мин» в Telegram
@@ -2545,24 +2574,30 @@ function updateFaction() {
     config.currentFaction = null;
     debugLog(`Фракция не определена для Skin ID: ${skinId}`);
 }
+// Применяет новый скин: обновляет фракцию и режим тюрьмы. Дубли (hook + watch + поллинг) отсекаются сравнением.
+function applySkinChange(currentSkin, source) {
+    if (!config.trackSkinId) return;
+    if (window._hassleReloading) return;
+    if (currentSkin === null || currentSkin === undefined) return;
+    if (currentSkin === config.accountInfo.skinId) return;
+    config.accountInfo.skinId = currentSkin;
+    debugLog(`Обнаружен новый Skin ID (${source || 'поллинг'}): ${currentSkin}`);
+    updateFaction(); // Обновляем фракцию
+    // Проверка скина заключённого
+    if (Number(currentSkin) === 50) {
+        startPrisonMode();
+    } else if (globalState.inPrison) {
+        globalState.inPrison = false;
+        globalState.prisonTimeRequested = false;
+        stopPrisonTimePolling();
+        debugLog(`[PRISON] Скин сменился на ${currentSkin} — режим тюрьмы деактивирован`);
+    }
+}
 function trackSkinId() {
     if (!config.trackSkinId) return;
     if (window._hassleReloading) return;
-    const currentSkin = getSkinIdFromStore();
-    if (currentSkin !== null && currentSkin !== config.accountInfo.skinId) {
-        config.accountInfo.skinId = currentSkin;
-        debugLog(`Обнаружен новый Skin ID (поллинг): ${currentSkin}`);
-        updateFaction(); // Обновляем фракцию
-        // Проверка скина заключённого
-        if (Number(currentSkin) === 50) {
-            startPrisonMode();
-        } else if (globalState.inPrison) {
-                globalState.inPrison = false;
-                globalState.prisonTimeRequested = false;
-                stopPrisonTimePolling();
-                debugLog(`[PRISON] Скин сменился на ${currentSkin} — режим тюрьмы деактивирован`);
-        }
-    }
+    // Поллинг теперь только страховка: основной путь — store.watch('player/skinId') (мгновенно)
+    applySkinChange(getSkinIdFromStore(), 'поллинг');
     setTimeout(trackSkinId, config.skinCheckInterval);
 }
 // Перехват window.setPlayerSkinId для отслеживания изменений скина (хуком)
@@ -2607,19 +2642,11 @@ function trackNicknameAndServer() {
 
     // Пробуем получить store через MainMenu (в игре).
     // Повторяем каждые 900мс пока store не станет доступен.
-    let store = null;
-    // Пробуем все известные интерфейсы где есть $store с данными игрока
-    const ifaceNames = ["MainMenu", "Authorization", "Menu", "Hud"];
-    for (const name of ifaceNames) {
-        try {
-            const iface = window.interface(name);
-            if (iface && iface.$store) { store = iface.$store; break; }
-        } catch (e) {}
-    }
+    let store = _getVuexStore();
 
     if (!store) {
         // Молча повторяем — без debugLog чтобы не спамить консоль
-        setTimeout(trackNicknameAndServer, 900);
+        setTimeout(trackNicknameAndServer, 300);
         return;
     }
 
@@ -2671,7 +2698,7 @@ function trackNicknameAndServer() {
             uniqueId = `${nicknameStr}_${serverStr}`;
             sendWelcomeMessage();
             registerUser();
-            // Запуск отслеживания скина с задержкой 5с
+            // Скин читаем сразу (было: фиксированные 5 с) — дальше его ведёт store.watch, поллинг — страховка
             setTimeout(() => {
                 const initialSkin = getSkinIdFromStore();
                 if (initialSkin !== null) {
@@ -2681,7 +2708,7 @@ function trackNicknameAndServer() {
                     if (Number(initialSkin) === 50) startPrisonMode();
                 }
                 trackSkinId();
-            }, 5000);
+            }, 300);
         } else {
             // Ник или сервер изменились — обновляем без перезахода
             debugLog(`[NICK] Изменение: ${nicknameStr} [S${serverStr}]`);
@@ -2707,6 +2734,13 @@ function trackNicknameAndServer() {
             );
         } catch(e) { debugLog(`[NICK] watch не удался для ${getterKey}: ${e.message}`); }
     };
+    // Скин: мгновенная реакция на commit player/setSkin (не зависит от того, жив ли наш хук window.setPlayerSkinId)
+    try {
+        store.watch(
+            (state, getters) => getters["player/skinId"],
+            (newSkin) => applySkinChange(newSkin, 'store.watch')
+        );
+    } catch(e) { debugLog(`[SKIN] watch не удался: ${e.message}`); }
     watchGetter("player/nickName");
     watchGetter("player/serverId");
     watchGetter("menu/nickName");
@@ -6530,7 +6564,7 @@ function initializeChatMonitor() {
         // Запуск ожидания спавна для загрузки профиля (работает для всех аккаунтов,
         // не только фракционных — аналог HP-трекера, но для профиля).
         debugLog('[Profile] 🚀 Запуск ожидания спавна для загрузки профиля через MainMenu...');
-        setTimeout(waitForSpawnThenLoadProfile, 5000);
+        setTimeout(waitForSpawnThenLoadProfile, 200);
         globalState.sessionStartTime = Date.now();
     }
     checkTelegramCommands();
