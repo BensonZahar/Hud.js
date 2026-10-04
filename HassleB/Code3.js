@@ -1528,8 +1528,9 @@ log(VERSION + ' загружен. Помощник лицензёра актив
 // ║     сообщений игроков из чата (а не только фракции);     ║
 // ║   • «Выдача лицензий» — выбор лицензии → ID игрока →     ║
 // ║     /givelic через Code3.js (window.__code3);            ║
-// ║   • под пересланным сообщением — кнопка «Выдать          ║
-// ║     лицензию» этому игроку.                              ║
+// ║   • под сообщением игрока — те же кнопки, что у сообщений ║
+// ║     сотрудников фракции + внизу «Выдача лицензии»        ║
+// ║     (выдача / перевыдача этому игроку).                  ║
 // ║  Всё через перехваты — Code.js и Code2.js НЕ меняются:   ║
 // ║  showFunctionsMenu, processUpdates, OnChatAddMessage.    ║
 // ╚══════════════════════════════════════════════════════════╝
@@ -1597,6 +1598,41 @@ try { (function () {
         return ok;
     }
 
+    // Перевыдача последней лицензии — только если она всё ещё предназначена этому игроку
+    function reissueFor(tid) {
+        if (!ready()) { sendToTelegram(notReadyText(), false, null); return false; }
+        const last = lastGive();
+        if (!last) { sendToTelegram('❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null); return false; }
+        if (String(last.targetId) !== String(tid)) {
+            sendToTelegram('⚠️ <b>Перевыдача отменена (' + esc(displayName) + ')</b>\nПоследняя выдача была другому игроку: ID <code>' + esc(last.targetId) + '</code> (' + esc(nickOf(last.targetId) || '—') + ').', false, null);
+            return false;
+        }
+        const ok = !!api().reissue();
+        sendToTelegram(ok
+            ? '🔁 <b>Перевыдача запущена (' + esc(displayName) + ')</b>\n🪪 ' + esc(last.name) + ' → ' + esc(nickOf(tid) || 'ID') + ' [ID: ' + esc(tid) + ']'
+            : '❌ <b>Не удалось перевыдать (' + esc(displayName) + ')</b>', false, null);
+        return ok;
+    }
+
+    // ── Кнопки под сообщением игрока ────────────────────────────
+    // Верх — те же кнопки, что под сообщением сотрудника фракции (Ответить / Движения / Пауза / Авторизация / Управление),
+    // низ — «Выдача лицензии». По нажатию кнопки заменяются на: [Перевыдать, если этому игроку уже выдавали] + типы лицензий + «Назад».
+    function licOpenRow(id) { return [btn('🪪 Выдача лицензии', PFX + 'open|' + id + '|' + uniqueId, 'primary')]; }
+    function playerMarkup(id) {
+        let rows = [];
+        try { const m = getNotificationReplyMarkup(); rows = ((m && m.inline_keyboard) || []).map(function (r) { return r.slice(); }); } catch (e) {}
+        if (ready()) rows.push(licOpenRow(id));
+        return { inline_keyboard: rows };
+    }
+    function licMenuMarkup(id) {
+        const rows = [];
+        const l = lastGive();
+        if (l && String(l.targetId) === String(id)) rows.push([btn('🔁 Перевыдать: ' + l.name, PFX + 'pre|' + id + '|' + uniqueId, 'primary')]);
+        types().forEach(function (t, i) { rows.push([btn(t.name + ' — ' + money(t.price), PFX + 'pgive|' + id + '|' + i + '|' + uniqueId)]); });
+        rows.push([btn('⬅️ Назад', PFX + 'back|' + id + '|' + uniqueId)]);
+        return { inline_keyboard: rows };
+    }
+
     // ── Нажатия кнопок ──────────────────────────────────────────
     function parse(data) {   // lic|action|a|b|uid → {action, args, uid}
         const p = data.split('|');
@@ -1640,19 +1676,23 @@ try { (function () {
                 if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
                 sendToTelegram(api().reissue() ? '🔁 <b>Перевыдача запущена (' + esc(displayName) + ')</b>' : '❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null);
                 break;
-            case 're': {   // кнопка «Перевыдать» под сообщением игрока / событием выдачи: только если это всё ещё последняя цель
-                if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
-                const last = lastGive(), tid = d.args[0];
-                if (!last) { sendToTelegram('❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null); break; }
-                if (String(last.targetId) !== String(tid)) {
-                    sendToTelegram('⚠️ <b>Перевыдача отменена (' + esc(displayName) + ')</b>\nПоследняя выдача была другому игроку: ID <code>' + esc(last.targetId) + '</code> (' + esc(nickOf(last.targetId) || '—') + ').', false, null);
-                    break;
-                }
-                sendToTelegram(api().reissue()
-                    ? '🔁 <b>Перевыдача запущена (' + esc(displayName) + ')</b>\n🪪 ' + esc(last.name) + ' → ' + esc(nickOf(tid) || 'ID') + ' [ID: ' + esc(tid) + ']'
-                    : '❌ <b>Не удалось перевыдать (' + esc(displayName) + ')</b>', false, null);
+            case 're':   // кнопка «Перевыдать» под событием выдачи: только если это всё ещё последняя цель
+                reissueFor(d.args[0]);
                 break;
-            }
+            // ── Кнопка «Выдача лицензии» под сообщением игрока: клавиатура меняется на месте (сообщение не удаляется) ──
+            case 'open':
+                if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
+                editMessageReplyMarkup(chatId, messageId, licMenuMarkup(d.args[0]));
+                break;
+            case 'back':
+                editMessageReplyMarkup(chatId, messageId, playerMarkup(d.args[0]));
+                break;
+            case 'pgive':
+                if (doGive(d.args[0], parseInt(d.args[1], 10))) editMessageReplyMarkup(chatId, messageId, playerMarkup(d.args[0]));
+                break;
+            case 'pre':
+                if (reissueFor(d.args[0])) editMessageReplyMarkup(chatId, messageId, playerMarkup(d.args[0]));
+                break;
             case 'close': deleteMessage(chatId, messageId); break;
         }
     }
@@ -1679,12 +1719,42 @@ try { (function () {
         showFunctionsMenu = patched;
     }
 
+    // ── Кнопка лицензии переживает перерисовку клавиатуры ───────
+    // Code.js после «Пауза», «Авторизация», «Назад из движений» перерисовывает клавиатуру через getNotificationReplyMarkup() —
+    // для сообщений игроков дописываем обратно строку «Выдача лицензии».
+    const _playerMsgs = {};   // 'chatId:messageId' → ID игрока
+    const PLAYER_TG_RE = /^💬[\s\S]*?\n👤[^\n]*?\[ID:\s*(\d+)\]/;
+    if (typeof editMessageReplyMarkup === 'function' && !editMessageReplyMarkup.__licWrapped) {
+        const origEditMarkup = editMessageReplyMarkup;
+        const wrappedEdit = function (chatId, messageId, markup) {
+            try {
+                const pid = _playerMsgs[chatId + ':' + messageId];
+                if (pid && markup && Array.isArray(markup.inline_keyboard) && ready()) {
+                    const rows = markup.inline_keyboard;
+                    const has = function (prefix) {
+                        return rows.some(function (r) { return r.some(function (b) { return b && typeof b.callback_data === 'string' && b.callback_data.indexOf(prefix) === 0; }); });
+                    };
+                    if (has('admin_reply_') && !has(PFX + 'open|')) markup = { inline_keyboard: rows.concat([licOpenRow(pid)]) };
+                }
+            } catch (e) {}
+            return origEditMarkup.call(this, chatId, messageId, markup);
+        };
+        wrappedEdit.__licWrapped = true;
+        editMessageReplyMarkup = wrappedEdit;
+    }
+
     // ── processUpdates: свои кнопки + ответ с ID игрока ─────────
     const origProcess = processUpdates;
     processUpdates = function (updates) {
         const rest = [];
         for (const u of updates) {
             const cq = u.callback_query;
+            try {   // сообщение игрока (💬 … 👤 Ник [ID: n]) — запоминаем, чтобы кнопка лицензии не пропадала после «Пауза» / «Движения» и т.п.
+                if (cq && cq.message && typeof cq.message.text === 'string') {
+                    const pm = cq.message.text.match(PLAYER_TG_RE);
+                    if (pm) _playerMsgs[cq.message.chat.id + ':' + cq.message.message_id] = pm[1];
+                }
+            } catch (e) {}
             if (cq && typeof cq.data === 'string' && cq.data.indexOf(PFX) === 0 && config.chatIds.includes(String(cq.message.chat.id))) {
                 config.lastUpdateId = u.update_id;
                 setSharedLastUpdateId(config.lastUpdateId);
@@ -1788,13 +1858,7 @@ try { (function () {
         if (config.accountInfo.nickname && nick === config.accountInfo.nickname) return;   // свои не пересылаем
         if (!once(nick + '|' + text, 2000)) return;                     // дубль строки чата
         const where = radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
-        let markup = null;
-        if (ready()) {
-            const rows = [];
-            if (isTarget(id)) rows.push([reissueBtn(id)]);                 // этому игроку уже выдавали — можно перевыдать
-            rows.push([btn('🪪 Выдать лицензию (ID ' + id + ')', PFX + 'to|' + id + '|' + uniqueId)]);
-            markup = { inline_keyboard: rows };
-        }
+        const markup = playerMarkup(id);                                // как у сотрудников фракции + внизу «Выдача лицензии» (там же перевыдача)
         sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', true, markup);
     }
     function installChatHook() {
