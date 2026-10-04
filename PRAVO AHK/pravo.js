@@ -2787,6 +2787,15 @@ var PRAVO_SMS_PART_DELAY = 700; // мс между частями (как PRAVO_
 var _pravoSmsQueue = [];
 var _pravoSmsBusy = false;
 var _pravoSmsLastAt = 0;
+// Сервер режет частые SMS ответом «Подождите несколько секунд...» (серый текст в чате, команда НЕ выполняется).
+// Своего кулдауна /sms в дампе мода нет (PHONE_SMS_INTERVAL = 500 мс нигде не применяется, проверка в закрытой части), поэтому подстраиваемся:
+// получили «Подождите...» -> часть возвращается в начало очереди, пауза между частями растёт и запоминается.
+var PRAVO_SMS_GAP_STEP = 1500;   // мс: на сколько растёт пауза между частями после каждого «Подождите...»
+var PRAVO_SMS_GAP_MAX = 8000;    // мс: потолок паузы
+var PRAVO_SMS_RETRIES = 4;       // сколько раз повторяем одну часть, прежде чем сдаться
+var PRAVO_SMS_ACK_WINDOW = 2500; // мс после отправки части, в течение которых «Подождите...» считаем ответом именно на неё
+var _pravoSmsGap = PRAVO_SMS_PART_DELAY;
+var _pravoSmsLast = null;        // { job, at, done } - последняя отправленная часть
 
 // Режем по ", " (запятая остаётся в конце строки); слишком длинный кусок без запятых - общим резаком по словам
 function _pravoSmsSplit(text, max) {
@@ -2815,7 +2824,7 @@ function _pravoSmsDrain() {
     (function next() {
         if (!_pravoSmsQueue.length) { _pravoSmsBusy = false; return; }
         var now = Date.now();
-        var gap = Math.max(0, PRAVO_SMS_PART_DELAY - (now - _pravoSmsLastAt)); // пауза между частями
+        var gap = Math.max(0, _pravoSmsGap - (now - _pravoSmsLastAt));         // пауза между частями (растёт, если сервер просил подождать)
         var fw = _pravoFloodWait(1);                                            // антифлуд сервера (3000/1000 за команду)
         var w = Math.max(gap, fw);
         if (w > 0) {
@@ -2826,8 +2835,30 @@ function _pravoSmsDrain() {
         var job = _pravoSmsQueue.shift();
         _pravoSendCmd('/sms ' + job.number + ' ' + job.text);
         _pravoSmsLastAt = Date.now();
-        setTimeout(next, PRAVO_SMS_PART_DELAY);
+        _pravoSmsLast = { job: job, at: _pravoSmsLastAt, done: false };
+        setTimeout(next, _pravoSmsGap);
     })();
+}
+// Сервер ответил «Подождите несколько секунд...» на только что отправленную часть -> повторяем её позже
+function _pravoSmsOnWait() {
+    var l = _pravoSmsLast;
+    if (!l || l.done || Date.now() - l.at > PRAVO_SMS_ACK_WINDOW) return; // это «Подождите» от другой команды
+    l.done = true;
+    var job = l.job;
+    job.tries = (job.tries || 0) + 1;
+    _pravoSmsGap = Math.min(PRAVO_SMS_GAP_MAX, _pravoSmsGap + PRAVO_SMS_GAP_STEP);
+    try { console.log('[PRAVO][SMS] «Подождите...» -> повтор части (' + job.tries + '), пауза ' + _pravoSmsGap + ' мс', job.text); } catch (_) {}
+    if (job.tries > PRAVO_SMS_RETRIES) {
+        try { gtAdd('~r~SMS не ушло~n~~w~Сервер не принял сообщение', 3000, 3); } catch (_) {}
+        return;
+    }
+    try { gtAdd('~y~SMS~n~~w~Сервер просит подождать, повтор через ' + (_pravoSmsGap / 1000).toFixed(1) + ' с', Math.min(_pravoSmsGap + 300, 3500), 3); } catch (_) {}
+    _pravoSmsQueue.unshift(job);
+    _pravoSmsDrain(); // если цикл уже остановился (очередь опустела) - запускаем заново
+}
+// Эхо отправителю «SMS: ... | Получатель: ...» = часть дошла, «Подождите» после неё уже не к ней
+function _pravoSmsOnAck() {
+    if (_pravoSmsLast) _pravoSmsLast.done = true;
 }
 function _pravoSmsSend(number, text) {
     var parts = _pravoSmsSplit(text, PRAVO_SMS_MAX_LEN);
@@ -2839,10 +2870,13 @@ function _pravoSmsSend(number, text) {
 function _pravoSmsPriceText() {
     if (PRAVO_SMS_TEXT_PRICE) return PRAVO_SMS_TEXT_PRICE;
     try {
-        var parts = _GIVE_LIC_TYPES.map(function (t) { return t.name + ' ' + Math.round(t.price / 1000) + 'к'; });
-        return 'Ценовая политика: ' + parts.join(', ');
+        // Одним SMS: короткие названия («Проф. права» -> «Проф»), префикс «Цены: » - только если влезает в PRAVO_SMS_MAX_LEN
+        var list = _GIVE_LIC_TYPES.map(function (t) { return t.name.replace(/^Проф\.? права$/i, 'Проф') + ' ' + Math.round(t.price / 1000) + 'к'; }).join(', ');
+        var cands = ['Цены: ' + list, list];
+        for (var i = 0; i < cands.length; i++) if (cands[i].length <= PRAVO_SMS_MAX_LEN) return cands[i];
+        return cands[0]; // не влезло даже без префикса - _pravoSmsSend порежет на части
     } catch (e) {
-        return 'Ценовая политика: Права 10к, Проф. права 40к, Оружие 85к, Рыбалка 40к, Охота 65к';
+        return 'Цены: Права 10к, Проф 40к, Оружие 85к, Рыбалка 40к, Охота 65к';
     }
 }
 // Входящее: "SMS: текст | Отправитель: {v:Ник} [т.333351]"; группа 1 = номер
@@ -3166,6 +3200,9 @@ const setupChatHandler = () => {
                 // Сервер сказал «Не флудите» — подтягиваем модель антифлуда к реальному счётчику
                 if (message.includes('Пожалуйста, подождите несколько секунд')) _pravoFloodServerSaid(true);
                 else if (message.includes('Не флудите')) _pravoFloodServerSaid(false);
+                // SMS: «Подождите несколько секунд...» (с большой П, без «Пожалуйста,») = часть не ушла; эхо «SMS: ... | Получатель: ...» = ушла
+                if (message.includes('Подождите несколько секунд')) { try { _pravoSmsOnWait(); } catch (_) {} }
+                else if (message.indexOf('SMS:') !== -1 && message.indexOf('Получатель:') !== -1) { try { _pravoSmsOnAck(); } catch (_) {} }
                 if (message.includes('отказался от Вашего предложения') ||
                     message.includes('слишком далеко') ||   // сервер: "Игрок находится слишком далеко"
                     message.includes('Такого игрока нет')) {
