@@ -187,7 +187,7 @@ function pullRank(cb) {
             if (r !== _rank) {
                 _rank = r;
                 log('звание:', r || '—', licensorReady() ? '→ помощник лицензёра активен' : '');
-                if (licensorReady() && !_announced) { _announced = true; gtAdd('~g~Помощник лицензёра~n~~w~Готов к работе', 3000, 3); }
+                if (licensorReady() && !_announced) { _announced = true; gtAdd('~g~Помощник лицензёра~n~~w~Готов к работе', 3000, 3); refreshPlayers(); }
                 updatePanel();
             }
             if (cb) cb(!!r);
@@ -1279,6 +1279,7 @@ function onChat(message) {
     var now = Date.now();
     if (msg === _lastChat.msg && now - _lastChat.at < 40) return;
     _lastChat.msg = msg; _lastChat.at = now;
+    if (!licensorReady()) return;   // не правительственный скин или не Лицензёр — ничего не делаем
 
     // Сервер сказал «Не флудите» — подтягиваем нашу модель антифлуда к реальному счётчику
     if (msg.indexOf('Пожалуйста, подождите несколько секунд') !== -1) floodServerSaid(true);
@@ -1287,7 +1288,7 @@ function onChat(message) {
     var clean = msg.replace(/\{[0-9a-fA-F]{6}\}/g, '');
     var last = STATE.last;
 
-    if (OPTS.AUTO_REPLIES && last) {
+    if (OPTS.AUTO_REPLIES && last && licensorReady()) {
         // Неоплаченные штрафы у покупателя
         if (clean.indexOf('У человека есть неоплаченные штрафы') !== -1 && cooled('fines', 3000)) {
             var fid = last.targetId;
@@ -1367,7 +1368,7 @@ function ensureChatHook() {
     var myChat = function (e) {
         if (!_dead && typeof e === 'string') {
             var a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
-            if (cmd === '/dahk' || cmd === '/licmenu') { showLicMenu(); return; }
+            if (cmd === '/licmenu' || (cmd === '/dahk' && licensorReady())) { showLicMenu(); return; }
             // /givelic и /givelic <ID>: штатная команда уходит на сервер как раньше + наш диалог поверх (если мы лицензёр)
             if (cmd === '/givelic' && a.length <= 2) {
                 floodNote(1);
@@ -1497,7 +1498,7 @@ function ensureChatHook() {
 // ══════════════════════════ ЗАПУСК ══════════════════════════
 // Список игроков нужен для ник ↔ ID: обновляем раз в 30 с, пока мы лицензёр в правительственном скине
 every(function () { if (licensorReady()) refreshPlayers(); }, 30000);
-setTimeout(function () { if (!_dead) refreshPlayers(); }, 1000);
+setTimeout(function () { if (!_dead && licensorReady()) refreshPlayers(); }, 1000);
 // Звание могло смениться (повышение/понижение): раз в минуту перечитываем уже загруженный профиль (без запросов к серверу)
 every(function () { if (isGovSkin() && _rank) pullRank(); }, 60000);
 setTimeout(function () { if (!_dead) { ensureRank(); updatePanel(); } }, 1500);
@@ -1534,6 +1535,8 @@ log(VERSION + ' загружен. Помощник лицензёра актив
 // ║   • кнопка выдачи в одно нажатие сверху, если по тексту  ║
 // ║     игрока определился тип лицензии; необязательный      ║
 // ║     фильтр «только про лицензии» (по умолчанию выкл).    ║
+// ║  Работает только в правительственном скине (любом из     ║
+// ║  списка) и со званием «Лицензёр», иначе всё молчит.      ║
 // ║  Всё через перехваты — Code.js и Code2.js НЕ меняются:   ║
 // ║  showFunctionsMenu, processUpdates, OnChatAddMessage.    ║
 // ╚══════════════════════════════════════════════════════════╝
@@ -1677,6 +1680,7 @@ try { (function () {
         return m ? m[1] : '';
     }
     function handleCallback(cq) {
+        if (!ready()) { sendToTelegram(notReadyText(), false, null); return; }   // скин сменили / звание не Лицензёр — кнопки неактивны
         const d = parse(cq.data), chatId = cq.message.chat.id, messageId = cq.message.message_id;
         answerCallbackQuery(cq.id);
         switch (d.action) {
@@ -1750,7 +1754,7 @@ try { (function () {
             const origEdit = editMessageReplyMarkup;
             editMessageReplyMarkup = function (chatId, messageId, markup) {
                 try {
-                    if (markup && Array.isArray(markup.inline_keyboard)) {
+                    if (ready() && markup && Array.isArray(markup.inline_keyboard)) {
                         const rows = markup.inline_keyboard;
                         rows.splice(Math.max(0, rows.length - 1), 0,
                             [btn('🪪 Лицензёр ' + (config.licAllMessages ? '🟢' : '🔴'), PFX + 'menu|' + uniqueId)]);
@@ -1890,6 +1894,7 @@ try { (function () {
     }
 
     function onChat(raw, colorArg) {
+        if (!ready()) return;   // форма не правительственная или звание не Лицензёр — в Telegram ничего не пересылаем
         const msg = String(raw);
         const m = msg.match(PLAYER_MSG_RE);
         if (!m) {
