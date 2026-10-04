@@ -488,7 +488,7 @@ function giveByIndex(targetId, idx) {
     var cmd = '/givelic ' + targetId + ' ' + c.type + ' ' + c.price;
     log('отправка:', cmd);
     rawSend(cmd);
-    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name };
+    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, at: Date.now() };
     setTimeout(updatePanel, 350);
     return true;
 }
@@ -496,6 +496,7 @@ var reissueTimer = null;
 function reissueSend() {
     var d = STATE.last; if (!d) return;
     var cmd = '/givelic ' + d.targetId + ' ' + d.type + ' ' + d.price;
+    d.at = Date.now();
     rawSend('/cancel');
     rawSend(cmd);
     log('перевыдача: /cancel +', cmd);
@@ -1639,6 +1640,19 @@ try { (function () {
                 if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
                 sendToTelegram(api().reissue() ? '🔁 <b>Перевыдача запущена (' + esc(displayName) + ')</b>' : '❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null);
                 break;
+            case 're': {   // кнопка «Перевыдать» под сообщением игрока / событием выдачи: только если это всё ещё последняя цель
+                if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
+                const last = lastGive(), tid = d.args[0];
+                if (!last) { sendToTelegram('❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null); break; }
+                if (String(last.targetId) !== String(tid)) {
+                    sendToTelegram('⚠️ <b>Перевыдача отменена (' + esc(displayName) + ')</b>\nПоследняя выдача была другому игроку: ID <code>' + esc(last.targetId) + '</code> (' + esc(nickOf(last.targetId) || '—') + ').', false, null);
+                    break;
+                }
+                sendToTelegram(api().reissue()
+                    ? '🔁 <b>Перевыдача запущена (' + esc(displayName) + ')</b>\n🪪 ' + esc(last.name) + ' → ' + esc(nickOf(tid) || 'ID') + ' [ID: ' + esc(tid) + ']'
+                    : '❌ <b>Не удалось перевыдать (' + esc(displayName) + ')</b>', false, null);
+                break;
+            }
             case 'close': deleteMessage(chatId, messageId); break;
         }
     }
@@ -1705,24 +1719,83 @@ try { (function () {
     // но цвет ника любой, а не только цвет своей фракции.
     const PLAYER_MSG_RE = /^\s*-\s+(.+?)\s*(?:\{[0-9A-Fa-f]{6}\})?\s*\(\{v:([^}]+)\}\)\[(\d+)\]/;
     const _recent = {};
+    function once(key, ms) {
+        const now = Date.now();
+        if (_recent[key] && now - _recent[key] < ms) return false;
+        _recent[key] = now;
+        return true;
+    }
+    function cleanMsg(s) {
+        return String(s).replace(/\{btn:[^}]*\}/g, '').replace(/\{v:([^}]*)\}/g, '$1').replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\s+/g, ' ').trim();
+    }
+    function lastGive() { try { return (api() && api().last && api().last()) || null; } catch (e) { return null; } }
+    function nickOf(id) {
+        try {
+            const l = window.__code3PlayerList, sid = String(id);
+            if (!l) return null;
+            if (l.local && String(l.local.id) === sid) return l.local.name;
+            const f = Array.isArray(l.players) && l.players.find(function (p) { return String(p.id) === sid; });
+            return f ? f.name : null;
+        } catch (e) { return null; }
+    }
+    function isTarget(id) { const l = lastGive(); return !!(l && String(l.targetId) === String(id)); }
+    function reissueBtn(id) {
+        const l = lastGive();
+        return btn('🔁 Перевыдать: ' + (l ? l.name : 'лицензию'), PFX + 're|' + id + '|' + uniqueId, 'primary');
+    }
+
+    // Ответы сервера на нашу выдачу: пишем в Telegram (в течение EVENT_WINDOW после /givelic), независимо от переключателя.
+    const EVENT_WINDOW = 3 * 60 * 1000;
+    const EVENTS = [
+        { re: /У человека есть неоплаченные штрафы/i,                    icon: '⚠️', title: 'Есть неоплаченные штрафы', redo: true },
+        { re: /У покупателя наложен запрет на покупку лицензии на оружие/i, icon: '🚫', title: 'Запрет на покупку лицензии на оружие', redo: true },
+        { re: /У покупателя недостаточно денег/i,                         icon: '💸', title: 'Недостаточно денег', redo: true },
+        { re: /У покупателя уже есть этот тип лицензии/i,                 icon: 'ℹ️', title: 'Такая лицензия уже есть', redo: false },
+        { re: /отказался от Вашего предложения/i,                         icon: '❌', title: 'Отказался от предложения', redo: true },
+        { re: /^\*?\s*Игрок (?:находится )?слишком далеко/i,            icon: '📏', title: 'Игрок слишком далеко', redo: true },
+        { re: /^\*?\s*Такого игрока нет/i,                                icon: '❓', title: 'Такого игрока нет', redo: false },
+        { re: /^Вы выдали\s/i,                                            icon: '✅', title: 'Лицензия выдана', redo: false, silent: true }
+    ];
+    function handleEvent(text) {
+        if (!ready()) return false;
+        const l = lastGive();
+        if (!l || !l.at || Date.now() - l.at > EVENT_WINDOW) return false;
+        const ev = EVENTS.find(function (e) { return e.re.test(text); });
+        if (!ev) return false;
+        if (/^\s*-\s/.test(text) || PLAYER_MSG_RE.test(text)) return false;       // строки чата игроков — не события
+        if (!once('ev|' + ev.title, 3000)) return true;
+        const nick = nickOf(l.targetId);
+        const rows = [];
+        if (ev.redo) rows.push([reissueBtn(l.targetId)]);
+        rows.push([btn('🪪 Выдать лицензию (ID ' + l.targetId + ')', PFX + 'to|' + l.targetId + '|' + uniqueId)]);
+        sendToTelegram(ev.icon + ' <b>' + ev.title + '</b>\n🪪 ' + esc(l.name) + ' → ' + esc(nick || 'игрок') + ' [ID: ' + esc(l.targetId) + ']\n' +
+            '<i>' + esc(text) + '</i>\n(' + esc(displayName) + ')', !!ev.silent, { inline_keyboard: rows });
+        return true;
+    }
+
     function onChat(raw, colorArg) {
-        if (!config.licAllMessages) return;
         const msg = String(raw);
         const m = msg.match(PLAYER_MSG_RE);
-        if (!m) return;
+        if (!m) {
+            try { handleEvent(cleanMsg(msg)); } catch (e) { debugLog('[LIC] event error: ' + e.message); }
+            return;
+        }
+        if (!config.licAllMessages) return;
         const radius = getChatRadius(colorArg);
         if (radius === CHAT_RADIUS.RADIO) return;                       // рацию обрабатывает свой модуль
         const text = m[1].replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim(), nick = m[2], id = m[3];
         if (!text) return;
         if (config.accountInfo.nickname && nick === config.accountInfo.nickname) return;   // свои не пересылаем
-        const key = nick + '|' + text, now = Date.now();
-        if (_recent[key] && now - _recent[key] < 2000) return;          // дубль строки чата
-        _recent[key] = now;
+        if (!once(nick + '|' + text, 2000)) return;                     // дубль строки чата
         const where = radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
-        const markup = ready()
-            ? { inline_keyboard: [[btn('🪪 Выдать лицензию (ID ' + id + ')', PFX + 'to|' + id + '|' + uniqueId)]] }
-            : null;
-        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + '] · ' + where + '\n(' + esc(displayName) + ')', true, markup);
+        let markup = null;
+        if (ready()) {
+            const rows = [];
+            if (isTarget(id)) rows.push([reissueBtn(id)]);                 // этому игроку уже выдавали — можно перевыдать
+            rows.push([btn('🪪 Выдать лицензию (ID ' + id + ')', PFX + 'to|' + id + '|' + uniqueId)]);
+            markup = { inline_keyboard: rows };
+        }
+        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', true, markup);
     }
     function installChatHook() {
         const cur = window.OnChatAddMessage;
