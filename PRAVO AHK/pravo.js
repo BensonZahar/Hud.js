@@ -223,7 +223,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.987 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2989,6 +2989,21 @@ function _pravoSmsRow(btn) {
 }
 // Подгоняем рамку: одна скруглённая рамка по ширине самого длинного из двух - сообщения или строки кнопок (а не на весь чат).
 // Размеры берём из getBoundingClientRect (экранные px) и переводим в px вёрстки через эталон: у чата может быть scale/transform.
+// getComputedStyle в этом движке может вернуть значение в vh/vw/em (напр. "1.55vh"), а не в px - переводим в px вёрстки сами
+function _pravoPx(val, el) {
+    try {
+        var str = String(val == null ? '' : val).trim();
+        var n = parseFloat(str);
+        if (!isFinite(n)) return 0;
+        if (/vh\s*$/i.test(str)) return n * (window.innerHeight || 1080) / 100;
+        if (/vw\s*$/i.test(str)) return n * (window.innerWidth || 1920) / 100;
+        if (/em\s*$/i.test(str) && !/rem\s*$/i.test(str)) {
+            var fs = el ? _pravoPx(getComputedStyle(el).fontSize, null) : 16;
+            return n * (fs || 16);
+        }
+        return n;
+    } catch (e) { return 0; }
+}
 function _pravoSmsFit(row, menu, btn) {
     try {
         if (!PRAVO_SMS_OUTLINE_COLOR || !row || !menu || !menu.parentNode) return;
@@ -3005,17 +3020,18 @@ function _pravoSmsFit(row, menu, btn) {
         // 2) естественные ширины (до наших отступов)
         var rr = row.getBoundingClientRect(), mm = menu.getBoundingClientRect();
         var lr = lastR.getBoundingClientRect(), lm = lastM.getBoundingClientRect();
-        var padM = parseFloat(getComputedStyle(menu).paddingLeft) || 0;
+        var padM = _pravoPx(getComputedStyle(menu).paddingLeft, menu);
         var padR = padM;
-        var bw = parseFloat(getComputedStyle(row).borderLeftWidth) || 0; // толщина границы рамки
-        var mR = parseFloat(getComputedStyle(lastM).marginRight) || 0;
+        var bw = _pravoPx(getComputedStyle(row).borderLeftWidth, row); // толщина границы рамки
+        var mR = _pravoPx(getComputedStyle(lastM).marginRight, lastM);
         var w1 = (lr.right - rr.left) / scale + padR * 2 + bw * 2; // сообщение
         var w2 = (lm.right - mm.left) / scale + mR + padM + bw * 2; // кнопки
         // 2b) подпись «Ответ» -> «Закрыть» длиннее на ~2 буквы, а движок пересчитывает её не сразу.
         //     Движок отдаёт размеры прошлого кадра (с подписью «Ответ»), поэтому запас закладываем вручную, иначе «Закрыть» не влезает и переносится вниз.
         var reserve = 0;
         try {
-            var bfs = parseFloat(getComputedStyle(btn).fontSize) || 16;
+            var bfs = _pravoPx(getComputedStyle(btn).fontSize, btn) || 16;
+            if (bfs < 6) bfs = (window.innerHeight || 1080) * 0.0155; // страховка: шрифт кнопки ~1.55vh
             // «Закрыть» шире «Ответ» на ~25px при шрифте ~16.8px (замер по скриншотам: 100px против 75px) = ~0.75 шрифта на лишнюю букву.
             // + запас 0.6 шрифта (~10px), чтобы кнопка гарантированно не переносилась на вторую строку. Свойство min-width на кнопку в чате движок игнорирует
             reserve = Math.max(0, PRAVO_SMS_LABEL_CLOSE.length - PRAVO_SMS_LABEL.length) * bfs * 0.75 + bfs * 0.6;
