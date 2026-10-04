@@ -1893,12 +1893,36 @@ try { (function () {
         return true;
     }
 
+    // «Просьба о чае» включена → когда игрок переводит нам деньги (/pay), пишем в Telegram.
+    // Сервер шлёт строку «<Ник> передал Вам деньги <сумма> руб» цветом 3399FF (/pay в new.pwn).
+    const TIP_RE = /^\s*(.+?)\s+передал(?:а)?\s+Вам\s+деньги\s+(\d+)\s*руб/i;
+    function teaOn() {
+        try { const a = api(); return !!(a && a.state && a.state().tea); } catch (e) { return false; }
+    }
+    function handleTip(text, colorArg) {
+        if (!teaOn()) return false;
+        if (/^\s*-\s/.test(text) || PLAYER_MSG_RE.test(text)) return false;   // строки чата игроков — не переводы
+        if (!colorOk(colorArg, '3399FF')) return false;                           // системная строка, а не текст игрока
+        const tm = text.match(TIP_RE);
+        if (!tm) return false;
+        const nick = tm[1].trim(), sum = parseInt(tm[2], 10);
+        if (!sum || !once('tip|' + nick + '|' + sum, 3000)) return true;
+        let id = null;
+        try {
+            const l = window.__code3PlayerList, key = nick.split(' ').join('_').toLowerCase();
+            const f = l && Array.isArray(l.players) && l.players.find(function (p) { return String(p.name).toLowerCase() === key; });
+            if (f) id = f.id;
+        } catch (e) {}
+        sendToTelegram('☕ <b>Вам перевели деньги: ' + money(sum) + '</b>\n👤 ' + esc(nick) + (id !== null ? ' [ID: ' + esc(id) + ']' : '') + '\n(' + esc(displayName) + ')', true, null);
+        return true;
+    }
+
     function onChat(raw, colorArg) {
         if (!ready()) return;   // форма не правительственная или звание не Лицензёр — в Telegram ничего не пересылаем
         const msg = String(raw);
         const m = msg.match(PLAYER_MSG_RE);
         if (!m) {
-            try { handleEvent(cleanMsg(msg)); } catch (e) { debugLog('[LIC] event error: ' + e.message); }
+            try { const cm = cleanMsg(msg); if (!handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { debugLog('[LIC] event error: ' + e.message); }
             return;
         }
         if (!config.licAllMessages) return;
