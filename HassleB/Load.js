@@ -305,6 +305,10 @@ function sendCodeLoadedNotification(filename, commitInfo) {
 // и каждое событие (чат, диалог, авторизация) срабатывает N раз.
 // ============================================================
 function hassleCleanupHooks() {
+    // Code3 (помощник лицензёра) стоит поверх хуков Code.js/Code2.js — снимаем его первым
+    if (typeof window.__code3Cleanup === 'function') {
+        try { window.__code3Cleanup(); console.log('[Hassle Cleanup] Code3 снят'); } catch(e) {}
+    }
     // FIX: обрываем старый long-poll XHR — он не должен завершиться после перезагрузки
     // и сдвинуть _hbOffset в неправильное место (пропуск обновлений)
     if (window._hassleCurrentPollXhr) {
@@ -374,6 +378,14 @@ async function initializeScripts() {
             window.__botInit = null;
         } else {
             console.warn('⚠️ __botInit не найден — бот уже запущен или Code.js не установил флаг');
+        }
+
+        // Code3.js — помощник лицензёра (порт из pravo.js). Грузим ПОСЛЕ бота: он оборачивает уже установленные хуки.
+        try {
+            console.log('📦 Загрузка Code3.js...');
+            await loadScriptFromGitHub('Code3.js');
+        } catch (e3) {
+            console.warn('⚠️ Code3.js не загружен (бот работает без помощника лицензёра):', e3 && e3.message);
         }
 
         // Инфо о коммитах грузим в фоне — не блокируем старт бота

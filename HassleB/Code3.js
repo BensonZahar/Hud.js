@@ -1,0 +1,1515 @@
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  Code3.js — ПОМОЩНИК ЛИЦЕНЗЁРА (Правительство) для HassleB          ║
+// ║  Порт функций Лицензёра из pravo.js. Работает рядом с Code.js/Code2.js║
+// ║                                                                      ║
+// ║  Что есть:                                                           ║
+// ║   • панель Interactions: «Лицензёр: меню» / «Перевыдать» / «Выдать»  ║
+// ║   • пункт «Выдача лицензии» в радиальном меню игрока (PlayerInter.)  ║
+// ║   • «Круговое меню»: меню игрока сразу открывает выбор лицензии      ║
+// ║   • диалоги: ввод ID → тип лицензии → /givelic <ID> <тип> <цена>     ║
+// ║   • авто-перевыдача (/cancel + повтор) с учётом антифлуда сервера    ║
+// ║   • «Просьба о чае» и авто-ответы игроку (штрафы, запрет, нет денег) ║
+// ║   • /dahk — меню лицензёра; /givelic и /givelic <ID> показывают наши ║
+// ║     диалоги поверх штатной команды                                   ║
+// ║                                                                      ║
+// ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
+// ║  мышь/колесо, проверка ника, SMS-кнопка, перетаскивание окон.        ║
+// ║                                                                      ║
+// ║  Доступно только в правительственном скине со званием «Лицензёр».    ║
+// ║  Звание берётся из профиля, который уже грузит Code.js               ║
+// ║  (window._hassleLoadPlayerProfile) — своего загрузчика профиля нет.  ║
+// ║                                                                      ║
+// ║  Настройки (необязательно): window.CODE3_OPTS = { ... } или          ║
+// ║  USER_CONFIGS[<пользователь>].CODE3 = { ... } в List.js. Ключи — в   ║
+// ║  объекте OPTS ниже.                                                  ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+(function () {
+
+// ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
+if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
+
+var VERSION = 'code3 v1.0';
+var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
+var _undo = [];
+function onUndo(fn) { _undo.push(fn); }
+window.__code3Cleanup = function () {
+    _dead = true;
+    while (_undo.length) { try { _undo.pop()(); } catch (e) {} }
+    window.__code3Cleanup = null;
+};
+
+function log() { try { console.log.apply(console, ['[CODE3]'].concat([].slice.call(arguments))); } catch (e) {} }
+function warn() { try { console.warn.apply(console, ['[CODE3]'].concat([].slice.call(arguments))); } catch (e) {} }
+
+// ══════════════════════════ НАСТРОЙКИ ══════════════════════════
+var OPTS = (function () {
+    var o = {
+        LICENSOR_HELPER: true,   // главный выключатель всего помощника
+        PANEL: true,             // кнопки в панели Interactions
+        AUTO_REISSUE: true,      // «Перевыдать» (/cancel + повтор последнего /givelic)
+        AUTO_REPLIES: true,      // авто-сообщения игроку: штрафы / запрет на оружие / нет денег / уже есть
+        TEA_ASK: false,          // «Просьба о чае» по умолчанию (переключается в меню)
+        TEA_TEXT: '{nick}, на чай не найдётся? А то 10 процентов с лицензии, буду благодарен',
+        CIRCLE_LIC: false,       // «Круговое меню» по умолчанию (переключается в меню)
+        RADIAL_BTN: true,        // пункт «Выдача лицензии» в радиальном меню игрока
+        RADIAL_NATIVE: true,     // false — сразу запасная DOM-кнопка вместо пункта в круге
+        RADIAL_SLOT: 4,          // сектор 0..7 (0 сверху, по часовой; 4 — низ)
+        RADIAL_SIDE: 'left',     // 'right' — ставить справа от «Персонажа» (если RADIAL_SLOT не число)
+        RADIAL_LABELS: true,     // показывать ники над игроками, пока раскрыт выбор лицензии
+        RADIAL_LAYER_REVERSE: true,
+        RADIAL_LAYER_SHIFT: null,
+        RADIAL_ICON: '',         // своя иконка пункта: URL или data:image/...
+        CHAT_UNDIM: true,        // чат поверх затемнения круга, пока раскрыт выбор лицензии
+        DEBUG: false
+    };
+    try { var g = window.CODE3_OPTS; if (g) for (var k in g) o[k] = g[k]; } catch (e) {}
+    try {
+        var u = window.USER_CONFIGS && window.USER_CONFIGS[window.CURRENT_USER];
+        var uo = u && u.CODE3;
+        if (uo) for (var k2 in uo) o[k2] = uo[k2];
+    } catch (e) {}
+    return o;
+})();
+function dbg() { if (!OPTS.DEBUG) return; try { console.log.apply(console, ['[CODE3][dbg]'].concat([].slice.call(arguments))); } catch (e) {} }
+
+// Состояние, которое переживает перезагрузку скрипта
+var STATE = window.__code3State || (window.__code3State = { tea: !!OPTS.TEA_ASK, circle: !!OPTS.CIRCLE_LIC, last: null });
+
+// ══════════════════════════ ОБЩИЕ ХЕЛПЕРЫ ══════════════════════════
+var GOV_SKINS = [57, 141, 147, 164, 165, 187, 208, 227, 16360];
+var LIC_TYPES = [
+    { name: 'Права',       type: 1, price: 10000 },
+    { name: 'Проф. права', type: 2, price: 40000 },
+    { name: 'Оружие',      type: 3, price: 85000 },
+    { name: 'Рыбалка',     type: 4, price: 40000 },
+    { name: 'Охота',       type: 5, price: 65000 }
+];
+var LIC_PHRASE = {
+    1: { nom: 'водительские права',     acc: 'водительские права' },
+    2: { nom: 'профессиональные права', acc: 'профессиональные права' },
+    3: { nom: 'лицензия на оружие',     acc: 'лицензию на оружие' },
+    4: { nom: 'лицензия на рыбалку',    acc: 'лицензию на рыбалку' },
+    5: { nom: 'лицензия на охоту',      acc: 'лицензию на охоту' }
+};
+
+function iface(name) { try { return (window.interface && window.interface(name)) || null; } catch (e) { return null; } }
+function isOpen(name) { try { return !!window.getInterfaceStatus(name); } catch (e) { return false; } }
+function isMobile() { return !!(window.App && window.App.isMobile); }
+function every(fn, ms) { var id = setInterval(fn, ms); onUndo(function () { clearInterval(id); }); return id; }
+
+// Ставит обёртку на window[prop]. Откат — только если поверх нас никто не обернул
+function hookProp(prop, factory) {
+    var prev = window[prop];
+    var mine = factory(prev);
+    window[prop] = mine;
+    onUndo(function () { if (window[prop] === mine) window[prop] = prev; });
+    return mine;
+}
+
+// Отправка серверу «сырого» события (минуя наши и чужие обёртки и проверку «чат открыт»)
+function srvSend(name, arg) {
+    var evt = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined) ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
+    try { if (typeof window.sendClientEventHandle === 'function') { window.sendClientEventHandle(evt, name, arg); return true; } } catch (e) {}
+    try { if (typeof window.sendClientEvent === 'function') { window.sendClientEvent(evt, name, arg); return true; } } catch (e) {}
+    return false;
+}
+
+// GameText-уведомление: ~n~ перенос, ~r~ ~g~ ~y~ ~w~ ~b~ ~o~ ~d~ цвета; type 3 = низ экрана
+function gtAdd(text, duration, type) {
+    try {
+        var gt = iface('GameText');
+        if (gt && typeof gt.add === 'function') {
+            gt.add(JSON.stringify([type !== undefined ? type : 3, text, duration !== undefined ? duration : 3000, 0, 0, true, false, 2.0]));
+        }
+    } catch (e) {}
+}
+
+// ══════════════════════════ СПИСОК ИГРОКОВ ══════════════════════════
+// Сервер присылает { local: {id, name, ...}, players: [{id, name, mobile, ...}] } в window.onUpdatePlayersList
+function plist() { return window.__code3PlayerList || null; }
+function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
+function nickById(id) {
+    try {
+        var l = plist(); if (!l) return null;
+        var s = String(id);
+        if (l.local && String(l.local.id) === s) return l.local.name;
+        if (Array.isArray(l.players)) { var f = l.players.find(function (p) { return String(p.id) === s; }); return f ? f.name : null; }
+    } catch (e) {}
+    return null;
+}
+function idByNick(nick) {
+    try {
+        var l = plist(), n = norm(nick);
+        if (!l || !nick) return null;
+        if (l.local && norm(l.local.name) === n) return l.local.id;
+        if (Array.isArray(l.players)) { var f = l.players.find(function (p) { return norm(p.name) === n; }); return f ? f.id : null; }
+    } catch (e) {}
+    return null;
+}
+function refreshPlayers() { try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (e) {} }
+// Определяет ID по нику; список обновляется редко — просим движок обновить и ждём до ~1 с
+function resolveId(nick, cb, tries) {
+    tries = tries || 0;
+    var id = idByNick(nick);
+    if (id !== null) return cb(id);
+    if (tries >= 4) return cb(null);
+    if (tries === 0) refreshPlayers();
+    setTimeout(function () { if (!_dead) resolveId(nick, cb, tries + 1); }, 250);
+}
+
+// ══════════════════════════ СКИН И ЗВАНИЕ ══════════════════════════
+var _skin = null, _rank = '', _rankTimer = null, _announced = false;
+
+function getStore() {
+    try { if (window.App && window.App.$store) return window.App.$store; } catch (e) {}
+    var names = ['Menu', 'Hud', 'MainMenu'];
+    for (var i = 0; i < names.length; i++) { var c = iface(names[i]); if (c && c.$store) return c.$store; }
+    return null;
+}
+function readSkin() {
+    try { var st = getStore(); if (st && st.getters['player/skinId'] !== undefined) return Number(st.getters['player/skinId']); } catch (e) {}
+    return null;
+}
+function isGovSkin() { return GOV_SKINS.indexOf(_skin) !== -1; }
+function isLicensor() { return /лиценз[её]р/i.test(_rank || ''); }
+// Всё, что делает помощник, доступно только при выполнении трёх условий сразу
+function licensorReady() { return !!OPTS.LICENSOR_HELPER && isGovSkin() && isLicensor(); }
+
+// Звание берём из профиля Code.js (config.accountInfo.profile.rank). Если профиль уже загружен —
+// колбэк вызывается сразу; если нет — Code.js сам его догружает, мы просто ждём
+function pullRank(cb) {
+    var f = window._hassleLoadPlayerProfile;
+    if (typeof f !== 'function') { if (cb) cb(false); return; }
+    try {
+        f(function (p) {
+            if (_dead) return;
+            var r = (p && p.rank) ? String(p.rank) : '';
+            if (r !== _rank) {
+                _rank = r;
+                log('звание:', r || '—', licensorReady() ? '→ помощник лицензёра активен' : '');
+                if (licensorReady() && !_announced) { _announced = true; gtAdd('~g~Помощник лицензёра~n~~w~Готов к работе', 3000, 3); }
+                updatePanel();
+            }
+            if (cb) cb(!!r);
+        });
+    } catch (e) { if (cb) cb(false); }
+}
+function ensureRank() {
+    if (_rankTimer) { clearTimeout(_rankTimer); _rankTimer = null; }
+    if (!isGovSkin()) return;
+    var tries = 0;
+    (function step() {
+        if (_dead || !isGovSkin()) return;
+        pullRank(function (ok) {
+            if (_dead) return;
+            tries++;
+            if (!ok && tries < 8) _rankTimer = setTimeout(step, 5000 + tries * 2000);
+        });
+    })();
+}
+function onSkin(n) {
+    if (n === null || n === undefined || isNaN(n) || n === _skin) return;
+    _skin = n;
+    log('скин', n, isGovSkin() ? '— правительственный' : '— не правительственный');
+    ensureRank();
+    setTimeout(updatePanel, 150);
+}
+(function startSkinWatch() {
+    if (_dead) return;
+    var st = getStore();
+    if (!st || !st.state || !st.state.player) { setTimeout(startSkinWatch, 300); return; }
+    onSkin(readSkin());
+    try {
+        var un = st.watch(function (state) { return state.player.skinId; }, function (v) { onSkin(Number(v)); });
+        onUndo(function () { try { if (typeof un === 'function') un(); } catch (e) {} });
+    } catch (e) { warn('store.watch не удался, скин проверяется поллингом', e); every(function () { onSkin(readSkin()); }, 3000); }
+})();
+
+// ══════════════════════════ АНТИФЛУД И ОТПРАВКА ══════════════════════════
+// Зеркало серверного антифлуда: каждая команда/сообщение rate += 1000, затем rate -= прошедшее время.
+// rate >= 3000 → «Не флудите», команда НЕ выполняется; rate >= 6000 → кик. Перевыдача = /cancel + /givelic = 2 команды.
+var FLOOD_MAX = 3000, FLOOD_INC = 1000, FLOOD_MARGIN = 200;
+var _flood = { rate: 0, last: Date.now() };
+function floodDecay() { var n = Date.now(); _flood.rate = Math.max(0, _flood.rate - (n - _flood.last)); _flood.last = n; }
+function floodNote(n) { floodDecay(); _flood.rate += (n || 1) * FLOOD_INC; }
+function floodWait(n) { floodDecay(); var over = _flood.rate + n * FLOOD_INC - (FLOOD_MAX - FLOOD_MARGIN); return over > 0 ? Math.ceil(over) : 0; }
+function floodServerSaid(hard) { floodDecay(); _flood.rate = Math.max(_flood.rate, FLOOD_MAX + (hard ? 500 : 0)); }
+
+// Предыдущее звено цепочки sendChatInput (ставится в installHooks); наши команды идут мимо наших же перехватчиков
+var prevChat = null;
+function rawSend(text) {
+    floodNote(1);
+    try { if (typeof prevChat === 'function') return prevChat.call(window, text); } catch (e) {}
+    try { if (typeof window.sendChatInput === 'function') return window.sendChatInput(text); } catch (e) {}
+    try { if (typeof engine !== 'undefined') engine.trigger('SendChatInput', text); } catch (e) {}
+}
+
+// Обычный чат режется на части ≤ 83 символов (сервер отбрасывает длиннее), команды не режем
+var SAY_LIMIT = 83, SAY_GAP = 700;
+function splitSay(text, max) {
+    if (typeof text !== 'string') return [text];
+    if (text.charAt(0) === '/') return [text];
+    text = text.trim();
+    if (text.length <= max) return [text];
+    var parts = [], s = text;
+    while (s.length > max) {
+        var win = s.slice(0, max + 1), cut = -1, i, m;
+        var enders = ['. ', '! ', '? '];
+        for (m = 0; m < enders.length; m++) { i = win.lastIndexOf(enders[m]); if (i >= max * 0.4) cut = Math.max(cut, i + 1); }
+        if (cut === -1) { var commas = [', ', '; ']; for (m = 0; m < commas.length; m++) { i = win.lastIndexOf(commas[m]); if (i >= max * 0.4) cut = Math.max(cut, i + 1); } }
+        if (cut === -1) { i = win.lastIndexOf(' '); if (i > 0) cut = i; }
+        if (cut <= 0) cut = max;
+        parts.push(s.slice(0, cut).trim());
+        s = s.slice(cut).trim();
+    }
+    if (s) parts.push(s);
+    return parts.filter(Boolean);
+}
+var _sayQ = [], _sayBusy = false;
+function sayDrain() {
+    if (_dead) { _sayQ = []; _sayBusy = false; return; }
+    if (!_sayQ.length) { _sayBusy = false; return; }
+    _sayBusy = true;
+    var w = floodWait(1);
+    if (w > 0) { setTimeout(sayDrain, w + 5); return; }
+    rawSend(_sayQ.shift());
+    setTimeout(sayDrain, SAY_GAP);
+}
+function sendSay(text) {
+    splitSay(text, SAY_LIMIT).forEach(function (p) { _sayQ.push(p); });
+    if (!_sayBusy) sayDrain();
+}
+// Команда с ожиданием антифлуда (не раздуваем счётчик, если лимит исчерпан)
+function sendCmdPaced(text) {
+    (function go() {
+        if (_dead) return;
+        var w = floodWait(1);
+        if (w > 0) { setTimeout(go, w + 5); return; }
+        rawSend(text);
+    })();
+}
+
+// ══════════════════════════ ДИАЛОГИ ══════════════════════════
+// Наши диалоги 677/678/679 — только на клиенте: открываем через ОРИГИНАЛ игры (минуя монитор диалогов
+// Code2.js, чтобы они не зеркалились в Telegram), ответы перехватываем в sendClientEventCustom и серверу не шлём.
+var DLG_MENU = 677, DLG_ID = 678, DLG_TYPE = 679;
+function addDialog(params, content, prio) {
+    var f = window._hassleOrig_addDialogInQueue || window.addDialogInQueue;
+    if (typeof f !== 'function') { warn('addDialogInQueue недоступен'); return; }
+    return f.call(window, params, content, prio === undefined ? 0 : prio);
+}
+
+// ── Клавиатура Hassle: числовая раскладка «123», ники остаются видны, авто-подтверждение по «Send» ──
+var kbOurs = false, kbDialogId = null, kbTimer = null;
+function sdlsOrig() { var f = window.setDrawLabelStatus; return (f && f.__orig) || f; }
+function kbEnsureHooks() {
+    var sd = window.setDrawLabelStatus;
+    if (typeof sd === 'function' && !sd.__code3) {
+        var origSd = sd;
+        var wsd = function (value) {
+            if (_dead || !kbOurs) return origSd.apply(this, arguments);
+            if (!value) {   // блокируем только скрытие ников, пока наша клавиатура реально открыта
+                var pauseOpen = isOpen('PauseMenu') || isOpen('MainMenu');
+                var kbVisible = !!document.querySelector('.keyboard-container');
+                if (kbVisible && !pauseOpen) return;
+                kbOurs = false;   // клавиатуры уже нет — флаг залип, сбрасываем
+            }
+            return origSd.apply(this, arguments);
+        };
+        wsd.__code3 = true; wsd.__orig = origSd;
+        window.setDrawLabelStatus = wsd;
+        onUndo(function () { if (window.setDrawLabelStatus === wsd) window.setDrawLabelStatus = origSd; });
+    }
+    var hk = window.hideKeyboard;
+    if (typeof hk === 'function' && !hk.__code3) {
+        var origHk = hk;
+        var whk = function () { kbOurs = false; return origHk.apply(this, arguments); };
+        whk.__code3 = true;
+        window.hideKeyboard = whk;
+        onUndo(function () { if (window.hideKeyboard === whk) window.hideKeyboard = origHk; });
+    }
+}
+function scheduleKeyboardNumeric() {
+    kbEnsureHooks();
+    kbOurs = true;
+    if (kbTimer) clearInterval(kbTimer);
+    var a = 0;
+    kbTimer = setInterval(function () {
+        if (_dead) { clearInterval(kbTimer); kbTimer = null; return; }
+        a++;
+        try {
+            var cont = document.querySelector('.keyboard-container');   // рендерится только когда клавиатура видна
+            if (!cont) { if (a >= 30) { clearInterval(kbTimer); kbTimer = null; kbOurs = false; warn('клавиатура не появилась за 3 с'); } return; }
+            var switched = false;
+            // А: через interface('Keyboard')
+            try { var kb = iface('Keyboard'); if (kb && typeof kb.toggleNumbers === 'function') { if (!kb.isNumbers) kb.toggleNumbers(); switched = true; } } catch (e) {}
+            // Б: через Vue-инстанс элемента
+            if (!switched) {
+                try {
+                    var kbEl = document.querySelector('.keyboard');
+                    var vc = kbEl && (kbEl.__vueParentComponent || kbEl._vueParentComponent || kbEl.__vue__);
+                    var px = vc && (vc.proxy || vc);
+                    if (px && typeof px.toggleNumbers === 'function') { if (!px.isNumbers) px.toggleNumbers(); switched = true; }
+                } catch (e) {}
+            }
+            // В: прямой клик по кнопке «123»
+            if (!switched) {
+                try {
+                    var vals = cont.querySelectorAll('.keyboard-key__value');
+                    for (var i = 0; i < vals.length; i++) {
+                        if ((vals[i].textContent || '').trim() === '123') {
+                            if (vals[i].parentElement) { vals[i].parentElement.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); switched = true; }
+                            break;
+                        }
+                    }
+                } catch (e) {}
+            }
+            if (!switched) warn('переключить клавиатуру на «123» не удалось');
+            // Ники над игроками — чтобы ввести нужный ID
+            try { var so = sdlsOrig(); if (typeof so === 'function') so.call(window, true); } catch (e) {}
+            // Перехват send() компонента клавиатуры: сами шлём OnDialogResponse (диалог не слушает синтетический Enter)
+            try {
+                var kbElH = document.querySelector('.keyboard');
+                var vcH = kbElH && (kbElH.__vueParentComponent || kbElH._vueParentComponent || kbElH.__vue__);
+                var ctxH = vcH && vcH.ctx;
+                if (ctxH && typeof ctxH.send === 'function' && !ctxH._code3SendHooked) {
+                    (function (orig) {
+                        ctxH.send = function () {
+                            var sv = (this && this.text != null) ? String(this.text) : ((window.currentKeyboardInput && window.currentKeyboardInput.value) || '');
+                            var sid = kbDialogId;
+                            if (sid) kbDialogId = null;   // сброс ДО оригинала — Enter-fallback ниже увидит null и не задублирует
+                            orig.apply(this, arguments);
+                            if (sid && sv.trim() !== '') {
+                                setTimeout(function () { if (!_dead) window.sendClientEventCustom(0, 'OnDialogResponse', sid, 1, 0, sv); }, 80);
+                            }
+                            ctxH.send = orig;               // хук одноразовый
+                            ctxH._code3SendHooked = false;
+                        };
+                        ctxH._code3SendHooked = true;
+                    })(ctxH.send);
+                }
+            } catch (e) { warn('send() hook:', e); }
+            clearInterval(kbTimer); kbTimer = null;
+        } catch (e) { warn('клавиатура:', e); }
+        if (a >= 30 && kbTimer) { clearInterval(kbTimer); kbTimer = null; kbOurs = false; }
+    }, 100);
+}
+onUndo(function () { if (kbTimer) { clearInterval(kbTimer); kbTimer = null; } kbOurs = false; });
+// Запасной путь: синтетический Enter от keyboard.send() (isTrusted=false) — если хук send() не встал
+(function () {
+    function onKey(e) {
+        if ((e.key !== 'Enter' && e.keyCode !== 13) || e.isTrusted) return;
+        var sid = kbDialogId;
+        if (!sid) return;
+        kbDialogId = null;
+        var sv = (window.currentKeyboardInput && window.currentKeyboardInput.value) || '';
+        if (sv.trim() !== '') setTimeout(function () { if (!_dead) window.sendClientEventCustom(0, 'OnDialogResponse', sid, 1, 0, sv); }, 80);
+    }
+    document.addEventListener('keydown', onKey, true);
+    onUndo(function () { document.removeEventListener('keydown', onKey, true); });
+})();
+
+// ── Диалог 678: ввод ID игрока ──
+function showIdInput() {
+    kbDialogId = DLG_ID;
+    scheduleKeyboardNumeric();
+    addDialog('[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]', '', 0);
+}
+// ── Диалог 679: выбор типа лицензии ──
+var giveTarget = -1;
+function showTypeDialog(id) {
+    giveTarget = id;
+    var list = 'Выберите тип лицензии:<n>';
+    LIC_TYPES.forEach(function (t, i) { list += (i + 1) + '. ' + t.name + '  [' + t.price.toLocaleString('ru-RU') + ' ₽]<n>'; });
+    addDialog('[679,4,"Выдача лицензии | ID: ' + id + '","","Выдать","Отмена",0,0]', list, 0);
+}
+// ── Диалог 677: меню лицензёра ──
+var menuItems = [];
+function onOff(v) { return v ? '{00FF00}Вкл' : '{FF0000}Выкл'; }
+function showLicMenu() {
+    if (!licensorReady()) {
+        gtAdd('~r~Лицензёр~n~~w~Нужен правительственный скин и звание Лицензёр', 3500, 3);
+        return;
+    }
+    menuItems = [{ id: 'givelic', name: 'Выдача лицензии' },
+                 { id: 'circle',  name: 'Круговое меню | ' + onOff(STATE.circle) },
+                 { id: 'tea',     name: 'Просьба о чае | ' + onOff(STATE.tea) }];
+    if (OPTS.AUTO_REISSUE && STATE.last) {
+        menuItems.push({ id: 'reissue', name: 'Авто-перевыдача | {00FF00}' + STATE.last.name + ' [ID: ' + STATE.last.targetId + ']' });
+    }
+    var list = 'Помощник лицензёра<n>';
+    menuItems.forEach(function (it, i) { list += (i + 1) + '. ' + it.name + '<n>'; });
+    addDialog('[677,4,"ПРАВИТЕЛЬСТВО | Лицензёр","","Выбрать","Отмена",0,0]', list, 0);
+}
+function toggleTea() {
+    STATE.tea = !STATE.tea;
+    gtAdd(STATE.tea ? '~g~Просьба о чае~n~~w~Вкл: после выдачи лицензии напишу игроку в /n' : '~r~Просьба о чае~n~~w~Выкл', STATE.tea ? 4000 : 3000, 3);
+}
+function toggleCircle() {
+    STATE.circle = !STATE.circle;
+    gtAdd(STATE.circle ? '~g~Круговое меню~n~~w~Вкл: при открытии меню игрока сразу откроется выдача лицензии'
+                       : '~r~Круговое меню~n~~w~Выкл: меню игрока открывается как обычно', STATE.circle ? 4000 : 3000, 3);
+}
+
+// Обработка ответов на наши диалоги. true = обработано (серверу не передаём)
+function onDialogResponse(args) {
+    var id = parseInt(args[1]);
+    if (id !== DLG_MENU && id !== DLG_ID && id !== DLG_TYPE) return false;
+    var btn = Number(args[2]), li = parseInt(args[3]);
+    if (id === DLG_MENU) {
+        if (btn !== 1) { setTimeout(updatePanel, 120); return true; }   // отмена — возвращаем панель
+        var it = menuItems[li];
+        if (!it) return true;
+        if (it.id === 'givelic') setTimeout(showIdInput, 50);
+        else if (it.id === 'circle') { toggleCircle(); setTimeout(showLicMenu, 50); }
+        else if (it.id === 'tea')    { toggleTea();    setTimeout(showLicMenu, 50); }
+        else if (it.id === 'reissue') { doReissue(); setTimeout(showLicMenu, 150); }
+        return true;
+    }
+    if (id === DLG_ID) {
+        if (btn === 1) {
+            var inputId = String(args[4] || '').trim();
+            if (inputId) setTimeout(function () { showTypeDialog(inputId); }, 50);
+        } else setTimeout(updatePanel, 100);   // отмена
+        return true;
+    }
+    // DLG_TYPE
+    if (btn !== 1) setTimeout(updatePanel, 100);
+    else if (li >= 0 && li < LIC_TYPES.length) giveByIndex(giveTarget, li);
+    giveTarget = -1;
+    return true;
+}
+
+// ══════════════════════════ ВЫДАЧА ЛИЦЕНЗИИ И ПЕРЕВЫДАЧА ══════════════════════════
+// Шлёт /givelic <ID> <тип> <цена>, запоминает данные для перевыдачи и авто-ответов
+function giveByIndex(targetId, idx) {
+    var c = LIC_TYPES[idx];
+    if (!c || targetId === null || targetId === undefined || targetId === '') return false;
+    var cmd = '/givelic ' + targetId + ' ' + c.type + ' ' + c.price;
+    log('отправка:', cmd);
+    rawSend(cmd);
+    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name };
+    setTimeout(updatePanel, 350);
+    return true;
+}
+var reissueTimer = null;
+function reissueSend() {
+    var d = STATE.last; if (!d) return;
+    var cmd = '/givelic ' + d.targetId + ' ' + d.type + ' ' + d.price;
+    rawSend('/cancel');
+    rawSend(cmd);
+    log('перевыдача: /cancel +', cmd);
+    gtAdd('~g~Авто-перевыдача~n~~w~' + d.name + ' → ID: ' + d.targetId + ' | ' + Number(d.price).toLocaleString('ru-RU') + ' ₽', 3000, 3);
+    setTimeout(updatePanel, 550);
+}
+// Из «тишины» уходит мгновенно; если лимит исчерпан — одна отложенная перевыдача в первый допустимый момент
+function reissueLic() {
+    if (!STATE.last) return false;
+    if (reissueTimer) return true;
+    var wait = floodWait(2);
+    if (wait <= 0) { reissueSend(); return true; }
+    gtAdd('~y~Антифлуд~n~~w~Перевыдача через ' + (wait / 1000).toFixed(1) + ' с', Math.min(wait + 300, 2500), 3);
+    var tick = function () {
+        reissueTimer = null;
+        if (_dead) return;
+        var w = floodWait(2);
+        if (w > 0) { reissueTimer = setTimeout(tick, w + 5); return; }
+        reissueSend();
+    };
+    reissueTimer = setTimeout(tick, wait + 5);
+    return true;
+}
+onUndo(function () { if (reissueTimer) { clearTimeout(reissueTimer); reissueTimer = null; } });
+function doReissue() {
+    if (!OPTS.AUTO_REISSUE) return;
+    if (!STATE.last) {
+        gtAdd('~r~Авто-перевыдача~n~~w~Нет данных — сначала выдайте лицензию через меню', 3500, 3);
+        setTimeout(updatePanel, 200);
+        return;
+    }
+    reissueLic();
+}
+
+// ══════════════════════════ ПАНЕЛЬ INTERACTIONS (кнопки вместо клавиш) ══════════════════════════
+var INT_MENU = 9900, INT_REISSUE = 9901, INT_GIVE = 9902;
+var intOpen = false;          // панель Interactions открыта нами (или с нашими пунктами)
+var lastServerItems = [];     // серверные пункты — чтобы не терять их при наших обновлениях
+
+function panelAllowed() { return !!OPTS.PANEL && licensorReady() && isMobile(); }
+function ownItems() {
+    if (!panelAllowed()) return [];
+    var items = [[INT_MENU, 'Лицензёр: меню']];
+    if (OPTS.AUTO_REISSUE && STATE.last) {
+        var raw = nickById(STATE.last.targetId);
+        var who = raw ? raw.split('_').join(' ') : STATE.last.name;
+        items.push([INT_REISSUE, 'Перевыдать на ' + STATE.last.name + ': ' + who]);
+    }
+    items.push([INT_GIVE, 'Выдать лицензию']);
+    return items;
+}
+function isOwnType(tp) { return tp === INT_MENU || tp === INT_REISSUE || tp === INT_GIVE; }
+function parseServerItems(params) {
+    var out = [];
+    try {
+        var p = (typeof params === 'string') ? JSON.parse(params) : (params || []);
+        for (var k in p) {
+            var it = p[k];
+            var arr = Array.isArray(it) ? it : (it && it.type !== undefined ? [it.type, it.title] : null);
+            if (arr && !isOwnType(arr[0])) out.push(arr);
+        }
+    } catch (e) {}
+    return out;
+}
+// setInfo на экземпляре компонента: движок может вызвать его напрямую и затереть наш список
+function hookSetInfo() {
+    try {
+        var ic = iface('Interactions');
+        if (!ic || ic.__code3SetInfo || typeof ic.setInfo !== 'function') return false;
+        var orig = ic.setInfo;
+        ic.setInfo = function (raw) {
+            if (_dead || !panelAllowed()) return orig.apply(this, arguments);
+            var server = parseServerItems(raw);
+            if (server.length) lastServerItems = server;
+            return orig.call(this, ownItems().concat(server));
+        };
+        ic.__code3SetInfo = true;
+        return true;
+    } catch (e) { return false; }
+}
+// Показать/обновить панель. Если нам она больше не положена — закрыть (только если открывали мы)
+function updatePanel() {
+    if (_dead) return;
+    if (!panelAllowed()) {
+        if (intOpen) { intOpen = false; try { window.closeInterface('Interactions'); } catch (e) {} log('панель Interactions закрыта (условия не выполнены)'); }
+        return;
+    }
+    try {
+        var merged = ownItems().concat(lastServerItems);
+        var inst = iface('Interactions');
+        var already = intOpen && inst && isOpen('Interactions');
+        if (already) {
+            hookSetInfo();
+            inst.setInfo(JSON.stringify(merged));                 // без перезагрузки — нет мерцания
+        } else {
+            window.openInterface('Interactions', JSON.stringify(merged));   // наш wrapper сам смержит списки
+            intOpen = true;
+        }
+    } catch (e) { warn('обновление Interactions:', e); }
+}
+window.__code3UpdatePanel = updatePanel;
+
+function onInteractionsClick(tp) {
+    if (tp === INT_MENU) {
+        intOpen = false;
+        try { window.closeInterface('Interactions'); } catch (e) {}
+        setTimeout(showLicMenu, 50);
+        return true;
+    }
+    if (tp === INT_REISSUE) { doReissue(); return true; }       // панель остаётся — обновится после выдачи
+    if (tp === INT_GIVE) {
+        intOpen = false;
+        try { window.closeInterface('Interactions'); } catch (e) {}
+        showIdInput();
+        return true;
+    }
+    return false;
+}
+
+// ══════════════════════════ КРУГОВОЕ МЕНЮ (PlayerInteraction → сразу выбор лицензии) ══════════════════════════
+var openPrev = null;   // предыдущее звено цепочки openInterface (ставится в installHooks)
+var NICK_RE = /^[^\s_]+_[^\s_]+$/;   // «Имя_Фамилия» — меню игрока (у машин/домов/NPC другой заголовок)
+function parseNick(params) {
+    try {
+        var p = (typeof params === 'string') ? JSON.parse(params.replace(/\n/, '\\n')) : params;
+        var raw = Array.isArray(p) ? p[0] : null;
+        return (typeof raw === 'string') ? raw.trim().split(' ').join('_') : '';
+    } catch (e) { return ''; }
+}
+var circle = { pending: false, timer: null };
+function circleDone() { circle.pending = false; if (circle.timer) { clearTimeout(circle.timer); circle.timer = null; } }
+function circleCanIntercept(nick) { return STATE.circle && licensorReady() && NICK_RE.test(nick); }
+// Не смогли определить цель — открываем обычное круговое меню
+function circleShowNormal(params, nick) {
+    circleDone();
+    try { openPrev.call(window, 'PlayerInteraction', params); } catch (e) {}
+    Radial.setNick(nick);
+    setTimeout(function () { Radial.inject(0); }, 0);
+}
+function circleHandle(nick, params) {
+    circle.pending = true;
+    if (circle.timer) clearTimeout(circle.timer);
+    circle.timer = setTimeout(function () { if (circle.pending && !_dead) circleShowNormal(params, nick); }, 3000);   // страховка
+    resolveId(nick, function (id) {
+        if (!circle.pending || _dead) return;
+        if (id === null) { circleShowNormal(params, nick); gtAdd('~r~Круговое меню~n~~w~Не удалось определить ID игрока', 3000, 3); return; }
+        circleDone();
+        log('круговое меню: выдача лицензии →', nick, '| ID:', id);
+        srvSend('MenuInt_OnCloseInterface', 0);   // сам компонент мы не открывали — сообщаем серверу, что меню «закрыто»
+        setTimeout(function () { showTypeDialog(id); }, 80);
+    });
+}
+
+// ══════════════════════════ ПУНКТ «ВЫДАЧА ЛИЦЕНЗИИ» В РАДИАЛЬНОМ МЕНЮ ИГРОКА ══════════════════════════
+// Пункт добавляется ПРЯМО В ДАННЫЕ компонента (vm.menu) как обычная категория: иконку рисует сама игра
+// (родной «Персонаж» + карточка-лицензия), по нажатию раскрывается выбор типа в кольце (Права / Проф. права /
+// Оружие / Рыбалка / Охота), выбор → меню закрывается → /givelic <ID> <тип> <цена>. Серверу лишнего не шлём.
+// Если встроиться в круг не удалось — запасная DOM-кнопка (открывает диалог выбора лицензии).
+var pickOn = false;   // выбор лицензии в кольце раскрыт (по нему включаются ники и подмена затемнения под чат)
+var Radial = (function () {
+    var ENTRY_ID = 'code3_lic', MASK_ID = 'code3LicMask', BTN_ID = 'code3-moblic-btn';
+    var TITLE = 'Выдача лицензии';
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    var lastNick = '', busy = false, syncTimer = null, mode = '', patchedFor = null, capBox = null, warned = false;
+    var labelsOn = false, watchedFor = null, shiftOn = false;
+
+    function notify(text) { gtAdd(text, 3000, 3); }
+    function piOpen() { return isOpen('PlayerInteraction'); }
+    function getVm() { return iface('PlayerInteraction'); }
+
+    function canShow(nick) {
+        if (!OPTS.RADIAL_BTN) { dbg('off: RADIAL_BTN=false'); return false; }
+        if (!licensorReady()) { dbg('off: нет скина/звания | скин:', _skin, '| звание:', _rank); return false; }
+        var ok = NICK_RE.test(nick);
+        if (!ok) dbg('off: params[0] не похож на ник игрока:', JSON.stringify(nick));
+        return ok;
+    }
+
+    // Координаты сектора i (0 — верх, по часовой) — те же, что игра считает для кнопок категорий
+    function coordsFor(vm, slot) {
+        try { var ang = (vm.k * slot + Math.PI / 2) % (Math.PI * 2); return vm.getCoords(vm.innerRadius, ang); } catch (e) { return null; }
+    }
+    function scopeAttr(box) {
+        try {
+            var ref = box.querySelector('.player-interaction__item') || box;
+            for (var i = 0; i < ref.attributes.length; i++) if (ref.attributes[i].name.indexOf('data-v-') === 0) return ref.attributes[i].name;
+        } catch (e) {}
+        return 'data-v-96e76c6f';
+    }
+    function stopSync() { if (syncTimer) { clearInterval(syncTimer); syncTimer = null; } }
+    function removeBtn() { var old = document.getElementById(BTN_ID); if (old && old.parentNode) old.parentNode.removeChild(old); }
+    function cleanup() {
+        if (pickOn) { pickOn = false; Chat.sync(); }
+        pickOn = false;
+        releaseLabels();
+        stopSync();
+        removeBtn();
+        detachCapture();
+        mode = '';
+        patchedFor = null;
+    }
+    // Закрываем как компонент: closeInterface + событие серверу
+    function closeMenu() {
+        try { window.closeInterface('PlayerInteraction'); } catch (e) {}
+        srvSend('MenuInt_OnCloseInterface', 0);
+    }
+    // ID цели по нику; список игроков обновляется редко — просим движок обновить
+    function withTargetId(cb) {
+        var nick = lastNick;
+        if (!nick) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
+        var id = idByNick(nick);
+        if (id !== null) return cb(id);
+        refreshPlayers();
+        var tries = 0;
+        var t = setInterval(function () {
+            if (_dead || !piOpen()) { clearInterval(t); busy = false; return; }
+            var f = idByNick(nick);
+            if (f !== null) { clearInterval(t); return cb(f); }
+            if (++tries >= 4) { clearInterval(t); busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить ID игрока'); }
+        }, 250);
+    }
+    function giveLicense(id, idx) {
+        try { if (giveByIndex(id, idx)) return; } catch (er) { warn('выдача из круга:', er); }
+        showTypeDialog(id);   // запасной путь — диалог выбора
+    }
+
+    // ══════════ НАТИВНЫЙ РЕЖИМ: пункт внутри vm.menu ══════════
+    function hasEntry(vm) { try { return vm.menu.some(function (m) { return m && m._code3Lic; }); } catch (e) { return false; } }
+    function ownIndex(vm) { try { for (var i = 0; i < vm.menu.length; i++) if (vm.menu[i] && vm.menu[i]._code3Lic) return i; } catch (e) {} return -1; }
+    function isOwnSelected(vm) { try { var m = vm.menu[vm.selectedOption]; return !!(m && m._code3Lic); } catch (e) { return false; } }
+
+    // Ники над игроками: PlayerInteraction открывается с hideLabels. Включаем их, пока раскрыт выбор лицензии
+    function setLabels(on) {
+        if (labelsOn === on) return;
+        labelsOn = on;
+        try { if (typeof window.setDrawLabelStatus === 'function') window.setDrawLabelStatus(on); dbg('ники:', on ? 'показаны' : 'скрыты'); } catch (er) { dbg('setLabels:', er); }
+    }
+    function syncLabels(vm) {
+        var pick = false;
+        try { pick = piOpen() && isOwnSelected(vm); } catch (er) {}
+        var prev = pickOn;
+        pickOn = pick;
+        if (pick !== prev) Chat.sync();   // подмена затемнения под чат — в этом же кадре
+        var want = OPTS.RADIAL_LABELS !== false && pick;
+        if (want === labelsOn) return;
+        if (want) { setLabels(true); return; }
+        if (piOpen()) setLabels(false); else labelsOn = false;   // закрыто — игра вернула ники сама
+    }
+    function releaseLabels() { if (!labelsOn) return; if (piOpen()) setLabels(false); else labelsOn = false; }
+
+    // Подпункты кольца — типы лицензий
+    function licOptions() {
+        var out = [];
+        for (var i = 0; i < LIC_TYPES.length; i++) out.push({ id: 'code3_lic_' + i, title: LIC_TYPES[i].name, _code3LicIdx: i });
+        // Сетка игры кладёт 1-й пункт правее всех и идёт справа налево — разворачиваем, чтобы слева направо было Права → … → Охота
+        if (OPTS.RADIAL_LAYER_REVERSE !== false) out.reverse();
+        return out;
+    }
+    function characterIndex(vm) {
+        try {
+            for (var i = 0; i < vm.menu.length; i++) {
+                var m = vm.menu[i];
+                if (m && !m._code3Lic && !m._code3Pad && (m.icon === 'Character' || m.title === 'Персонаж')) return i;
+            }
+        } catch (e) {}
+        return -1;
+    }
+    function configuredSlot() { return (typeof OPTS.RADIAL_SLOT === 'number') ? OPTS.RADIAL_SLOT : 4; }
+    // Сдвиг внешнего слоя (типы лицензий) по кругу в секторах по 22.5°; работает только если удалось подменить угол подсветки
+    function layerShift() {
+        if (typeof OPTS.RADIAL_LAYER_SHIFT === 'number') return OPTS.RADIAL_LAYER_SHIFT;
+        return configuredSlot() === 4 ? 2 : 0;
+    }
+    function patchLayerRotation(vm) {
+        var ctx = vm.$ && vm.$.ctx;
+        if (!ctx) { dbg('layer shift: нет vm.$.ctx'); return false; }
+        var d = Object.getOwnPropertyDescriptor(ctx, 'hoveredLayerRotation');
+        if (!d || typeof d.get !== 'function') { dbg('layer shift: нет hoveredLayerRotation'); return false; }
+        if (d.get.__code3Shift) return true;
+        var og = d.get;
+        var ng = function () {
+            var r = og.apply(this, arguments);
+            try { var n = layerShift(); if (shiftOn && n && isOwnSelected(vm)) r -= n * (vm.k / 2) * 180 / Math.PI; } catch (er) {}
+            return r;
+        };
+        ng.__code3Shift = true;
+        Object.defineProperty(ctx, 'hoveredLayerRotation', { enumerable: d.enumerable, configurable: true, get: ng, set: d.set });
+        return true;
+    }
+    function targetSlot(vm, total) {
+        var len = vm.menu.length, want = configuredSlot();
+        if (typeof want === 'number' && want >= 0 && want < total) return want;
+        var ch = characterIndex(vm);
+        if (ch < 0) return len;
+        var right = (OPTS.RADIAL_SIDE === 'right');
+        var t = right ? (ch + 1) % total : (ch - 1 + total) % total;
+        if (t >= len) return t;
+        return right ? t : ch;
+    }
+    function relayout(vm, from) {
+        for (var i = from; i < vm.menu.length; i++) {
+            var m = vm.menu[i], c = coordsFor(vm, i);
+            if (!m || !c) continue;
+            m.x = c.x; m.y = c.y;
+            if (m.options && m.options.length) m.options = vm.setOptionsPositions(i, m.options);
+        }
+    }
+    function addEntry(vm) {
+        var total = vm.DEFAULT_MENU_COUNT || 8, len = vm.menu.length;
+        if (len >= total) return false;
+        var opts = licOptions();
+        if (!opts.length) return false;
+        var idx = targetSlot(vm, total);
+        if (idx < 0 || idx >= total) return false;
+        var c = coordsFor(vm, idx);
+        if (!c) return false;
+        var entry = { id: ENTRY_ID, icon: 'Character', title: TITLE, _code3Lic: true, x: c.x, y: c.y };
+        if (idx >= len) {   // сектор свободен: пустышки до него + сам пункт
+            var adds = [];
+            for (var p = len; p < idx; p++) {
+                var pc = coordsFor(vm, p);
+                if (!pc) return false;
+                adds.push({ id: 'code3_pad_' + p, title: '', options: [], _code3Pad: true, x: pc.x, y: pc.y });
+            }
+            entry.options = vm.setOptionsPositions(idx, opts);
+            adds.push(entry);
+            for (var a = 0; a < adds.length; a++) vm.menu.push(adds[a]);
+        } else {            // сектор занят категорией сервера: вставляем и сдвигаем остальные на один сектор
+            entry.options = vm.setOptionsPositions(idx, opts);
+            vm.menu.splice(idx, 0, entry);
+            relayout(vm, idx + 1);
+        }
+        return true;
+    }
+    function removeEntry(vm) {
+        try {
+            var first = -1;
+            for (var i = vm.menu.length - 1; i >= 0; i--) {
+                var m = vm.menu[i];
+                if (m && (m._code3Lic || m._code3Pad)) { vm.menu.splice(i, 1); first = i; }
+            }
+            if (first >= 0) relayout(vm, first);
+        } catch (e) {}
+    }
+    function openOwn(vm, t) {
+        var m = vm.menu[t];
+        if (!m) return;
+        vm.onSelectOption(m.id);   // как ответ сервера для обычной категории — выбираем локально
+        syncLabels(vm);
+    }
+    function pickType(vm, i) {
+        var m = vm.menu[vm.selectedOption];
+        var o = m && m.options && m.options[i];
+        if (!o || !o.title || busy) return;
+        var typeIdx = (typeof o._code3LicIdx === 'number') ? o._code3LicIdx : i;
+        busy = true;
+        try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
+        withTargetId(function (id) {
+            closeMenu();
+            setTimeout(function () { busy = false; giveLicense(id, typeIdx); }, 80);
+        });
+    }
+    // Подменяем методы компонента — на случай, если игра вызовет их сама
+    function patchVm(vm) {
+        if (patchedFor === vm) return true;
+        var oSel = vm.selectOption, oLay = vm.selectLayerOption, oTS = vm.onTouchStart, oTE = vm.onTouchEnd;
+        if (typeof oSel !== 'function' || typeof oLay !== 'function') return false;
+        vm.selectOption = function (e, t) {
+            try {
+                var m = vm.menu[t];
+                if (m && m._code3Lic) { if (!(e && e.target && e.target._prevClass === 'controls-button--text')) openOwn(vm, t); return; }
+            } catch (er) { dbg('selectOption:', er); }
+            return oSel.apply(this, arguments);
+        };
+        vm.selectLayerOption = function (i) {
+            try { if (isOwnSelected(vm)) { pickType(vm, i); return; } } catch (er) { dbg('selectLayerOption:', er); }
+            return oLay.apply(this, arguments);
+        };
+        // долгое нажатие на подпункт перетаскивает его в «избранное» и шлёт серверу его id — для нашего не нужно
+        if (typeof oTS === 'function') vm.onTouchStart = function () { if (isOwnSelected(vm)) return; return oTS.apply(this, arguments); };
+        if (typeof oTE === 'function') vm.onTouchEnd = function () { if (isOwnSelected(vm)) return; return oTE.apply(this, arguments); };
+        // Баг игры: угол подсветки сектора не приводится к 0..2π (для сектора 7 подсветка рисуется снизу) — нормализуем
+        var oGC = vm.getCoords;
+        if (typeof oGC === 'function') vm.getCoords = function (e, t) {
+            if (typeof t === 'number' && t >= Math.PI * 2) t = t % (Math.PI * 2);
+            return oGC.call(this, e, t);
+        };
+        // Сдвиг веера типов лицензий: позиции пунктов и подсветка считаются со сдвигом на layerShift() секторов
+        shiftOn = false;
+        try { shiftOn = patchLayerRotation(vm); } catch (er) { dbg('layer shift:', er); }
+        var oSOP = vm.setOptionsPositions, oOML = vm.onMouseOverLayer;
+        if (typeof oSOP === 'function') vm.setOptionsPositions = function (e, t) {
+            try {
+                var n = layerShift();
+                if (shiftOn && n && typeof e === 'number' && t && t.length && t[0] && typeof t[0]._code3LicIdx === 'number') {
+                    return oSOP.call(this, e + (vm.DEFAULT_FIRST_LAYER_SECTORS || 8) - n / 2, t);
+                }
+            } catch (er) { dbg('setOptionsPositions:', er); }
+            return oSOP.apply(this, arguments);
+        };
+        if (typeof oOML === 'function') vm.onMouseOverLayer = function (e) {
+            var r = oOML.apply(this, arguments);
+            try {
+                var n = layerShift();
+                if (shiftOn && n && isOwnSelected(vm)) {
+                    vm.$nextTick(function () {
+                        try {
+                            if (vm.hoveredLayerOption !== e || !isOwnSelected(vm)) return;
+                            var rad = vm.$refs.container.getBoundingClientRect().height / 2 + vm.convert(vm.defaultMenuGap);
+                            var s = Math.PI * 2 / ((vm.DEFAULT_FIRST_LAYER_SECTORS || 8) * 2);
+                            var a = s * (e + vm.selectedOption * 2 - n) + s / 2 + Math.PI * 3 / 8;
+                            a = ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+                            var c = vm.getCoords(rad, a);
+                            vm.hoveredLayerSectorX = +c.x;
+                            vm.hoveredLayerSectorY = +c.y;
+                        } catch (er2) { dbg('hover shift:', er2); }
+                    });
+                }
+            } catch (er) { dbg('onMouseOverLayer:', er); }
+            return r;
+        };
+        // Следим за selectedOption: «Назад»/выбор другой категории меняют его не через наши методы
+        if (watchedFor !== vm) {
+            try {
+                if (typeof vm.$watch === 'function') {
+                    try { vm.$watch('selectedOption', function () { syncLabels(vm); }, { flush: 'sync' }); }
+                    catch (er0) { vm.$watch('selectedOption', function () { syncLabels(vm); }); }
+                    watchedFor = vm;
+                }
+            } catch (er) { dbg('watch selectedOption:', er); }
+        }
+        var ok = vm.selectOption !== oSel && vm.selectLayerOption !== oLay;
+        if (ok) patchedFor = vm;
+        return ok;
+    }
+    // Перехват кликов на контейнере (capture) — независимо от того, как шаблон вызывает методы
+    function stopEv(e) { try { e.stopPropagation(); e.preventDefault(); } catch (er) {} }
+    function onCapClick(e) {
+        try {
+            var v = getVm();
+            if (!v || !hasEntry(v)) return;
+            var t = e.target;
+            if (!t || !t.closest) return;
+            if (t.closest('[data-code3-lic-item]')) { stopEv(e); openOwn(v, ownIndex(v)); return; }   // клик по нашему пункту круга
+            if (isOwnSelected(v)) {                                                                    // подпункт нашей категории
+                var li = t.closest('.player-interaction-layer__item');
+                if (li && li.parentNode) {
+                    var all = li.parentNode.querySelectorAll('.player-interaction-layer__item');
+                    var pos = Array.prototype.indexOf.call(all, li);
+                    if (pos >= 0) { stopEv(e); pickType(v, ((v.pageOptions && v.pageOptions.startIndex) || 0) + pos); }
+                    return;
+                }
+            }
+            var inner = t.closest('.player-interaction__inner');
+            var h = v.hoveredOption;
+            if (inner && h !== null && h !== undefined && v.menu[h] && v.menu[h]._code3Lic && t._prevClass !== 'controls-button--text') { stopEv(e); openOwn(v, h); }
+        } catch (er) { dbg('capture click:', er); }
+    }
+    function onCapTouch(e) {
+        try {
+            var v = getVm();
+            if (!v || !isOwnSelected(v)) return;
+            var t = e.target;
+            if (t && t.closest && t.closest('.player-interaction-layer__item')) e.stopPropagation();
+        } catch (er) {}
+    }
+    function attachCapture(box) {
+        if (capBox === box) return;
+        detachCapture();
+        box.addEventListener('click', onCapClick, true);
+        box.addEventListener('touchstart', onCapTouch, true);
+        capBox = box;
+    }
+    function detachCapture() {
+        if (!capBox) return;
+        capBox.removeEventListener('click', onCapClick, true);
+        capBox.removeEventListener('touchstart', onCapTouch, true);
+        capBox = null;
+    }
+
+    // Иконка: берём родной <svg> «Персонажа» (его отрисовала игра) и дорисовываем карточку-лицензию
+    var CARD_D = 'M17.5 17.4H29A2.5 2.5 0 0 1 31.5 19.9V28.5A2.5 2.5 0 0 1 29 31H17.5A2.5 2.5 0 0 1 15 28.5V19.9A2.5 2.5 0 0 1 17.5 17.4Z' +
+        'M17 20.2H20.6V24.6H17ZM22.2 20.4H29.4V21.9H22.2ZM22.2 23.2H29.4V24.7H22.2ZM17 26.6H29.4V28.1H17Z';
+    function mk(tag, attrs) {
+        var el = document.createElementNS(SVG_NS, tag);
+        for (var k in attrs) el.setAttribute(k, attrs[k]);
+        return el;
+    }
+    function paintIcon(svg) {
+        var paths = svg.querySelectorAll('path');
+        if (OPTS.RADIAL_ICON) {
+            for (var q = 0; q < paths.length; q++) paths[q].style.display = 'none';
+            var im = mk('image', { x: '0', y: '0', width: '32', height: '32', href: OPTS.RADIAL_ICON });
+            im.setAttributeNS('http://www.w3.org/1999/xlink', 'href', OPTS.RADIAL_ICON);
+            svg.appendChild(im);
+            return;
+        }
+        var defs = mk('defs', {});
+        var mask = mk('mask', { id: MASK_ID, maskUnits: 'userSpaceOnUse', x: '0', y: '0', width: '32', height: '32' });
+        mask.appendChild(mk('rect', { width: '32', height: '32', fill: '#fff' }));
+        mask.appendChild(mk('rect', { x: '13.4', y: '15.6', width: '20', height: '17', rx: '4', fill: '#000' }));
+        defs.appendChild(mask);
+        svg.appendChild(defs);
+        for (var i = 0; i < paths.length; i++) paths[i].setAttribute('mask', 'url(#' + MASK_ID + ')');
+        svg.appendChild(mk('path', { 'fill-rule': 'evenodd', d: CARD_D }));
+    }
+    function decorate(vm) {
+        var box = document.querySelector('.player-interaction__container');
+        var idx = ownIndex(vm);
+        if (!box || idx < 0) return;
+        var el = box.querySelectorAll('.player-interaction__item')[idx];
+        if (!el || (el.textContent || '').indexOf(TITLE) < 0) return;   // элемент ещё не отрисован
+        var stale = box.querySelectorAll('[data-code3-lic-item]');
+        for (var s = 0; s < stale.length; s++) if (stale[s] !== el) stale[s].removeAttribute('data-code3-lic-item');
+        if (!el.hasAttribute('data-code3-lic-item')) el.setAttribute('data-code3-lic-item', '1');
+        var svg = el.querySelector('svg');
+        if (!svg || svg.hasAttribute('data-code3-lic')) return;
+        svg.setAttribute('data-code3-lic', '1');
+        try { paintIcon(svg); } catch (er) { dbg('иконка:', er); }
+    }
+    function syncNative() {
+        var v = getVm();
+        if (_dead || !piOpen() || !v) { cleanup(); return; }
+        try {
+            if (!hasEntry(v) && Array.isArray(v.menu) && v.k != null && v.innerRadius != null && canShow(lastNick)) {
+                patchVm(v);
+                addEntry(v);   // сервер пересобрал меню — возвращаем пункт
+            }
+            syncLabels(v);
+            decorate(v);
+        } catch (er) { dbg('sync:', er); }
+    }
+    function tryNative(vm, box) {
+        if (OPTS.RADIAL_NATIVE === false) { dbg('native выключен'); return false; }
+        try {
+            if (!Array.isArray(vm.menu) || typeof vm.onSelectOption !== 'function' || typeof vm.setOptionsPositions !== 'function') { dbg('native: нет нужных методов'); return false; }
+            if (!patchVm(vm)) { dbg('native: не удалось подменить методы'); return false; }
+            if (!hasEntry(vm) && !addEntry(vm)) { dbg('native: нет свободного сектора'); return false; }
+            stopSync();
+            removeBtn();
+            attachCapture(box);
+            mode = 'native';
+            syncTimer = setInterval(syncNative, 200);
+            setTimeout(syncNative, 30);
+            dbg('режим: native | слот:', ownIndex(vm), '| ник:', lastNick);
+            return true;
+        } catch (er) {
+            dbg('native: ошибка', er);
+            try { removeEntry(vm); } catch (e2) {}
+            return false;
+        }
+    }
+
+    // ══════════ ЗАПАСНОЙ РЕЖИМ: отдельная кнопка-DOM поверх круга ══════════
+    function pickSlot(vm) {
+        var total = vm.DEFAULT_MENU_COUNT || 8;
+        var slot = configuredSlot();
+        if (typeof slot === 'number' && slot >= 0 && slot < total) return slot;
+        var want = targetSlot(vm, total);
+        if (want >= vm.menu.length && want < total) return want;
+        var best = -1, bestX = Infinity;
+        for (var i = vm.menu.length; i < total; i++) { var c = coordsFor(vm, i); if (c && c.x < bestX) { bestX = c.x; best = i; } }
+        return best;
+    }
+    function openDialog(id) {
+        closeMenu();
+        setTimeout(function () { busy = false; showTypeDialog(id); }, 80);
+    }
+    function onBtnClick(e) {
+        try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
+        if (busy) return;
+        try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
+        busy = true;
+        withTargetId(openDialog);
+    }
+    var LIC_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="#e0bf3e"><defs><mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32"><rect width="32" height="32" fill="#fff"/><rect x="13.4" y="15.6" width="20" height="17" rx="4" fill="#000"/></mask></defs><g mask="url(#m)"><path d="M24 8C24 12.4183 20.4183 16 16 16C11.5817 16 8 12.4183 8 8C8 3.58172 11.5817 0 16 0C20.4183 0 24 3.58172 24 8Z"/><path d="M26.0113 32H32C32 27.7565 30.3143 23.6869 27.3137 20.6863C24.3131 17.6857 20.2435 16 16 16C11.7565 16 7.68688 17.6857 4.68629 20.6863C1.68571 23.6869 0 27.7565 0 32H6.65881C7.17634 28.7259 8.34695 25.3575 10.3003 23.1111C9.45815 24.9955 8.58027 28.4528 9.12668 32L23.5435 32C24.0899 28.4528 23.212 24.9955 22.3698 23.1111C24.3232 25.3575 25.4938 28.7259 26.0113 32Z"/></g><path fill-rule="evenodd" d="' + CARD_D + '"/></svg>';
+    var LIC_ICON_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(LIC_ICON_SVG);
+    function buildIcon(sa) {
+        return '<img ' + sa + ' class="player-interaction__icon-lic" draggable="false" alt="" src="' + LIC_ICON_URI + '"' +
+            ' style="display:block;width:2.96vh;height:2.96vh;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none">';
+    }
+    function injectDom(vm, box) {
+        stopSync();
+        removeBtn();
+        var slot = pickSlot(vm);
+        if (slot < 0) { warn('нет свободного сектора в PlayerInteraction для кнопки лицензии'); return; }
+        var c = coordsFor(vm, slot);
+        if (!c) return;
+        var sa = scopeAttr(box);
+        var b = document.createElement('div');
+        b.id = BTN_ID;
+        b.className = 'player-interaction__item';
+        b.setAttribute(sa, '');
+        b.style.transform = 'translate(' + c.x + 'px, ' + c.y + 'px)';
+        b.style.cursor = 'pointer';
+        b.style.webkitTapHighlightColor = 'transparent';
+        var icon = OPTS.RADIAL_ICON
+            ? '<img ' + sa + ' src="' + OPTS.RADIAL_ICON + '" style="width:2.96vh;height:2.96vh;object-fit:contain;display:block">'
+            : buildIcon(sa);
+        b.innerHTML = icon + '<div ' + sa + ' class="player-interaction__title">' + TITLE + '</div>';
+        b.addEventListener('click', onBtnClick);
+        b.addEventListener('touchstart', function () { b.style.filter = 'brightness(0.6)'; }, { passive: true });
+        b.addEventListener('touchend', function () { b.style.filter = ''; }, { passive: true });
+        b.addEventListener('touchcancel', function () { b.style.filter = ''; }, { passive: true });
+        box.appendChild(b);
+        mode = 'dom';
+        if (!warned) { warned = true; warn('пункт в круге не встроился — включена запасная кнопка (DEBUG=true покажет причины)'); }
+        dbg('режим: dom | слот:', slot, '| ник:', lastNick);
+        // как у остальных кнопок: когда открыта подкатегория — приглушаем
+        syncTimer = setInterval(function () {
+            var el = document.getElementById(BTN_ID), v = getVm();
+            if (_dead || !el || !piOpen()) { cleanup(); return; }
+            if (v) el.style.opacity = (v.selectedOption !== null && v.selectedOption !== undefined) ? '0.6' : '1';
+        }, 200);
+    }
+    // Компонент строит секторы асинхронно (mounted + ответ сервера) — ждём готовности
+    function inject(tries) {
+        if (_dead || !piOpen()) return;
+        var box = document.querySelector('.player-interaction__container');
+        var vm = getVm();
+        var ready = box && vm && vm.k != null && vm.innerRadius != null && vm.menu && vm.menu.length &&
+            typeof vm.menu[vm.menu.length - 1].x === 'number';
+        if (!ready) { if (tries < 40) setTimeout(function () { inject(tries + 1); }, 100); return; }
+        if (!canShow(lastNick)) { removeEntry(vm); cleanup(); return; }
+        if (tryNative(vm, box)) return;
+        injectDom(vm, box);
+    }
+    onUndo(function () { try { cleanup(); } catch (e) {} });
+    return {
+        setNick: function (n) { if (n) lastNick = n; },
+        resetBusy: function () { busy = false; },
+        inject: inject,
+        cleanup: cleanup
+    };
+})();
+
+// ══════════════════════════ ЧАТ ПОВЕРХ ЗАТЕМНЕНИЯ РАДИАЛЬНОГО МЕНЮ ══════════════════════════
+// Hud и PlayerInteraction — соседние .interface с одинаковым z-index, поэтому подложка круга лежит выше чата, а на
+// Hassle игра ещё и прячет чат (hideChat:"mobile"). Пока раскрыт выбор типа лицензии (тот же момент, когда включаются
+// ники): штатные :before/:after круга прячем и рисуем то же самое слоем ВНУТРИ Hud под чатом, чат поднимаем выше слоя
+// и возвращаем на экран. В остальных меню и в самом круге — всё как в игре. OPTS.CHAT_UNDIM=false — отключить.
+var Chat = (function () {
+    var DIM_ID = 'code3-pi-dim', STYLE_ID = 'code3-pi-undim-css', HTML_CLS = 'code3-pi-undim';
+    var Z_DIM = 4000, Z_CHAT = 4001;
+    var bgUrl = null, lastSig = '', chatForced = false;
+
+    function enabled() { return OPTS.CHAT_UNDIM !== false && pickOn === true && isOpen('PlayerInteraction'); }
+    function getChat() { var hud = iface('Hud'); return (hud && hud.$refs && hud.$refs.chat) || null; }
+    function chatEl() {
+        var c = getChat();
+        return (c && c.$el && c.$el.nodeType === 1 && c.$el) || document.querySelector('.chat-container') || document.querySelector('.radmir-chat');
+    }
+    function hudLayer() { var el = chatEl(); return el ? el.closest('.interface') : null; }
+    function html() { return document.documentElement; }
+    function forceChatShown() {      // Hassle: игра скрыла чат — на время выбора лицензии показываем обратно
+        if (!isMobile()) return;
+        var hud = iface('Hud');
+        if (!hud || typeof hud.setChatStatus !== 'function') return;
+        if (hud.chatStatus === false) { try { hud.setChatStatus(true); chatForced = true; } catch (e) {} }
+    }
+    function restoreChatHidden() {   // вернулись в круг — прячем чат, как это делает игра
+        if (!chatForced) return;
+        chatForced = false;
+        if (!isOpen('PlayerInteraction')) return;
+        var hud = iface('Hud');
+        try { if (hud && typeof hud.setChatStatus === 'function') hud.setChatStatus(false); } catch (e) {}
+    }
+    (function injectCss() {
+        if (document.getElementById(STYLE_ID)) return;
+        var st = document.createElement('style');
+        st.id = STYLE_ID;
+        st.textContent =
+            'html.' + HTML_CLS + ' .player-interaction__container:before,' +
+            'html.' + HTML_CLS + ' .player-interaction__container:after{display:none!important}' +
+            'html.' + HTML_CLS + ' .chat-container>.chat{z-index:' + Z_CHAT + '!important}' +
+            'html.' + HTML_CLS + ' .radmir-chat{z-index:' + Z_CHAT + '!important;transition-property:opacity,left,top,transform!important}' +
+            '#' + DIM_ID + '{position:fixed;left:0;top:0;width:100vw;height:100vh;overflow:hidden;pointer-events:none;z-index:' + Z_DIM + '}' +
+            '#' + DIM_ID + ' .code3-pi-bg{position:absolute}';
+        (document.head || document.documentElement).appendChild(st);
+        onUndo(function () { var s = document.getElementById(STYLE_ID); if (s && s.parentNode) s.parentNode.removeChild(s); });
+    })();
+    function keepChatActive() {      // пока меню открыто, чат не должен выцветать
+        var c = getChat();
+        if (!c || !c.isInactive) return;
+        try { if (typeof c.clearInactiveTimeout === 'function') c.clearInactiveTimeout(); c.isInactive = false; } catch (e) {}
+    }
+    function readBgUrl(box) {        // адрес bg14.png берём у самого круга (хэш в имени файла у сборок разный)
+        try {
+            var bg = getComputedStyle(box, '::before').backgroundImage || '';
+            var m = /url\((['"]?)(.*?)\1\)/.exec(bg);
+            return m ? m[2] : null;
+        } catch (e) { return null; }
+    }
+    function teardown() {            // убираем наш слой и возвращаем штатные :before/:after в ТОМ ЖЕ кадре
+        var dim = document.getElementById(DIM_ID);
+        if (dim && dim.parentNode) dim.parentNode.removeChild(dim);
+        html().classList.remove(HTML_CLS);
+        lastSig = '';
+        restoreChatHidden();
+    }
+    function tick() {
+        if (_dead) return;
+        if (!enabled()) { if (document.getElementById(DIM_ID) || html().classList.contains(HTML_CLS)) teardown(); return; }
+        keepChatActive();
+        forceChatShown();
+        var box = document.querySelector('.player-interaction__container');
+        var host = hudLayer();
+        if (!box || !host) return;
+        var cr = box.getBoundingClientRect();
+        if (!cr.width || !cr.height) return;
+        if (!bgUrl) bgUrl = readBgUrl(box);   // читаем ДО того, как спрячем штатный :before
+        if (!bgUrl) return;
+        var dim = document.getElementById(DIM_ID);
+        if (dim && dim.parentNode !== host) { if (dim.parentNode) dim.parentNode.removeChild(dim); dim = null; }
+        if (!dim) {
+            dim = document.createElement('div');
+            dim.id = DIM_ID;
+            var bgd = document.createElement('div');
+            bgd.className = 'code3-pi-bg';
+            dim.appendChild(bgd);
+            host.appendChild(dim);
+            lastSig = '';
+        }
+        html().classList.add(HTML_CLS);
+        var vh = window.innerHeight, vhp = vh / 100;
+        var cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+        var sig = [Math.round(cx), Math.round(cy), Math.round(cr.width), window.innerWidth, vh].join(',');
+        if (sig === lastSig) return;
+        lastSig = sig;
+        // подложка: тот же радиальный градиент, что у штатного :after (50% от 600% ширины круга = 3 ширины)
+        var R = Math.round(cr.width * 3);
+        dim.style.background = 'radial-gradient(circle ' + R + 'px at ' + Math.round(cx) + 'px ' + Math.round(cy) + 'px,' +
+            '#141414e6 30%,#141414cc 40%,#141414b3 50%,#14141499 60%,#14141480 70%)';
+        // bg14.png: тот же размер (106.5vh) и по центру круга, как штатный :before
+        var b = dim.firstChild, bW = 106.5 * vhp;
+        b.style.width = bW + 'px';
+        b.style.height = bW + 'px';
+        b.style.left = Math.round(cx - bW / 2) + 'px';
+        b.style.top = Math.round(cy - bW / 2) + 'px';
+        b.style.background = 'url("' + bgUrl + '") 50%/cover no-repeat';
+    }
+    // setChatIsInactive(true) от самого PlayerInteraction — гасим, пока наш выбор раскрыт
+    (function hookInactive() {
+        var orig = window.setChatIsInactive;
+        if (typeof orig !== 'function' || orig.__code3Undim) return;
+        var wrapped = function (e) {
+            try {
+                if (!_dead && e && enabled()) {
+                    var r = orig.call(this, false);
+                    var c = getChat();
+                    if (c && typeof c.clearInactiveTimeout === 'function') c.clearInactiveTimeout();
+                    return r;
+                }
+            } catch (er) { dbg('setChatIsInactive:', er); }
+            return orig.apply(this, arguments);
+        };
+        wrapped.__code3Undim = true;
+        window.setChatIsInactive = wrapped;
+        onUndo(function () { if (window.setChatIsInactive === wrapped) window.setChatIsInactive = orig; });
+    })();
+    every(tick, 250);
+    onUndo(function () { try { teardown(); } catch (e) {} });
+    return {
+        sync: function () { try { lastSig = ''; tick(); } catch (e) { dbg('chat sync:', e); } },
+        kick: function () { lastSig = ''; [30, 120, 300].forEach(function (ms) { setTimeout(tick, ms); }); },
+        teardown: teardown
+    };
+})();
+
+// ══════════════════════════ РЕАКЦИИ НА ЧАТ ══════════════════════════
+var _cool = {};
+function cooled(key, ms) { var n = Date.now(); if (_cool[key] && n - _cool[key] < ms) return false; _cool[key] = n; return true; }
+var _lastChat = { msg: '', at: 0 };
+
+function addr(id) { var raw = nickById(id); return raw ? raw.split('_').join(' ') : ('Жетон ' + id); }
+
+function onChat(message) {
+    var msg = String(message);
+    // защита от двойной обработки, если обёртка чата оказалась в цепочке дважды
+    var now = Date.now();
+    if (msg === _lastChat.msg && now - _lastChat.at < 40) return;
+    _lastChat.msg = msg; _lastChat.at = now;
+
+    // Сервер сказал «Не флудите» — подтягиваем нашу модель антифлуда к реальному счётчику
+    if (msg.indexOf('Пожалуйста, подождите несколько секунд') !== -1) floodServerSaid(true);
+    else if (msg.indexOf('Не флудите') !== -1) floodServerSaid(false);
+
+    var clean = msg.replace(/\{[0-9a-fA-F]{6}\}/g, '');
+    var last = STATE.last;
+
+    if (OPTS.AUTO_REPLIES && last) {
+        // Неоплаченные штрафы у покупателя
+        if (clean.indexOf('У человека есть неоплаченные штрафы') !== -1 && cooled('fines', 3000)) {
+            var fid = last.targetId;
+            setTimeout(function () { if (!_dead) sendSay(addr(fid) + ', у вас имеются неоплаченные штрафы. Оплатить их можно в любом банкомате'); }, 300);
+        }
+        // Запрет на покупку лицензии на оружие. Реагируем только на системную строку сервера, не на чат игроков
+        // (они кончаются на «(Ник)[id]») — иначе эхо нашего же сообщения запускает цикл
+        if (clean.indexOf('У покупателя наложен запрет на покупку лицензии на оружие') !== -1 &&
+            !/\(\S+\)\[\d+\]\s*$/.test(clean) && cooled('ban', 8000)) {
+            var bid = last.targetId;
+            var hm = clean.match(/Осталось\s+(\d+)\s+час/i);
+            setTimeout(function () {
+                if (!_dead) sendSay(addr(bid) + ', на вас наложен запрет на покупку лицензии на оружие' + (hm ? '. Осталось ' + hm[1] + ' час(а)' : ''));
+            }, 300);
+        }
+        // Недостаточно денег / лицензия уже есть
+        var noMoney = clean.indexOf('У покупателя недостаточно денег') !== -1;
+        var hasLic = clean.indexOf('У покупателя уже есть этот тип лицензии') !== -1;
+        if ((noMoney || hasLic) && cooled('money_has', 3000)) {
+            var ld = last;
+            setTimeout(function () {
+                if (_dead) return;
+                var ph = LIC_PHRASE[ld.type] || { nom: ld.name, acc: ld.name };
+                var price = Number(ld.price).toLocaleString('ru-RU');
+                sendSay(noMoney ? addr(ld.targetId) + ', у вас недостаточно денег на ' + ph.acc + '. Стоимость: ' + price + ' руб.'
+                                : addr(ld.targetId) + ', у вас уже есть ' + ph.nom);
+            }, 300);
+        }
+    }
+
+    // «Просьба о чае»: сервер подтвердил выдачу (покупатель принял оффер)
+    // Пример: Вы выдали "Лицензия на ношение и хранение оружия" игроку Ник_Фамилия за 85.000 руб
+    if (STATE.tea && clean.indexOf('Вы выдали') !== -1 && licensorReady()) {
+        var tm = clean.match(/Вы выдали\s+(?:лицензию\s+)?["«“`'][^"»”`']+["»”`']\s+игроку\s+(\S+)\s+за\s+[\d.\s]+\s*руб/i);
+        if (tm && cooled('tea_' + tm[1], 5000)) {
+            var tNick = tm[1];
+            var tText = '/n ' + String(OPTS.TEA_TEXT).split('{nick}').join(tNick);
+            setTimeout(function () { if (!_dead) { sendCmdPaced(tText); log('просьба о чае →', tNick); } }, 1500);
+        }
+    }
+}
+
+// Code.js перезаписывает window.OnChatAddMessage при (пере)инициализации чата — поэтому следим и
+// при необходимости ставим обёртку заново (дубль обработки отсекается в onChat)
+function ensureChatHook() {
+    if (_dead) return;
+    var cur = window.OnChatAddMessage;
+    if (typeof cur === 'function' && !cur.__code3) {
+        var w = function (e, c, t) {
+            var r;
+            if (typeof cur === 'function') r = cur.apply(this, arguments);
+            if (!_dead) { try { onChat(e); } catch (er) { warn('onChat:', er); } }
+            return r;
+        };
+        w.__code3 = true;
+        window.OnChatAddMessage = w;
+        dbg('хук чата установлен');
+    }
+}
+
+// ══════════════════════════ УСТАНОВКА ХУКОВ ══════════════════════════
+(function installHooks() {
+
+    // Список игроков (нужен для ник ↔ ID)
+    hookProp('onUpdatePlayersList', function (prev) {
+        return function (e) {
+            if (!_dead) { try { if (e && (e.local || e.players)) window.__code3PlayerList = e; } catch (er) {} }
+            if (typeof prev === 'function') return prev.apply(this, arguments);
+        };
+    });
+
+    // Чат-команды + счёт отправленного в антифлуд. Цепочка как у Code.js: window.sendChatInputCustom || sendChatInput
+    var origChatWin = window.sendChatInputCustom;
+    var origChatVar = null;
+    try { if (typeof sendChatInput === 'function') origChatVar = sendChatInput; } catch (e) {}
+    prevChat = origChatWin || origChatVar;
+    var myChat = function (e) {
+        if (!_dead && typeof e === 'string') {
+            var a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
+            if (cmd === '/dahk' || cmd === '/licmenu') { showLicMenu(); return; }
+            // /givelic и /givelic <ID>: штатная команда уходит на сервер как раньше + наш диалог поверх (если мы лицензёр)
+            if (cmd === '/givelic' && a.length <= 2) {
+                floodNote(1);
+                if (typeof prevChat === 'function') prevChat.apply(this, arguments);
+                if (licensorReady()) { if (a.length === 1) showIdInput(); else showTypeDialog(a[1]); }
+                return;
+            }
+        }
+        floodNote(1);
+        if (typeof prevChat === 'function') return prevChat.apply(this, arguments);
+    };
+    window.sendChatInputCustom = myChat;
+    try { sendChatInput = myChat; } catch (e) {}
+    onUndo(function () {
+        if (window.sendChatInputCustom === myChat) window.sendChatInputCustom = origChatWin;
+        try { if (sendChatInput === myChat) sendChatInput = origChatVar || origChatWin; } catch (e) {}
+    });
+
+    // События клиента: клики по нашим кнопкам Interactions и ответы на наши диалоги
+    var origEvtWin = window.sendClientEventCustom;
+    var origEvtVar = null;
+    try { if (typeof sendClientEvent === 'function') origEvtVar = sendClientEvent; } catch (e) {}
+    var prevEvt = origEvtWin || origEvtVar;
+    var myEvt = function (event) {
+        if (!_dead) {
+            var args = [].slice.call(arguments, 1);
+            try {
+                if (args[0] === 'OnInteractionsClick' && onInteractionsClick(parseInt(args[1]))) return;
+                if (args[0] === 'OnDialogResponse' && onDialogResponse(args)) return;
+            } catch (er) { warn('sendClientEvent:', er); }
+        }
+        if (typeof prevEvt === 'function') return prevEvt.apply(this, arguments);
+        if (typeof window.sendClientEventHandle === 'function') return window.sendClientEventHandle.apply(window, arguments);
+    };
+    window.sendClientEventCustom = myEvt;
+    try { sendClientEvent = myEvt; } catch (e) {}
+    onUndo(function () {
+        if (window.sendClientEventCustom === myEvt) window.sendClientEventCustom = origEvtWin;
+        try { if (sendClientEvent === myEvt) sendClientEvent = origEvtVar || origEvtWin; } catch (e) {}
+    });
+
+    // openInterface: Interactions (наши пункты поверх серверных) и PlayerInteraction (круговое меню + пункт в круге)
+    hookProp('openInterface', function (prev) {
+        openPrev = prev;
+        return function (name, params) {
+            if (_dead) return prev.apply(this, arguments);
+
+            if (name === 'Interactions' && panelAllowed()) {
+                var server = parseServerItems(params);
+                if (server.length) lastServerItems = server;
+                var combined = ownItems().concat(server);
+                intOpen = true;
+                var inst = iface('Interactions');
+                if (inst && isOpen('Interactions')) {
+                    // оригинал делает early-return, если интерфейс уже открыт, — обновляем список напрямую
+                    hookSetInfo();
+                    inst.setInfo(JSON.stringify(combined));
+                    return;
+                }
+                var res = prev.call(this, name, JSON.stringify(combined));
+                setTimeout(hookSetInfo, 50);   // движок может вызвать setInfo уже после открытия и затереть список
+                return res;
+            }
+
+            if (name === 'PlayerInteraction') {
+                var was = isOpen('PlayerInteraction');
+                if (!was) {
+                    if (circle.pending) return Promise.resolve();   // это открытие уже обрабатываем
+                    var nick = parseNick(params);
+                    var intercept = false;
+                    try { intercept = !!nick && circleCanIntercept(nick); } catch (e) {}
+                    if (intercept) {
+                        try { circleHandle(nick, params); } catch (e) { circleShowNormal(params, nick); }
+                        return Promise.resolve();
+                    }
+                }
+                var r = prev.apply(this, arguments);
+                if (!was) {
+                    try { Radial.setNick(parseNick(params)); Radial.resetBusy(); setTimeout(function () { Radial.inject(0); }, 0); Chat.kick(); } catch (e) {}
+                }
+                return r;
+            }
+            return prev.apply(this, arguments);
+        };
+    });
+
+    // closeInterface: сервер закрывает Interactions — наши пункты должны остаться; PlayerInteraction — убираем слой под чат
+    hookProp('closeInterface', function (prev) {
+        return function (name) {
+            if (!_dead && name === 'Interactions' && intOpen) {
+                if (panelAllowed()) {
+                    lastServerItems = [];
+                    try {
+                        var ic = iface('Interactions');
+                        if (ic && typeof ic.setInfo === 'function') ic.setInfo(JSON.stringify(ownItems()));
+                    } catch (e) {}
+                    return;
+                }
+                intOpen = false;   // нам панель больше не положена — закрываем по-настоящему
+            }
+            var r = prev.apply(this, arguments);
+            if (!_dead && name === 'PlayerInteraction') { try { Chat.teardown(); } catch (e) {} }
+            return r;
+        };
+    });
+
+    // updateParams: сервер может обновить меню игрока на лету
+    hookProp('updateParams', function (prev) {
+        if (typeof prev !== 'function') return prev;
+        return function (name, params) {
+            var r = prev.apply(this, arguments);
+            if (!_dead && name === 'PlayerInteraction') {
+                try { var n = parseNick(params); if (n) Radial.setNick(n); setTimeout(function () { Radial.inject(0); }, 250); } catch (e) {}
+            }
+            return r;
+        };
+    });
+
+    // Чат
+    ensureChatHook();
+    every(ensureChatHook, 1500);
+
+    // Клавиатура: хуки на setDrawLabelStatus / hideKeyboard
+    kbEnsureHooks();
+})();
+
+// ══════════════════════════ ЗАПУСК ══════════════════════════
+// Список игроков нужен для ник ↔ ID: обновляем раз в 30 с, пока мы лицензёр в правительственном скине
+every(function () { if (licensorReady()) refreshPlayers(); }, 30000);
+setTimeout(function () { if (!_dead) refreshPlayers(); }, 1000);
+// Звание могло смениться (повышение/понижение): раз в минуту перечитываем уже загруженный профиль (без запросов к серверу)
+every(function () { if (isGovSkin() && _rank) pullRank(); }, 60000);
+setTimeout(function () { if (!_dead) { ensureRank(); updatePanel(); } }, 1500);
+
+// Для отладки из консоли: __code3.state(), __code3.menu(), __code3.opts
+window.__code3 = {
+    version: VERSION,
+    opts: OPTS,
+    state: function () { return { skin: _skin, gov: isGovSkin(), rank: _rank, licensor: isLicensor(), ready: licensorReady(), last: STATE.last, tea: STATE.tea, circle: STATE.circle, panel: intOpen }; },
+    menu: showLicMenu,
+    panel: updatePanel,
+    refreshRank: ensureRank
+};
+log(VERSION + ' загружен. Помощник лицензёра активен только в правительственном скине со званием «Лицензёр». /dahk — меню.');
+
+})();
