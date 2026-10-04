@@ -223,7 +223,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.779 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2851,7 +2851,6 @@ var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата пр�
 var PRAVO_SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
 var PRAVO_SMS_LABEL = 'Ответ'; // надпись на кнопке (закрыто: стрелка вниз = можно открыть)
 var PRAVO_SMS_LABEL_CLOSE = 'Закрыть'; // надпись, пока выбор раскрыт (стрелка вверх = можно закрыть)
-var PRAVO_SMS_BTN_MINW = 6.4; // em: ФИКСИРОВАННАЯ минимальная ширина кнопки «Ответ»/«Закрыть» (чтобы при смене подписи ширина не менялась и «Закрыть» не переносилось под сообщение). 0 = не фиксировать
 var PRAVO_SMS_OPT_SCALE = 1; // размер кнопок «Место / Ценовая политика» относительно «Ответ» / «Закрыть» (1 = одинаковые)
 var PRAVO_SMS_OPT_LINE = 1.15; // высота кнопок выбора в размерах шрифта (так движок рисует «Ответ»: ~19px при шрифте ~16.8px); выросла/упала разница - подправьте
 var PRAVO_SMS_OUTLINE_COLOR = 'rgba(255,255,255,.65)'; // цвет контура вокруг сообщения + кнопок при раскрытии ('' = без контура)
@@ -2873,7 +2872,7 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
                'font-size:' + (h * 0.56).toFixed(2) + 'vh!important;line-height:' + PRAVO_SMS_OPT_LINE + '!important;';
     };
     var css = function (h) {
-        return 'height:' + h + 'vh!important;min-width:' + (PRAVO_SMS_BTN_MINW > 0 ? PRAVO_SMS_BTN_MINW + 'em' : (h * 1.85).toFixed(2) + 'vh') + '!important;' +
+        return 'height:' + h + 'vh!important;min-width:' + (h * 1.85).toFixed(2) + 'vh!important;' +
                'padding:0 ' + (h * 0.38).toFixed(2) + 'vh!important;border-radius:' + (h / 2).toFixed(2) + 'vh!important;' +
                'font-size:' + (h * 0.56).toFixed(2) + 'vh!important;';
     };
@@ -3017,7 +3016,9 @@ function _pravoSmsFit(row, menu, btn) {
         var reserve = 0;
         try {
             var bfs = parseFloat(getComputedStyle(btn).fontSize) || 16;
-            reserve = PRAVO_SMS_BTN_MINW > 0 ? 0 : Math.max(0, PRAVO_SMS_LABEL_CLOSE.length - PRAVO_SMS_LABEL.length) * bfs * 1.05;
+            // «Закрыть» шире «Ответ» на ~25px при шрифте ~16.8px (замер по скриншотам: 100px против 75px) = ~0.75 шрифта на лишнюю букву.
+            // + запас 0.6 шрифта (~10px), чтобы кнопка гарантированно не переносилась на вторую строку. Свойство min-width на кнопку в чате движок игнорирует
+            reserve = Math.max(0, PRAVO_SMS_LABEL_CLOSE.length - PRAVO_SMS_LABEL.length) * bfs * 0.75 + bfs * 0.6;
         } catch (_) {}
         w1 += reserve;
         var full = rr.width / scale;                        // ширина списка сообщений
