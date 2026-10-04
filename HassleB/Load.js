@@ -364,6 +364,16 @@ async function initializeScripts() {
         // Сначала получаем текст Code2.js — он нужен до запуска Code.js
         console.log('📥 Загрузка текста Code2.js...');
         window.__CODE2_TEXT__ = await fetchRawText('Code2.js');
+        // Code3.js (помощник лицензёра + вкладка «Лицензёр» в Telegram) подклеиваем к тексту Code2:
+        // Code.js eval'ит его в СВОЕЙ области видимости, поэтому Code3 видит config/processUpdates и ставит всё через перехваты —
+        // Code.js и Code2.js остаются без изменений. Не загрузился — бот работает как раньше.
+        try {
+            console.log('📥 Загрузка текста Code3.js...');
+            const _code3Text = await fetchRawText('Code3.js');
+            window.__CODE2_TEXT__ += '\n;\n' + _code3Text;
+        } catch (e3) {
+            console.warn('⚠️ Code3.js не загружен (бот работает без помощника лицензёра):', e3 && e3.message);
+        }
 
         // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
         window.__WAIT_CODE2__ = true;
@@ -378,14 +388,6 @@ async function initializeScripts() {
             window.__botInit = null;
         } else {
             console.warn('⚠️ __botInit не найден — бот уже запущен или Code.js не установил флаг');
-        }
-
-        // Code3.js — помощник лицензёра (порт из pravo.js). Грузим ПОСЛЕ бота: он оборачивает уже установленные хуки.
-        try {
-            console.log('📦 Загрузка Code3.js...');
-            await loadScriptFromGitHub('Code3.js');
-        } catch (e3) {
-            console.warn('⚠️ Code3.js не загружен (бот работает без помощника лицензёра):', e3 && e3.message);
         }
 
         // Инфо о коммитах грузим в фоне — не блокируем старт бота

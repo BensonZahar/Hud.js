@@ -23,7 +23,7 @@
 // ║  USER_CONFIGS[<пользователь>].CODE3 = { ... } в List.js. Ключи — в   ║
 // ║  объекте OPTS ниже.                                                  ║
 // ╚══════════════════════════════════════════════════════════════════════╝
-(function () {
+try { (function () {
 
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
@@ -1508,8 +1508,246 @@ window.__code3 = {
     state: function () { return { skin: _skin, gov: isGovSkin(), rank: _rank, licensor: isLicensor(), ready: licensorReady(), last: STATE.last, tea: STATE.tea, circle: STATE.circle, panel: intOpen }; },
     menu: showLicMenu,
     panel: updatePanel,
-    refreshRank: ensureRank
+    refreshRank: ensureRank,
+    // API для Telegram-вкладки «Лицензёр» (Code2.js)
+    types: LIC_TYPES,
+    ready: licensorReady,
+    give: function (id, idx) { return licensorReady() && giveByIndex(String(id), idx); },
+    reissue: function () { if (!licensorReady() || !STATE.last) return false; reissueLic(); return true; },
+    last: function () { return STATE.last; }
 };
 log(VERSION + ' загружен. Помощник лицензёра активен только в правительственном скине со званием «Лицензёр». /dahk — меню.');
 
-})();
+})(); } catch (e) { try { console.error('[CODE3] ошибка загрузки помощника лицензёра:', e); } catch (e2) {} }
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: LICENSOR (Telegram)                             ║
+// ║  Описание: вкладка «🪪 Лицензёр» в «Функции»:            ║
+// ║   • «Все сообщения игроков» — пересылка в Telegram всех  ║
+// ║     сообщений игроков из чата (а не только фракции);     ║
+// ║   • «Выдача лицензий» — выбор лицензии → ID игрока →     ║
+// ║     /givelic через Code3.js (window.__code3);            ║
+// ║   • под пересланным сообщением — кнопка «Выдать          ║
+// ║     лицензию» этому игроку.                              ║
+// ║  Всё через перехваты — Code.js и Code2.js НЕ меняются:   ║
+// ║  showFunctionsMenu, processUpdates, OnChatAddMessage.    ║
+// ╚══════════════════════════════════════════════════════════╝
+// START LICENSOR TG MODULE //
+try { (function () {
+    'use strict';
+    // Модуль ходит в переменные Code.js (config, uniqueId, processUpdates…): работает, только если Code3 выполнен
+    // в той же области видимости (Load.js подклеивает Code3.js к Code2.js перед eval). Иначе тихо пропускаем.
+    if (typeof config === 'undefined' || typeof processUpdates !== 'function' || typeof showFunctionsMenu !== 'function') {
+        try { console.warn('[CODE3] Telegram-вкладка «Лицензёр» не установлена: нет доступа к Code.js'); } catch (e) {}
+        return;
+    }
+    if (typeof config.licAllMessages !== 'boolean') config.licAllMessages = false;
+
+    const PFX = 'lic|';   // callback_data: lic|<действие>|<арг...>|<uid>
+    const PROMPT_MARK = 'LIC_UID: ';
+
+    function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function money(n) { return Number(n).toLocaleString('ru-RU') + ' ₽'; }
+    function api() { return window.__code3 || null; }
+    function ready() { try { const a = api(); return !!(a && a.ready && a.ready()); } catch (e) { return false; } }
+    function types() { const a = api(); return (a && a.types) || []; }
+    function btn(t, d, st) { return createButton(t, d, st); }
+
+    function notReadyText() {
+        const a = api();
+        if (!a) return '❌ <b>Помощник лицензёра не загружен</b>\nCode3.js не найден (' + esc(displayName) + ').';
+        let st = {};
+        try { st = a.state() || {}; } catch (e) {}
+        return '❌ <b>Выдача недоступна (' + esc(displayName) + ')</b>\n' +
+            'Нужен правительственный скин и звание «Лицензёр».\n' +
+            'Скин: ' + (st.gov ? '✅' : '❌') + ' | Звание: ' + esc(st.rank || '—');
+    }
+
+    // ── Вкладка «Лицензёр» (правим только клавиатуру — текст сообщения остаётся, «назад» в «Функции» работает) ──
+    function showMenu(chatId, messageId, uid) {
+        const last = (api() && api().last && api().last()) || null;
+        const rows = [
+            [btn('Помощник: ' + (ready() ? '🟢 активен' : '🔴 недоступен'), PFX + 'menu|' + uid)],
+            [btn('💬 Все сообщения игроков ' + (config.licAllMessages ? '🟢' : '🔴'), PFX + 'toggle|' + uid, config.licAllMessages ? 'success' : 'danger')],
+            [btn('🪪 Выдача лицензий', PFX + 'types|' + uid, 'primary')]
+        ];
+        if (last) rows.push([btn('🔁 Перевыдать: ' + last.name + ' → ' + last.targetId, PFX + 'reissue|' + uid)]);
+        rows.push([btn('⬅️ Вернуться назад', 'show_functions_' + uid)]);
+        editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
+    }
+    // Выбор лицензии → потом спросим ID ответом на сообщение
+    function showTypes(chatId, messageId, uid) {
+        const rows = types().map(function (t, i) {
+            return [btn(t.name + ' — ' + money(t.price), PFX + 'pick|' + i + '|' + uid)];
+        });
+        rows.push([btn('⬅️ Вернуться назад', PFX + 'menu|' + uid)]);
+        editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
+    }
+    function doGive(target, idx) {
+        const t = types()[idx];
+        if (!t) return false;
+        if (!ready()) { sendToTelegram(notReadyText(), false, null); return false; }
+        const ok = !!api().give(target, idx);
+        if (ok) {
+            sendToTelegram('✅ <b>Отправлено (' + esc(displayName) + ')</b>\n<code>/givelic ' + esc(target) + ' ' + t.type + ' ' + t.price + '</code>\n🪪 ' + esc(t.name) + ' — ' + money(t.price), false, null);
+        } else {
+            sendToTelegram('❌ <b>Не удалось отправить /givelic (' + esc(displayName) + ')</b>', false, null);
+        }
+        return ok;
+    }
+
+    // ── Нажатия кнопок ──────────────────────────────────────────
+    function parse(data) {   // lic|action|a|b|uid → {action, args, uid}
+        const p = data.split('|');
+        return { action: p[1], args: p.slice(2, -1), uid: p[p.length - 1] };
+    }
+    function handleCallback(cq) {
+        const d = parse(cq.data), chatId = cq.message.chat.id, messageId = cq.message.message_id;
+        answerCallbackQuery(cq.id);
+        switch (d.action) {
+            case 'menu':   showMenu(chatId, messageId, d.uid); break;
+            case 'toggle':
+                config.licAllMessages = !config.licAllMessages;
+                debugLog('[LIC] Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
+                showMenu(chatId, messageId, d.uid);
+                break;
+            case 'types':
+                if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
+                showTypes(chatId, messageId, d.uid);
+                break;
+            case 'to':   // из пересланного сообщения игрока
+                if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
+                sendToTelegram('🪪 <b>Выдача лицензии — ' + esc(displayName) + '</b>\n👤 Игрок: ID <code>' + esc(d.args[0]) + '</code>\nКакую лицензию выдать?', false, {
+                    inline_keyboard: types().map(function (t, i) {
+                        return [btn(t.name + ' — ' + money(t.price), PFX + 'give|' + d.args[0] + '|' + i + '|' + d.uid)];
+                    }).concat([[btn('✖️ Закрыть', PFX + 'close|' + d.uid)]])
+                });
+                break;
+            case 'pick': {   // тип выбран → просим ID ответом на сообщение
+                const idx = parseInt(d.args[0], 10), t = types()[idx];
+                if (!t) break;
+                sendToTelegram('🪪 <b>' + esc(t.name) + ' — ' + money(t.price) + '</b>\nОтветьте на это сообщение ID игрока.\n' +
+                    '🔑 ' + PROMPT_MARK + d.uid + ' | тип ' + idx, false, { force_reply: true });
+                break;
+            }
+            case 'give': {
+                const r = doGive(d.args[0], parseInt(d.args[1], 10));
+                if (r) deleteMessage(chatId, messageId);
+                break;
+            }
+            case 'reissue':
+                if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
+                sendToTelegram(api().reissue() ? '🔁 <b>Перевыдача запущена (' + esc(displayName) + ')</b>' : '❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null);
+                break;
+            case 'close': deleteMessage(chatId, messageId); break;
+        }
+    }
+
+    // ── Кнопка в «Функции» (строка перед «Вернуться назад») ─────
+    if (typeof showFunctionsMenu === 'function' && !showFunctionsMenu.__licPatched) {
+        const origShow = showFunctionsMenu;
+        const patched = function () {
+            const origEdit = editMessageReplyMarkup;
+            editMessageReplyMarkup = function (chatId, messageId, markup) {
+                try {
+                    if (markup && Array.isArray(markup.inline_keyboard)) {
+                        const rows = markup.inline_keyboard;
+                        rows.splice(Math.max(0, rows.length - 1), 0,
+                            [btn('🪪 Лицензёр ' + (config.licAllMessages ? '🟢' : '🔴'), PFX + 'menu|' + uniqueId)]);
+                    }
+                } catch (e) {}
+                return origEdit.apply(this, arguments);
+            };
+            try { return origShow.apply(this, arguments); }
+            finally { editMessageReplyMarkup = origEdit; }
+        };
+        patched.__licPatched = true;
+        showFunctionsMenu = patched;
+    }
+
+    // ── processUpdates: свои кнопки + ответ с ID игрока ─────────
+    const origProcess = processUpdates;
+    processUpdates = function (updates) {
+        const rest = [];
+        for (const u of updates) {
+            const cq = u.callback_query;
+            if (cq && typeof cq.data === 'string' && cq.data.indexOf(PFX) === 0 && config.chatIds.includes(String(cq.message.chat.id))) {
+                config.lastUpdateId = u.update_id;
+                setSharedLastUpdateId(config.lastUpdateId);
+                if (parse(cq.data).uid === uniqueId) {
+                    try { handleCallback(cq); } catch (e) { debugLog('[LIC] callback error: ' + e.message); }
+                }
+                continue;
+            }
+            const m = u.message;
+            if (m && m.reply_to_message && m.text && config.chatIds.includes(String(m.chat.id))) {
+                const rt = m.reply_to_message.text || '';
+                if (rt.indexOf(PROMPT_MARK + uniqueId) !== -1) {
+                    config.lastUpdateId = u.update_id;
+                    setSharedLastUpdateId(config.lastUpdateId);
+                    const idm = m.text.trim().match(/^\d{1,5}$/);
+                    const tm = rt.match(/\| тип (\d+)/);
+                    if (!idm || !tm) {
+                        sendToTelegram('❌ <b>Нужен числовой ID игрока (' + esc(displayName) + ')</b>', false, null);
+                    } else {
+                        try { doGive(idm[0], parseInt(tm[1], 10)); } catch (e) { debugLog('[LIC] give error: ' + e.message); }
+                    }
+                    continue;
+                }
+            }
+            rest.push(u);
+        }
+        if (rest.length) origProcess(rest);
+    };
+
+    // ── Все сообщения игроков → Telegram ────────────────────────
+    // Формат строки чата: «- текст {RRGGBB}({v:Ник})[ID]» (тот же, что разбирает проверка сообщений фракции),
+    // но цвет ника любой, а не только цвет своей фракции.
+    const PLAYER_MSG_RE = /^\s*-\s+(.+?)\s*(?:\{[0-9A-Fa-f]{6}\})?\s*\(\{v:([^}]+)\}\)\[(\d+)\]/;
+    const _recent = {};
+    function onChat(raw, colorArg) {
+        if (!config.licAllMessages) return;
+        const msg = String(raw);
+        const m = msg.match(PLAYER_MSG_RE);
+        if (!m) return;
+        const radius = getChatRadius(colorArg);
+        if (radius === CHAT_RADIUS.RADIO) return;                       // рацию обрабатывает свой модуль
+        const text = m[1].replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim(), nick = m[2], id = m[3];
+        if (!text) return;
+        if (config.accountInfo.nickname && nick === config.accountInfo.nickname) return;   // свои не пересылаем
+        const key = nick + '|' + text, now = Date.now();
+        if (_recent[key] && now - _recent[key] < 2000) return;          // дубль строки чата
+        _recent[key] = now;
+        const where = radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
+        const markup = ready()
+            ? { inline_keyboard: [[btn('🪪 Выдать лицензию (ID ' + id + ')', PFX + 'to|' + id + '|' + uniqueId)]] }
+            : null;
+        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + '] · ' + where + '\n(' + esc(displayName) + ')', true, markup);
+    }
+    function installChatHook() {
+        const cur = window.OnChatAddMessage;
+        if (typeof cur === 'function' && !cur.__licWrapped) {
+            const wrapped = function (e, colorArg, t) {
+                cur.call(this, e, colorArg, t);
+                try { onChat(String(e), colorArg); } catch (err) { debugLog('[LIC] chat error: ' + err.message); }
+            };
+            wrapped.__licWrapped = true;
+            window.OnChatAddMessage = wrapped;
+            debugLog('[LIC] ✅ Хук OnChatAddMessage установлен');
+        }
+    }
+    installChatHook();
+    if (typeof initializeChatMonitor === 'function' && !initializeChatMonitor.__licPatched) {
+        const origInit = initializeChatMonitor;
+        const patchedInit = function () {
+            const res = origInit.apply(this, arguments);
+            installChatHook();
+            return res;
+        };
+        patchedInit.__licPatched = true;
+        initializeChatMonitor = patchedInit;
+    }
+
+    debugLog('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
+})(); } catch (e) { try { console.error('[CODE3] ошибка Telegram-вкладки «Лицензёр»:', e); } catch (e2) {} }
+// END LICENSOR TG MODULE //
