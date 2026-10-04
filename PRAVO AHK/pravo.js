@@ -223,7 +223,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.987 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.779 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2858,6 +2858,7 @@ var PRAVO_SMS_OUTLINE_RADIUS = '1.4vh'; // скругление углов ра�
 var PRAVO_SMS_MENU_TIMEOUT = 30000; // мс: через сколько авто-свернуть раскрытый выбор, если ничего не нажали (0 = не сворачивать)
 var PRAVO_SMS_MOBILE_SCALE = 2; // Хасл: во сколько раз кнопка больше, чем стандартная мобильная (2.78vh)
 var PRAVO_SMS_PC_SCALE = 1.5;    // ПК: во сколько раз кнопка больше штатного кружка (1.85vh); 1.5 = 2.78vh
+var PRAVO_SMS_HOVER_TEXT = 'inherit'; // цвет текста «Ответ»/«Закрыть» при наведении и в раскрытом виде: 'inherit' = цвет самого сообщения (жёлтый), либо любой CSS-цвет, например '#000'
 var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фон + чёрный текст (как у штатных кнопок чата); false = без подсветки
 
 // ── Стили кнопки «SMS» (вместо круглой иконки-трубки) ─────────────────────────
@@ -2882,14 +2883,14 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
         '.chat-message-content__action.pravo-sms-btn{' + css(pcH) +
             'box-sizing:border-box;background:rgba(255,255,255,.25);color:inherit;font-weight:700;line-height:1;' +
             'letter-spacing:.05em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;}' +
-        (PRAVO_SMS_HOVER_INVERT ? '.chat-message-content__action.pravo-sms-btn:hover{background:#fff;color:#000;}' : '') +
+        (PRAVO_SMS_HOVER_INVERT ? '.chat-message-content__action.pravo-sms-btn:hover{background:#fff;color:' + PRAVO_SMS_HOVER_TEXT + ';}' : '') +
         '.chat-message-content__action.pravo-sms-btn>*{display:none!important;}' +
         // подпись + стрелка-треугольник (рисуется границами, не глифом - в шрифте чата может не быть символов-стрелок)
         '.chat-message-content__action.pravo-sms-btn::before{content:"' + PRAVO_SMS_LABEL + '";}' +
         '.chat-message-content__action.pravo-sms-btn::after{content:"";display:block;width:0;height:0;margin-left:.45em;' +
             'border-left:.36em solid transparent;border-right:.36em solid transparent;border-top:.46em solid currentColor;}' +
-        // раскрыто: «Закрыть» + стрелка вверх + подсветка (белая заливка, как при наведении)
-        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open{background:#fff;color:#000;}' +
+        // раскрыто: «Закрыть» + стрелка вверх, фон как у обычной «Ответ» (без белой заливки, в т.ч. при наведении)
+        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open,.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open:hover{background:rgba(255,255,255,.25);color:inherit;}' +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open::before{content:"' + PRAVO_SMS_LABEL_CLOSE + '";}' +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open::after{border-top:0;border-bottom:.46em solid currentColor;}' +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}' +
