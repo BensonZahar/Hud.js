@@ -1532,6 +1532,8 @@ log(VERSION + ' загружен. Помощник лицензёра актив
 // ║   • под сообщением игрока — те же кнопки, что у сообщений ║
 // ║     сотрудников фракции + внизу «Выдача лицензии»        ║
 // ║     (выдача / перевыдача этому игроку);                  ║
+// ║   • под сообщением сотрудника фракции (от Code.js) тоже   ║
+// ║     есть «Выдача лицензии»; дубль этого сообщения не шлётся ║
 // ║   • кнопка выдачи в одно нажатие сверху, если по тексту  ║
 // ║     игрока определился тип лицензии; необязательный      ║
 // ║     фильтр «только про лицензии» (по умолчанию выкл).    ║
@@ -1773,7 +1775,7 @@ try { (function () {
     // Code.js после «Пауза», «Авторизация», «Назад из движений» перерисовывает клавиатуру через getNotificationReplyMarkup() —
     // для сообщений игроков дописываем обратно строку «Выдача лицензии».
     const _playerMsgs = {};   // 'chatId:messageId' → { id: ID игрока, text: его сообщение }
-    const PLAYER_TG_RE = /^💬\s*([\s\S]*?)\n👤[^\n]*?\[ID:\s*(\d+)\]/;
+    const PLAYER_TG_RE = /^(?:💬|🏛\uFE0F?)\s*([\s\S]*?)\n👤[^\n]*?\[ID:\s*(\d+)\]/;   // 💬 — игрок (наш пересыл), 🏛️ — сотрудник фракции (пересыл Code.js)
     if (typeof editMessageReplyMarkup === 'function' && !editMessageReplyMarkup.__licWrapped) {
         const origEditMarkup = editMessageReplyMarkup;
         const wrappedEdit = function (chatId, messageId, markup) {
@@ -1930,6 +1932,8 @@ try { (function () {
         if (radius === CHAT_RADIUS.RADIO) return;                       // рацию обрабатывает свой модуль
         const text = m[1].replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim(), nick = m[2], id = m[3];
         if (!text) return;
+        const gs = _govSent[id];   // это сообщение сотрудника фракции уже ушло из Code.js (там же и кнопка лицензии) — второй раз не шлём
+        if (gs && Date.now() - gs.at < 3000 && gs.t === govNorm(text)) return;
         if (config.licFilter && (radius !== CHAT_RADIUS.CLOSE || !isLicText(text))) return;   // «только про лицензии»: рядом (/givelic до 6 м) + ключевые слова
         if (config.accountInfo.nickname && nick === config.accountInfo.nickname) return;   // свои не пересылаем
         if (!once(nick + '|' + text, 2000)) return;                     // дубль строки чата
@@ -1960,6 +1964,38 @@ try { (function () {
         };
         patchedInit.__licPatched = true;
         initializeChatMonitor = patchedInit;
+    }
+
+    // ── Сообщения сотрудников фракции (их шлёт Code.js) ─────────
+    // Code.js отправляет «🏛️ текст / 👤 Ник [ID] / Сообщение от сотрудника [фракция]» через sendToTelegram. Перехватываем отправку:
+    // дописываем под сообщением «Выдача лицензии» (как у сообщений игроков) и запоминаем, что оно уже ушло, —
+    // тогда «Все сообщения игроков» не пришлёт то же самое второй раз. Code.js не меняется.
+    const GOV_OUT_RE = /^🏛\uFE0F?\s*<b>([\s\S]*?)<\/b>\n👤[^\n]*?\[ID:\s*(\d+)\]\nСообщение от сотрудника \[/;
+    const _govSent = {};   // ID отправителя → { t: нормализованный текст, at: время }
+    function govNorm(x) { return String(x).replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\s+/g, ' ').trim(); }
+    if (typeof sendToTelegram === 'function' && !sendToTelegram.__licGovWrapped) {
+        const origSend = sendToTelegram;
+        const wrappedSend = function (message, silent, replyMarkup, onMessageSent) {
+            try {
+                const gm = (typeof message === 'string') ? message.match(GOV_OUT_RE) : null;
+                if (gm) {
+                    const gid = gm[2], gtext = govNorm(gm[1]);
+                    _govSent[gid] = { t: gtext, at: Date.now() };
+                    if (ready()) {
+                        const rows = ((replyMarkup && replyMarkup.inline_keyboard) || []).map(function (r) { return r.slice(); });
+                        replyMarkup = { inline_keyboard: wrapRows(rows, gid, gtext) };
+                        const prevCb = onMessageSent;
+                        onMessageSent = function (cid, mid) {
+                            _playerMsgs[cid + ':' + mid] = { id: gid, text: gtext };   // кнопки переживут «Пауза» / «Движения»
+                            if (typeof prevCb === 'function') prevCb(cid, mid);
+                        };
+                    }
+                }
+            } catch (e) { debugLog('[LIC] gov send error: ' + e.message); }
+            return origSend.call(this, message, silent, replyMarkup, onMessageSent);
+        };
+        wrappedSend.__licGovWrapped = true;
+        sendToTelegram = wrappedSend;
     }
 
     debugLog('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
