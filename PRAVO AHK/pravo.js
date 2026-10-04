@@ -402,7 +402,6 @@ const mainMenuOptions = [
     { name: "Просьба о чае (вкл/выкл)",     action: "tea_ask" },
     { name: "Авто-перевыдача лицензии",     action: "auto_reissue_lic" },
     { name: "Авто-снаряжение (вкл/выкл)",   action: "autograb" },
-    { name: "Бабл над игроком",             action: "bubble" },
 ];
 // Запуск бинда пункта, которого нет в «Повседневной»: пункты главного меню и «lic_<тип>»
 // (быстрая выдача конкретной лицензии: бинд → ввод ID → /givelic без выбора типа).
@@ -464,10 +463,6 @@ function _pravoRunMenuBind(action) {
             case "autograb":
                 if (!(window.AUTO_GRAB === true && _isGrabAllowedRank())) return _deny();
                 toggleAutoGrab();
-                break;
-            case "bubble":
-                if (typeof window.pravoBubbleStart !== 'function') return _deny();
-                window.pravoBubbleStart();
                 break;
         }
     };
@@ -3560,9 +3555,6 @@ const HandleMvdSubCommand = (index) => {
         case "givelic":
             setTimeout(() => window.showGiveLicIdInputDialog(), 50);
             break;
-        case "bubble":
-            setTimeout(() => window.pravoBubbleStart(), 50);
-            break;
         case "tea_ask":
             toggleTeaAsk();
             setTimeout(() => {
@@ -3900,10 +3892,6 @@ window.showMvdSubMenu = (e) => {
     let availableSub = [
         { name: "Повседневная", id: "povsednev" }
     ];
-    // Бабл над игроком: доступен всем (чисто локальная метка на клиенте)
-    if (window.PRAVO_BUBBLE_ENABLED !== false) {
-        availableSub.push({ name: "Бабл над игроком", id: "bubble" });
-    }
     // Выдача лицензии: только для Лицензёра И если фича включена в установщике.
     // ПК: проверяем GIVELIC_KEY (хоткей «Быстрой выдачи»).
     // Hassle: проверяем LICENSOR_HELPER_ENABLED (галочка «Быстрая выдача» в установщике).
@@ -4235,269 +4223,6 @@ window.pravoGiveLicenseByIndex = (targetId, idx) => {
     return true;
 };
 // ==================== END /givelic ====================
-// ==================== БАБЛ НАД ИГРОКОМ ====================
-// Ставит «облачко» (chat bubble) над головой игрока по ID — через движковый SetPlayerChatBubble
-// (тот же, что вызывает window.setPlayerChatBubble). Метка ЛОКАЛЬНАЯ: видна только на этом клиенте.
-// Путь: «ПРАВИТЕЛЬСТВО» → «Бабл над игроком» (или бинд «Бабл над игроком») → ID → вариант.
-// Команда: /bubble <ID> <номер варианта>  (список — /bubble list; 0 — снять; afk — АФК как на сервере; вместо номера можно свой текст).
-//   window.PRAVO_BUBBLE_ENABLED = false — убрать пункт из меню.
-//   window.PRAVO_BUBBLE_PRESETS = [...]  — свои варианты (name, text, color 'RRGGBB', ms — необязательно).
-//   window.PRAVO_BUBBLE_MS / PRAVO_BUBBLE_DIST — время показа (мс) и дальность видимости (м) по умолчанию.
-//   Из консоли: pravoSetBubble(id, 'текст', { color: 'FF0000', ms: 30000, dist: 40 }); pravoClearBubble(id);
-;(function _pravoBubbles() {
-    var DLG_ID = 9710, DLG_LIST = 9711, DLG_TEXT = 9712;
-    var DEF_MS = 60000, DEF_DIST = 30, MAX_LEN = 144, STATE_TTL = 120000;
-    var state = null;   // { step: 'id' | 'list' | 'text', id, ts }
-
-    // Варианты по умолчанию (номера для /bubble). 1–6 — правительство, 7+ — все фиксированные бабблы
-    // самой игры из мода (тексты и цвета как на сервере). Меняй/добавляй свои — формат: { name, text, color: 'RRGGBB' }
-    var DEFAULT_PRESETS = [
-        { name: 'Задержан', text: 'Задержан', color: 'FF3333' },
-        { name: 'Розыск', text: 'В РОЗЫСКЕ', color: 'FF0000' },
-        { name: 'Под наблюдением', text: 'Под наблюдением', color: 'FFCC00' },
-        { name: 'Документы проверены', text: 'Документы проверены', color: '33CC33' },
-        { name: 'Лицензия выдана', text: 'Лицензия выдана', color: '33AAFF' },
-        { name: 'Охрана', text: 'Охрана', color: 'AAAAAA' },
-        // ── бабблы игры (из мода) ──
-        { name: 'Надевает маску', text: 'Надевает маску', color: 'FF9900' },
-        { name: 'Снимает маску', text: 'Снимает маску', color: 'FF9900' },
-        { name: 'Использует аптечку', text: 'Использует аптечку', color: 'FF6600' },
-        { name: 'Взял бронежилет', text: 'Взял бронежилет', color: '00FF66' },
-        { name: 'надевает аксессуар', text: 'надевает аксессуар', color: 'FF6600' },
-        { name: 'снимает аксессуар', text: 'снимает аксессуар', color: 'FF6600' },
-        { name: 'Открывает транспорт', text: 'Открывает транспорт', color: '00CC00' },
-        { name: 'Закрывает транспорт', text: 'Закрывает транспорт', color: 'FF3333' },
-        { name: 'Открывает шлагбаум', text: 'Открывает шлагбаум', color: '00CC00' },
-        { name: 'Закрывает шлагбаум', text: 'Закрывает шлагбаум', color: 'FF3333' },
-        { name: 'Взаимодействует со шлагбаумом', text: 'Взаимодействует со шлагбаумом', color: 'FF4F00' },
-        { name: 'Окажите помощь пострадавшему', text: 'Окажите помощь пострадавшему', color: 'FFFFFF' },
-        { name: '(( Без сознания ))', text: '(( Без сознания ))', color: 'FF4F00' },
-        { name: '(( MUTE ))', text: '(( MUTE ))', color: 'FF4F00' },
-        { name: 'взглянул(а) на часы', text: 'взглянул(а) на часы', color: 'DD90FF' },
-        { name: 'звонит в службу точного времени...', text: 'звонит в службу точного времени...', color: 'DD90FF' },
-        { name: 'звонит телефон', text: 'звонит телефон', color: 'DD90FF' },
-        { name: 'SMS <<', text: 'SMS <<', color: 'FFFF00' },
-        { name: 'SMS >>', text: 'SMS >>', color: 'FFFF00' },
-        { name: 'сказал(а) что-то в рацию', text: 'сказал(а) что-то в рацию', color: 'DD90FF' },
-        { name: 'Отправляет объявление', text: 'Отправляет объявление', color: '00CC00' },
-        { name: 'предложил игру', text: 'предложил игру', color: 'DD90FF' },
-        { name: 'Продает наркотики', text: 'Продает наркотики', color: 'DD90FF' },
-        { name: 'свистнул в свисток на уток', text: 'свистнул в свисток на уток', color: 'FF5030' },
-        { name: 'Приступил к обслуживанию', text: 'Приступил к обслуживанию', color: '3399FF' },
-        { name: 'Завершил обслуживание', text: 'Завершил обслуживание', color: '3399FF' },
-        { name: 'Repair', text: 'Repair', color: '3399FF' },
-        { name: 'Выписан', text: 'Выписан', color: '66CC00' },
-        { name: 'Брак', text: 'Брак', color: 'FF0000' },
-        { name: '+ 1 продукт', text: '+ 1 продукт', color: '66CC00' },
-        { name: '+10 инструментов', text: '+10 инструментов', color: 'FFFF00' }
-    ];
-
-    function presets() {
-        var p = window.PRAVO_BUBBLE_PRESETS;
-        return (Array.isArray(p) && p.length) ? p : DEFAULT_PRESETS;
-    }
-    function note(t) { try { gtAdd(t, 3000, 3); } catch (e) { console.log('[BUBBLE]', t); } }
-    function toColor(hex) {                       // 'RRGGBB' → 0xRRGGBBAA (как в SA-MP)
-        var h = String(hex || 'FFFFFF').replace(/[^0-9a-f]/gi, '').slice(0, 6);
-        if (h.length !== 6) h = 'FFFFFF';
-        return ((parseInt(h, 16) << 8) | 0xFF) >>> 0;
-    }
-    function parseId(v) {
-        var s = String(v == null ? '' : v).trim();
-        return /^\d{1,4}$/.test(s) ? parseInt(s, 10) : -1;
-    }
-    function fire(id, text, color, dist, ms) {
-        if (typeof window.setPlayerChatBubble === 'function') {
-            window.setPlayerChatBubble(id, text, color, dist, ms);   // внутри — фильтр запрещённых фраз
-        } else {
-            engine.trigger('SetPlayerChatBubble', id, text, color, dist, ms);
-        }
-    }
-
-    // ── АФК-бабл — копия серверного (new.pwn, таймер раз в секунду, ~41603–41627) ─────────
-    //   пауза < 1 мин: «На паузе N сек.», дальше «На паузе М:СС» (минуты без нуля, секунды %02d);
-    //   цвет 0xFF0000FF (красный), дальность 7.0 м, время жизни 1500 мс, обновление каждую секунду;
-    //   на сервере метка появляется, когда P_AFK_TIME >= 5 → отсчёт начинается с 5 сек.
-    //   Снимается: /bubble ID 0 или любым другим баблом на этот ID.
-    var AFK_REFRESH = 1000, AFK_START_SEC = 5, AFK_DIST = 7.0, AFK_MS = 1500, AFK_COLOR = 0xFF0000FF;
-    var afk = {};                                           // id → { t0, timer }
-    function pad2(n) { return (n < 10 ? '0' : '') + n; }
-    function afkText(sec) {
-        var m = Math.floor(sec / 60) % 60, ss = sec % 60;
-        return m > 0 ? ('На паузе ' + m + ':' + pad2(ss)) : ('На паузе ' + ss + ' сек.');
-    }
-    function afkStop(id) {
-        if (afk[id]) { clearInterval(afk[id].timer); delete afk[id]; return true; }
-        return false;
-    }
-    function afkTick(id) {
-        var a = afk[id];
-        if (!a) return;
-        var sec = Math.floor((Date.now() - a.t0) / 1000);
-        try { fire(id, afkText(sec), AFK_COLOR, window.PRAVO_AFK_DIST || AFK_DIST, AFK_MS); } catch (e) {}
-    }
-    // extraSec — сколько секунд игрок уже в паузе (по умолчанию как на сервере: старт с 5 сек.)
-    window.pravoAfkBubble = function (id, extraSec) {
-        id = parseId(id);
-        if (id < 0) return false;
-        afkStop(id);
-        var start = Math.max(AFK_START_SEC, Number(extraSec) || 0);
-        afk[id] = { t0: Date.now() - start * 1000, timer: setInterval(function () { afkTick(id); }, AFK_REFRESH) };
-        afkTick(id);
-        console.log('[BUBBLE] АФК-метка на ID ' + id + ' (с ' + start + ' сек.)');
-        return true;
-    };
-
-    window.pravoSetBubble = function (id, text, opts) {
-        opts = opts || {};
-        id = parseId(id);
-        text = String(text == null ? '' : text).trim().slice(0, MAX_LEN);
-        if (id < 0 || !text) return false;
-        afkStop(id);
-        try {
-            if (typeof window.containsBannedPhrase === 'function' && window.containsBannedPhrase(text)) {
-                note('~r~Бабл~n~~w~Текст отклонён фильтром игры');
-                return false;
-            }
-            fire(id, text, toColor(opts.color),
-                 Number(opts.dist) || window.PRAVO_BUBBLE_DIST || DEF_DIST,
-                 Number(opts.ms)   || window.PRAVO_BUBBLE_MS   || DEF_MS);
-            console.log('[BUBBLE] ID ' + id + ': "' + text + '"');
-            return true;
-        } catch (e) {
-            console.warn('[BUBBLE] ошибка:', e);
-            return false;
-        }
-    };
-    window.pravoClearBubble = function (id) {
-        id = parseId(id);
-        if (id < 0) return false;
-        afkStop(id);
-        try { fire(id, ' ', 0xFFFFFFFF, 0.1, 300); return true; }   // как в death.pwn мода: пустой бабл на 300 мс вытесняет старый
-        catch (e) { console.warn('[BUBBLE] ошибка:', e); return false; }
-    };
-
-    function askId() {
-        state = { step: 'id', ts: Date.now() };
-        window._pravoKbDialogId = DLG_ID;
-        window._pravoScheduleKeyboardNumeric && window._pravoScheduleKeyboardNumeric();
-        window.addDialogInQueue('[' + DLG_ID + ',1,"Бабл над игроком","Введите ID игрока:","Далее","Отмена",0,0]', '', 0);
-    }
-    function askList(id) {
-        state = { step: 'list', id: id, ts: Date.now() };
-        var list = 'Выберите бабл:<n>', n = 0;
-        presets().forEach(function (p) {
-            n++;
-            list += n + '. {' + String(p.color || 'FFFFFF').replace(/[^0-9a-f]/gi, '').slice(0, 6) + '}' + p.name + '<n>';
-        });
-        list += (++n) + '. {FFFFFF}Свой текст...<n>';
-        list += (++n) + '. {BEBEBE}АФК (как на сервере)<n>';
-        list += (++n) + '. {FF6666}Убрать бабл<n>';
-        window.addDialogInQueue('[' + DLG_LIST + ',4,"Бабл | ID: ' + id + '","","Поставить","Отмена",0,0]', list, 0);
-    }
-    function askText(id) {
-        state = { step: 'text', id: id, ts: Date.now() };
-        window.addDialogInQueue('[' + DLG_TEXT + ',1,"Бабл | ID: ' + id + '","Введите текст (до ' + MAX_LEN + ' символов):","Поставить","Отмена",0,0]', '', 0);
-    }
-
-    window.pravoBubbleStart = askId;
-
-    // ── Команда /bubble (на сервер не уходит, бабл виден только тебе) ──────────
-    //   /bubble              — открыть диалог (ввод ID → выбор)
-    //   /bubble list         — показать нумерованный список вариантов в чате
-    //   /bubble <id>         — открыть выбор варианта для этого ID
-    //   /bubble <id> <n>     — поставить вариант №n (1, 2, 3 ...)
-    //   /bubble <id> <текст> — свой текст
-    //   /bubble <id> afk     — АФК-метка «На паузе …» как на сервере (/bubble <id> afk 5 — уже 5 мин, afk 1:30 — уже 1:30)
-    //   /bubble <id> 0       — снять бабл (также: off / clear / снять)
-    function chat(text) {
-        try {
-            if (typeof window.onChatMessage === 'function') { window.onChatMessage(text, [0, 0, 'FFFFFF']); return; }
-        } catch (e) {}
-        console.log('[BUBBLE]', text.replace(/\{[0-9a-f]{6}\}/gi, ''));
-    }
-    function showList() {
-        var ps = presets(), row = '', cnt = 0;
-        chat('{CCFF00}[Бабл] {FFFFFF}/bubble <ID> <номер>   (0 — снять, afk — АФК как на сервере, либо свой текст). Всего вариантов: ' + ps.length);
-        ps.forEach(function (p, i) {
-            row += (cnt ? '  {666666}|  ' : '') + '{CCFF00}' + (i + 1) + '. {' + String(p.color || 'FFFFFF').replace(/[^0-9a-f]/gi, '').slice(0, 6) + '}' + p.name;
-            if (++cnt === 2) { chat(row); row = ''; cnt = 0; }
-        });
-        if (row) chat(row);
-    }
-    window.pravoBubbleCommand = function (raw) {
-        var m = /^\/bubble(?:\s+(.*))?$/i.exec(String(raw || '').trim());
-        if (!m) return false;
-        var rest = (m[1] || '').trim();
-        if (!rest) { askId(); return true; }
-        if (/^(list|список|help|\?)$/i.test(rest)) { showList(); return true; }
-        var mm = /^(\d+)(?:\s+(.+))?$/.exec(rest);
-        if (!mm) { note('~r~Бабл~n~~w~Формат: /bubble ID номер'); showList(); return true; }
-        var id = parseId(mm[1]), arg = (mm[2] || '').trim();
-        if (id < 0) { note('~r~Бабл~n~~w~Неверный ID'); return true; }
-        if (!arg) { askList(id); return true; }
-        if (/^(0|off|clear|снять|убрать)$/i.test(arg)) {
-            if (window.pravoClearBubble(id)) note('~y~Бабл~n~~w~Снят с ID ' + id);
-            return true;
-        }
-        var am = /^(?:afk|афк)(?:\s+(\d{1,3})(?::(\d{1,2}))?)?$/i.exec(arg);
-        if (am) {
-            var extra = am[1] ? (parseInt(am[1], 10) * 60 + (am[2] ? parseInt(am[2], 10) : 0)) : 0;   // «5» = 5 мин, «1:30» = 1 мин 30 сек
-            if (window.pravoAfkBubble(id, extra)) note('~g~Бабл~n~~w~АФК-метка на ID ' + id + (am[1] ? ' (уже ' + am[1] + (am[2] ? ':' + am[2] : ' мин') + ')' : ''));
-            return true;
-        }
-        var ps = presets();
-        if (/^\d+$/.test(arg)) {
-            var n = parseInt(arg, 10);
-            if (n < 1 || n > ps.length) { note('~r~Бабл~n~~w~Нет варианта ' + n + ' (есть 1–' + ps.length + ')'); showList(); return true; }
-            var p = ps[n - 1];
-            if (window.pravoSetBubble(id, p.text, { color: p.color, ms: p.ms })) note('~g~Бабл~n~~w~ID ' + id + ': ' + p.text);
-            return true;
-        }
-        if (window.pravoSetBubble(id, arg, { color: 'FFFFFF' })) note('~g~Бабл~n~~w~ID ' + id + ': ' + arg.slice(0, 40));
-        return true;
-    };
-
-    // Возвращает true, если ответ диалога наш (тогда на сервер он не уходит)
-    window.pravoBubbleHandle = function (args) {
-        var dlg = args[1];
-        if (dlg !== DLG_ID && dlg !== DLG_LIST && dlg !== DLG_TEXT) return false;
-        var st = state;
-        var stepOf = { 9710: 'id', 9711: 'list', 9712: 'text' }[dlg];
-        if (!st || st.step !== stepOf || (Date.now() - st.ts) > STATE_TTL) { state = null; return false; }
-        var button = args[2];
-        state = null;
-        if (button !== 1) return true;                       // отмена
-
-        if (dlg === DLG_ID) {
-            var id = parseId(args[4]);
-            if (id < 0) { note('~r~Бабл~n~~w~Неверный ID'); setTimeout(askId, 100); return true; }
-            setTimeout(function () { askList(id); }, 50);
-        } else if (dlg === DLG_LIST) {
-            var idx = parseInt(args[3], 10), ps = presets();
-            if (idx >= 0 && idx < ps.length) {
-                var p = ps[idx];
-                if (window.pravoSetBubble(st.id, p.text, { color: p.color, ms: p.ms })) {
-                    note('~g~Бабл~n~~w~ID ' + st.id + ': ' + p.text);
-                }
-            } else if (idx === ps.length) {
-                setTimeout(function () { askText(st.id); }, 50);
-            } else if (idx === ps.length + 1) {
-                if (window.pravoAfkBubble(st.id)) note('~g~Бабл~n~~w~АФК-метка на ID ' + st.id);
-            } else if (idx === ps.length + 2) {
-                if (window.pravoClearBubble(st.id)) note('~y~Бабл~n~~w~Снят с ID ' + st.id);
-            }
-        } else if (dlg === DLG_TEXT) {
-            var txt = String(args[4] || '').trim();
-            if (txt && window.pravoSetBubble(st.id, txt, { color: 'FFFFFF' })) {
-                note('~g~Бабл~n~~w~ID ' + st.id + ': ' + txt.slice(0, 40));
-            }
-        }
-        return true;
-    };
-    console.log('[PRAVO] Бабл над игроком: готово (диалоги ' + DLG_ID + '–' + DLG_TEXT + ')');
-})();
-// ==================== END БАБЛ НАД ИГРОКОМ ====================
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`[EVENT] Событие: ${event}, Аргументы:`, args);
 
@@ -4526,9 +4251,6 @@ window.sendClientEventCustom = (event, ...args) => {
         }
     }
     // ────────────────────────────────────────────────────────────────────────
-
-    // ── БАБЛ: ответы наших диалогов (9710–9712) забираем себе, на сервер не уходят ──
-    if (args[0] === "OnDialogResponse" && typeof window.pravoBubbleHandle === 'function' && window.pravoBubbleHandle(args)) return;
 
     // Alt+Q — авто-тазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
@@ -4798,8 +4520,6 @@ window.sendChatInputCustom = e => {
         } catch (e) {
             console.log('[CONSOLE] Ошибка переключения консоли:', e.message);
         }
-    } else if (String(args[0]).toLowerCase() == "/bubble" && typeof window.pravoBubbleCommand === 'function') {
-        window.pravoBubbleCommand(e);   // локальный бабл — на сервер не отправляем
     } else if (args[0] == "/mvdreset") {
         lastMenuType = null;
         currentMenu = null;
@@ -4968,7 +4688,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             const _kb_style = parseInt(_kb_p[1]);  // 1 = INPUT dialog
             const _kb_dlgId = parseInt(_kb_p[0]);
 
-            if (_kb_style === 1 && (_kb_dlgId === 668 || _kb_dlgId === 678 || _kb_dlgId === 9710)) {
+            if (_kb_style === 1 && (_kb_dlgId === 668 || _kb_dlgId === 678)) {
                 // Ждём ~200 мс — Vue успеет отрисовать Window-компонент
                 setTimeout(function _pravoOpenHassleKeyboard() {
                     try {
@@ -6334,7 +6054,7 @@ window._pravoResetDialogPositions = function () {
 };
 
 function _isOurDialog(id) {
-    return (id >= 666 && id <= 679) || (id >= 9710 && id <= 9712) || id === 695 || id === 696;
+    return (id >= 666 && id <= 679) || id === 695 || id === 696;
 }
 
 // ── CSS: мгновенное скрытие диалога ───────────────────────────────────────
@@ -6385,10 +6105,6 @@ function _getPositionKey() {
 
         678: 'givelic-id-input',   // ввод ID игрока — своя позиция
         679: 'givelic-type-list',  // выбор типа лицензии — своя позиция
-
-        9710: 'bubble-id-input',   // бабл: ввод ID игрока
-        9711: 'bubble-list',       // бабл: выбор варианта
-        9712: 'bubble-text-input', // бабл: свой текст
 
         695: 'scc-period',
         696: 'scc-table'
