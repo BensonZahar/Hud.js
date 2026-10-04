@@ -1530,7 +1530,10 @@ log(VERSION + ' загружен. Помощник лицензёра актив
 // ║     /givelic через Code3.js (window.__code3);            ║
 // ║   • под сообщением игрока — те же кнопки, что у сообщений ║
 // ║     сотрудников фракции + внизу «Выдача лицензии»        ║
-// ║     (выдача / перевыдача этому игроку).                  ║
+// ║     (выдача / перевыдача этому игроку);                  ║
+// ║   • кнопка выдачи в одно нажатие сверху, если по тексту  ║
+// ║     игрока определился тип лицензии; необязательный      ║
+// ║     фильтр «только про лицензии» (по умолчанию выкл).    ║
 // ║  Всё через перехваты — Code.js и Code2.js НЕ меняются:   ║
 // ║  showFunctionsMenu, processUpdates, OnChatAddMessage.    ║
 // ╚══════════════════════════════════════════════════════════╝
@@ -1544,6 +1547,7 @@ try { (function () {
         return;
     }
     if (typeof config.licAllMessages !== 'boolean') config.licAllMessages = false;
+    if (typeof config.licFilter !== 'boolean') config.licFilter = false;  // false — пересылаются все сообщения; true — только про лицензии (радиус «рядом»)
 
     const PFX = 'lic|';   // callback_data: lic|<действие>|<арг...>|<uid>
     const PROMPT_MARK = 'LIC_UID: ';
@@ -1571,6 +1575,7 @@ try { (function () {
         const rows = [
             [btn('Помощник: ' + (ready() ? '🟢 активен' : '🔴 недоступен'), PFX + 'menu|' + uid)],
             [btn('💬 Все сообщения игроков ' + (config.licAllMessages ? '🟢' : '🔴'), PFX + 'toggle|' + uid, config.licAllMessages ? 'success' : 'danger')],
+            [btn('🎯 Только про лицензии ' + (config.licFilter ? '🟢' : '🔴'), PFX + 'filter|' + uid, config.licFilter ? 'success' : 'danger')],
             [btn('🪪 Выдача лицензий', PFX + 'types|' + uid, 'primary')]
         ];
         if (last) rows.push([btn('🔁 Перевыдать: ' + last.name + ' → ' + last.targetId, PFX + 'reissue|' + uid)]);
@@ -1618,11 +1623,40 @@ try { (function () {
     // Верх — те же кнопки, что под сообщением сотрудника фракции (Ответить / Движения / Пауза / Авторизация / Управление),
     // низ — «Выдача лицензии». По нажатию кнопки заменяются на: [Перевыдать, если этому игроку уже выдавали] + типы лицензий + «Назад».
     function licOpenRow(id) { return [btn('🪪 Выдача лицензии', PFX + 'open|' + id + '|' + uniqueId, 'primary')]; }
-    function playerMarkup(id) {
+
+    // Какую лицензию просит игрок — по словам в его сообщении (регистр и «ё» не важны)
+    const LIC_WORD = {
+        1: /(^|[^а-я])права(ми|х|м)?(?![а-я])|водительск|водит\.?\s*удост|удостоверен/,
+        2: /проф[а-я.]*\s*(?:прав|удост|вод)|профессиональн/,
+        3: /оруж|(^|[^а-я])ствол/,
+        4: /рыбал|рыболов/,
+        5: /охот(?:[ауые]|ой)(?![а-я])|охотнич/
+    };
+    const LIC_ANY = /лиценз|лицух|лицк|(^|[^а-я])лиц(?![а-я])/;
+    function normTxt(x) { return String(x).toLowerCase().replace(/ё/g, 'е'); }
+    function detectTypes(text) {   // → номера типов (как поле type в types()): 1 права, 2 проф., 3 оружие, 4 рыбалка, 5 охота
+        const t = normTxt(text);
+        let out = [1, 2, 3, 4, 5].filter(function (k) { return LIC_WORD[k].test(t); });
+        if (out.indexOf(2) !== -1) out = out.filter(function (k) { return k !== 1; });   // «проф права» — только проф., без обычных
+        return out;
+    }
+    function isLicText(text) { return detectTypes(text).length > 0 || LIC_ANY.test(normTxt(text)); }
+    // Кнопки «в одно нажатие» (до 3 штук) — сразу выдают то, что просит игрок
+    function quickRows(id, text) {
+        if (!ready()) return [];
+        const all = types();
+        return detectTypes(text).slice(0, 3).map(function (k) {
+            const i = all.findIndex(function (t) { return Number(t.type) === k; });
+            return i < 0 ? null : [btn('⚡ ' + all[i].name + ' — ' + money(all[i].price), PFX + 'qgive|' + id + '|' + i + '|' + uniqueId, 'success')];
+        }).filter(Boolean);
+    }
+    function wrapRows(rows, id, text) {   // быстрые кнопки — сверху, «Выдача лицензии» — снизу
+        return quickRows(id, text).concat(rows, ready() ? [licOpenRow(id)] : []);
+    }
+    function playerMarkup(id, text) {
         let rows = [];
         try { const m = getNotificationReplyMarkup(); rows = ((m && m.inline_keyboard) || []).map(function (r) { return r.slice(); }); } catch (e) {}
-        if (ready()) rows.push(licOpenRow(id));
-        return { inline_keyboard: rows };
+        return { inline_keyboard: wrapRows(rows, id, text || '') };
     }
     function licMenuMarkup(id) {
         const rows = [];
@@ -1638,6 +1672,10 @@ try { (function () {
         const p = data.split('|');
         return { action: p[1], args: p.slice(2, -1), uid: p[p.length - 1] };
     }
+    function msgText(cq) {   // текст игрока из Telegram-сообщения «💬 текст / 👤 ник [ID: n]»
+        const m = ((cq.message && cq.message.text) || '').match(PLAYER_TG_RE);
+        return m ? m[1] : '';
+    }
     function handleCallback(cq) {
         const d = parse(cq.data), chatId = cq.message.chat.id, messageId = cq.message.message_id;
         answerCallbackQuery(cq.id);
@@ -1646,6 +1684,11 @@ try { (function () {
             case 'toggle':
                 config.licAllMessages = !config.licAllMessages;
                 debugLog('[LIC] Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
+                showMenu(chatId, messageId, d.uid);
+                break;
+            case 'filter':
+                config.licFilter = !config.licFilter;
+                debugLog('[LIC] Фильтр «только про лицензии»: ' + (config.licFilter ? 'ВКЛ' : 'ВЫКЛ'));
                 showMenu(chatId, messageId, d.uid);
                 break;
             case 'types':
@@ -1685,13 +1728,16 @@ try { (function () {
                 editMessageReplyMarkup(chatId, messageId, licMenuMarkup(d.args[0]));
                 break;
             case 'back':
-                editMessageReplyMarkup(chatId, messageId, playerMarkup(d.args[0]));
+                editMessageReplyMarkup(chatId, messageId, playerMarkup(d.args[0], msgText(cq)));
                 break;
             case 'pgive':
-                if (doGive(d.args[0], parseInt(d.args[1], 10))) editMessageReplyMarkup(chatId, messageId, playerMarkup(d.args[0]));
+                if (doGive(d.args[0], parseInt(d.args[1], 10))) editMessageReplyMarkup(chatId, messageId, playerMarkup(d.args[0], msgText(cq)));
                 break;
             case 'pre':
-                if (reissueFor(d.args[0])) editMessageReplyMarkup(chatId, messageId, playerMarkup(d.args[0]));
+                if (reissueFor(d.args[0])) editMessageReplyMarkup(chatId, messageId, playerMarkup(d.args[0], msgText(cq)));
+                break;
+            case 'qgive':   // выдача в одно нажатие: клавиатура не меняется; повторное нажатие в течение 4 с игнорируем
+                if (once('qg|' + d.args[0] + '|' + d.args[1], 4000)) doGive(d.args[0], parseInt(d.args[1], 10));
                 break;
             case 'close': deleteMessage(chatId, messageId); break;
         }
@@ -1722,19 +1768,19 @@ try { (function () {
     // ── Кнопка лицензии переживает перерисовку клавиатуры ───────
     // Code.js после «Пауза», «Авторизация», «Назад из движений» перерисовывает клавиатуру через getNotificationReplyMarkup() —
     // для сообщений игроков дописываем обратно строку «Выдача лицензии».
-    const _playerMsgs = {};   // 'chatId:messageId' → ID игрока
-    const PLAYER_TG_RE = /^💬[\s\S]*?\n👤[^\n]*?\[ID:\s*(\d+)\]/;
+    const _playerMsgs = {};   // 'chatId:messageId' → { id: ID игрока, text: его сообщение }
+    const PLAYER_TG_RE = /^💬\s*([\s\S]*?)\n👤[^\n]*?\[ID:\s*(\d+)\]/;
     if (typeof editMessageReplyMarkup === 'function' && !editMessageReplyMarkup.__licWrapped) {
         const origEditMarkup = editMessageReplyMarkup;
         const wrappedEdit = function (chatId, messageId, markup) {
             try {
-                const pid = _playerMsgs[chatId + ':' + messageId];
-                if (pid && markup && Array.isArray(markup.inline_keyboard) && ready()) {
+                const ent = _playerMsgs[chatId + ':' + messageId];
+                if (ent && markup && Array.isArray(markup.inline_keyboard) && ready()) {
                     const rows = markup.inline_keyboard;
                     const has = function (prefix) {
                         return rows.some(function (r) { return r.some(function (b) { return b && typeof b.callback_data === 'string' && b.callback_data.indexOf(prefix) === 0; }); });
                     };
-                    if (has('admin_reply_') && !has(PFX + 'open|')) markup = { inline_keyboard: rows.concat([licOpenRow(pid)]) };
+                    if (has('admin_reply_') && !has(PFX + 'open|')) markup = { inline_keyboard: wrapRows(rows, ent.id, ent.text) };
                 }
             } catch (e) {}
             return origEditMarkup.call(this, chatId, messageId, markup);
@@ -1752,7 +1798,7 @@ try { (function () {
             try {   // сообщение игрока (💬 … 👤 Ник [ID: n]) — запоминаем, чтобы кнопка лицензии не пропадала после «Пауза» / «Движения» и т.п.
                 if (cq && cq.message && typeof cq.message.text === 'string') {
                     const pm = cq.message.text.match(PLAYER_TG_RE);
-                    if (pm) _playerMsgs[cq.message.chat.id + ':' + cq.message.message_id] = pm[1];
+                    if (pm) _playerMsgs[cq.message.chat.id + ':' + cq.message.message_id] = { id: pm[2], text: pm[1] };
                 }
             } catch (e) {}
             if (cq && typeof cq.data === 'string' && cq.data.indexOf(PFX) === 0 && config.chatIds.includes(String(cq.message.chat.id))) {
@@ -1855,11 +1901,13 @@ try { (function () {
         if (radius === CHAT_RADIUS.RADIO) return;                       // рацию обрабатывает свой модуль
         const text = m[1].replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim(), nick = m[2], id = m[3];
         if (!text) return;
+        if (config.licFilter && (radius !== CHAT_RADIUS.CLOSE || !isLicText(text))) return;   // «только про лицензии»: рядом (/givelic до 6 м) + ключевые слова
         if (config.accountInfo.nickname && nick === config.accountInfo.nickname) return;   // свои не пересылаем
         if (!once(nick + '|' + text, 2000)) return;                     // дубль строки чата
         const where = radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
-        const markup = playerMarkup(id);                                // как у сотрудников фракции + внизу «Выдача лицензии» (там же перевыдача)
-        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', true, markup);
+        const markup = playerMarkup(id, text);                              // как у сотрудников фракции + внизу «Выдача лицензии» (там же перевыдача)
+        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', true, markup,
+            function (cid, mid) { _playerMsgs[cid + ':' + mid] = { id: id, text: text }; });   // запоминаем сообщение: кнопки переживут «Пауза» / «Движения»
     }
     function installChatHook() {
         const cur = window.OnChatAddMessage;
