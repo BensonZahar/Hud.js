@@ -2889,8 +2889,9 @@ var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фо
         '.chat-message-content__action.pravo-sms-btn::before{content:"' + PRAVO_SMS_LABEL + '";}' +
         '.chat-message-content__action.pravo-sms-btn::after{content:"";display:block;width:0;height:0;margin-left:.45em;' +
             'border-left:.36em solid transparent;border-right:.36em solid transparent;border-top:.46em solid currentColor;}' +
-        // раскрыто: «Закрыть» + стрелка вверх, фон как у обычной «Ответ» (без белой заливки, в т.ч. при наведении)
-        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open,.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open:hover{background:rgba(255,255,255,.25);color:inherit;}' +
+        // раскрыто: «Закрыть» + стрелка вверх, фон как у обычной «Ответ» (не белый); белым становится только при наведении
+        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open{background:rgba(255,255,255,.25);color:inherit;}' +
+        (PRAVO_SMS_HOVER_INVERT ? '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open:hover{background:#fff;color:' + PRAVO_SMS_HOVER_TEXT + ';}' : '') +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open::before{content:"' + PRAVO_SMS_LABEL_CLOSE + '";}' +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--open::after{border-top:0;border-bottom:.46em solid currentColor;}' +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}' +
