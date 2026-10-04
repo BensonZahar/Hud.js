@@ -4239,7 +4239,7 @@ window.pravoGiveLicenseByIndex = (targetId, idx) => {
 // Ставит «облачко» (chat bubble) над головой игрока по ID — через движковый SetPlayerChatBubble
 // (тот же, что вызывает window.setPlayerChatBubble). Метка ЛОКАЛЬНАЯ: видна только на этом клиенте.
 // Путь: «ПРАВИТЕЛЬСТВО» → «Бабл над игроком» (или бинд «Бабл над игроком») → ID → вариант.
-// Команда: /bubble <ID> <номер варианта>  (список — /bubble list; 0 — снять; afk — АФК с таймером; вместо номера можно свой текст).
+// Команда: /bubble <ID> <номер варианта>  (список — /bubble list; 0 — снять; afk — АФК как на сервере; вместо номера можно свой текст).
 //   window.PRAVO_BUBBLE_ENABLED = false — убрать пункт из меню.
 //   window.PRAVO_BUBBLE_PRESETS = [...]  — свои варианты (name, text, color 'RRGGBB', ms — необязательно).
 //   window.PRAVO_BUBBLE_MS / PRAVO_BUBBLE_DIST — время показа (мс) и дальность видимости (м) по умолчанию.
@@ -4314,11 +4314,18 @@ window.pravoGiveLicenseByIndex = (targetId, idx) => {
         }
     }
 
-    // ── АФК-бабл: серый «AFK мм:сс», сам обновляется (иначе бабл гаснет), снимается /bubble ID 0 ──
-    var AFK_REFRESH = 5000, AFK_MAX_MS = 30 * 60 * 1000;   // 30 мин — как MAX_AFK_TIME на сервере
+    // ── АФК-бабл — копия серверного (new.pwn, таймер раз в секунду, ~41603–41627) ─────────
+    //   пауза < 1 мин: «На паузе N сек.», дальше «На паузе М:СС» (минуты без нуля, секунды %02d);
+    //   цвет 0xFF0000FF (красный), дальность 7.0 м, время жизни 1500 мс, обновление каждую секунду;
+    //   на сервере метка появляется, когда P_AFK_TIME >= 5 → отсчёт начинается с 5 сек.
+    //   Снимается: /bubble ID 0 или любым другим баблом на этот ID.
+    var AFK_REFRESH = 1000, AFK_START_SEC = 5, AFK_DIST = 7.0, AFK_MS = 1500, AFK_COLOR = 0xFF0000FF;
     var afk = {};                                           // id → { t0, timer }
     function pad2(n) { return (n < 10 ? '0' : '') + n; }
-    function afkText(ms) { var s = Math.floor(ms / 1000); return 'AFK ' + pad2(Math.floor(s / 60)) + ':' + pad2(s % 60); }
+    function afkText(sec) {
+        var m = Math.floor(sec / 60) % 60, ss = sec % 60;
+        return m > 0 ? ('На паузе ' + m + ':' + pad2(ss)) : ('На паузе ' + ss + ' сек.');
+    }
     function afkStop(id) {
         if (afk[id]) { clearInterval(afk[id].timer); delete afk[id]; return true; }
         return false;
@@ -4326,18 +4333,18 @@ window.pravoGiveLicenseByIndex = (targetId, idx) => {
     function afkTick(id) {
         var a = afk[id];
         if (!a) return;
-        var el = Date.now() - a.t0;
-        if (el > AFK_MAX_MS) { afkStop(id); window.pravoClearBubble(id); return; }
-        try { fire(id, afkText(el), 0xBEBEBEFF, window.PRAVO_BUBBLE_DIST || DEF_DIST, AFK_REFRESH * 3); } catch (e) {}
+        var sec = Math.floor((Date.now() - a.t0) / 1000);
+        try { fire(id, afkText(sec), AFK_COLOR, window.PRAVO_AFK_DIST || AFK_DIST, AFK_MS); } catch (e) {}
     }
-    window.pravoAfkBubble = function (id, minutesAlready) {
+    // extraSec — сколько секунд игрок уже в паузе (по умолчанию как на сервере: старт с 5 сек.)
+    window.pravoAfkBubble = function (id, extraSec) {
         id = parseId(id);
         if (id < 0) return false;
         afkStop(id);
-        var off = Math.max(0, Number(minutesAlready) || 0) * 60000;
-        afk[id] = { t0: Date.now() - off, timer: setInterval(function () { afkTick(id); }, AFK_REFRESH) };
+        var start = Math.max(AFK_START_SEC, Number(extraSec) || 0);
+        afk[id] = { t0: Date.now() - start * 1000, timer: setInterval(function () { afkTick(id); }, AFK_REFRESH) };
         afkTick(id);
-        console.log('[BUBBLE] АФК-метка на ID ' + id);
+        console.log('[BUBBLE] АФК-метка на ID ' + id + ' (с ' + start + ' сек.)');
         return true;
     };
 
@@ -4384,7 +4391,7 @@ window.pravoGiveLicenseByIndex = (targetId, idx) => {
             list += n + '. {' + String(p.color || 'FFFFFF').replace(/[^0-9a-f]/gi, '').slice(0, 6) + '}' + p.name + '<n>';
         });
         list += (++n) + '. {FFFFFF}Свой текст...<n>';
-        list += (++n) + '. {BEBEBE}АФК (с таймером)<n>';
+        list += (++n) + '. {BEBEBE}АФК (как на сервере)<n>';
         list += (++n) + '. {FF6666}Убрать бабл<n>';
         window.addDialogInQueue('[' + DLG_LIST + ',4,"Бабл | ID: ' + id + '","","Поставить","Отмена",0,0]', list, 0);
     }
@@ -4401,7 +4408,7 @@ window.pravoGiveLicenseByIndex = (targetId, idx) => {
     //   /bubble <id>         — открыть выбор варианта для этого ID
     //   /bubble <id> <n>     — поставить вариант №n (1, 2, 3 ...)
     //   /bubble <id> <текст> — свой текст
-    //   /bubble <id> afk     — АФК-метка с таймером «AFK мм:сс» (/bubble <id> afk 5 — если уже 5 мин в АФК)
+    //   /bubble <id> afk     — АФК-метка «На паузе …» как на сервере (/bubble <id> afk 5 — уже 5 мин, afk 1:30 — уже 1:30)
     //   /bubble <id> 0       — снять бабл (также: off / clear / снять)
     function chat(text) {
         try {
@@ -4411,7 +4418,7 @@ window.pravoGiveLicenseByIndex = (targetId, idx) => {
     }
     function showList() {
         var ps = presets(), row = '', cnt = 0;
-        chat('{CCFF00}[Бабл] {FFFFFF}/bubble <ID> <номер>   (0 — снять, afk — АФК с таймером, либо свой текст). Всего вариантов: ' + ps.length);
+        chat('{CCFF00}[Бабл] {FFFFFF}/bubble <ID> <номер>   (0 — снять, afk — АФК как на сервере, либо свой текст). Всего вариантов: ' + ps.length);
         ps.forEach(function (p, i) {
             row += (cnt ? '  {666666}|  ' : '') + '{CCFF00}' + (i + 1) + '. {' + String(p.color || 'FFFFFF').replace(/[^0-9a-f]/gi, '').slice(0, 6) + '}' + p.name;
             if (++cnt === 2) { chat(row); row = ''; cnt = 0; }
@@ -4433,9 +4440,10 @@ window.pravoGiveLicenseByIndex = (targetId, idx) => {
             if (window.pravoClearBubble(id)) note('~y~Бабл~n~~w~Снят с ID ' + id);
             return true;
         }
-        var am = /^(?:afk|афк)(?:\s+(\d{1,3}))?$/i.exec(arg);
+        var am = /^(?:afk|афк)(?:\s+(\d{1,3})(?::(\d{1,2}))?)?$/i.exec(arg);
         if (am) {
-            if (window.pravoAfkBubble(id, am[1])) note('~g~Бабл~n~~w~АФК-метка на ID ' + id + (am[1] ? ' (уже ' + am[1] + ' мин)' : ''));
+            var extra = am[1] ? (parseInt(am[1], 10) * 60 + (am[2] ? parseInt(am[2], 10) : 0)) : 0;   // «5» = 5 мин, «1:30» = 1 мин 30 сек
+            if (window.pravoAfkBubble(id, extra)) note('~g~Бабл~n~~w~АФК-метка на ID ' + id + (am[1] ? ' (уже ' + am[1] + (am[2] ? ':' + am[2] : ' мин') + ')' : ''));
             return true;
         }
         var ps = presets();
