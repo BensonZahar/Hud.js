@@ -1874,7 +1874,7 @@ try { (function () {
         { re: /отказался от Вашего предложения/i,                         icon: '❌', title: 'Отказался от предложения', redo: true },
         { re: /^\*?\s*Игрок (?:находится )?слишком далеко/i,            icon: '📏', title: 'Игрок слишком далеко', redo: true },
         { re: /^\*?\s*Такого игрока нет/i,                                icon: '❓', title: 'Такого игрока нет', redo: false },
-        { re: /^Вы выдали\s/i,                                            icon: '✅', title: 'Лицензия выдана', redo: false, silent: true }
+        { re: /^Вы выдали\s/i,                                            icon: '✅', title: 'Лицензия выдана', redo: false, silent: false }
     ];
     function handleEvent(text) {
         if (!ready()) return false;
@@ -1911,7 +1911,7 @@ try { (function () {
         if (!once(nick + '|' + text, 2000)) return;                     // дубль строки чата
         const where = radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
         const markup = playerMarkup(id, text);                              // как у сотрудников фракции + внизу «Выдача лицензии» (там же перевыдача)
-        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', true, markup,
+        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', false, markup,
             function (cid, mid) { _playerMsgs[cid + ':' + mid] = { id: id, text: text }; });   // запоминаем сообщение: кнопки переживут «Пауза» / «Движения»
     }
     function installChatHook() {
