@@ -146,14 +146,40 @@ function idByNick(nick) {
     } catch (e) {}
     return null;
 }
-function refreshPlayers() { try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (e) {} }
-// Определяет ID по нику; список обновляется редко — просим движок обновить и ждём до ~1 с
+// Хук на window.onUpdatePlayersList. Code.js/движок могут переприсвоить эту функцию уже после нас — тогда наша
+// обёртка пропадает, список остаётся пустым и получается «не удалось определить ID» / «Жетон N».
+// Поэтому перед каждым запросом списка проверяем, что обёртка на месте, и ставим её заново.
+var RUN = {};   // метка именно этого запуска (после перезагрузки скрипта старая обёртка не считается нашей)
+function capturePlayers(e) {
+    try {
+        if (typeof e === 'string') { try { e = JSON.parse(e); } catch (er) { return; } }
+        if (e && (e.local || Array.isArray(e.players))) window.__code3PlayerList = e;
+    } catch (er) {}
+}
+function ensurePlayersHook() {
+    if (_dead) return;
+    var prev = window.onUpdatePlayersList;
+    if (prev && prev.__code3 === RUN) return;
+    var w = function (e) {
+        if (!_dead) capturePlayers(e);
+        if (typeof prev === 'function') return prev.apply(this, arguments);
+    };
+    w.__code3 = RUN;
+    window.onUpdatePlayersList = w;
+    dbg('хук onUpdatePlayersList (пере)установлен');
+    onUndo(function () { if (window.onUpdatePlayersList === w) window.onUpdatePlayersList = prev; });
+}
+function refreshPlayers() {
+    ensurePlayersHook();
+    try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (e) {}
+}
+// Определяет ID по нику; список обновляется редко — просим движок обновить и ждём до ~2 с
 function resolveId(nick, cb, tries) {
     tries = tries || 0;
     var id = idByNick(nick);
     if (id !== null) return cb(id);
-    if (tries >= 4) return cb(null);
-    if (tries === 0) refreshPlayers();
+    if (tries >= 8) return cb(null);
+    if (tries === 0 || tries === 4) refreshPlayers();   // второй запрос — если первый ответ потерялся
     setTimeout(function () { if (!_dead) resolveId(nick, cb, tries + 1); }, 250);
 }
 
@@ -1354,12 +1380,8 @@ function ensureChatHook() {
 (function installHooks() {
 
     // Список игроков (нужен для ник ↔ ID)
-    hookProp('onUpdatePlayersList', function (prev) {
-        return function (e) {
-            if (!_dead) { try { if (e && (e.local || e.players)) window.__code3PlayerList = e; } catch (er) {} }
-            if (typeof prev === 'function') return prev.apply(this, arguments);
-        };
-    });
+    ensurePlayersHook();
+    every(ensurePlayersHook, 1000);   // как и с чатом: если кто-то переприсвоил — ставим заново
 
     // Чат-команды + счёт отправленного в антифлуд. Цепочка как у Code.js: window.sendChatInputCustom || sendChatInput
     var origChatWin = window.sendChatInputCustom;
@@ -1513,6 +1535,7 @@ window.__code3 = {
     menu: showLicMenu,
     panel: updatePanel,
     refreshRank: ensureRank,
+    players: function () { var l = plist(); return { hooked: !!(window.onUpdatePlayersList && window.onUpdatePlayersList.__code3 === RUN), count: l && Array.isArray(l.players) ? l.players.length : 0, local: l && l.local ? l.local : null, list: l }; },
     // API для Telegram-вкладки «Лицензёр» (Code2.js)
     types: LIC_TYPES,
     ready: licensorReady,
