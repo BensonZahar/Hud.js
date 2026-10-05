@@ -235,22 +235,34 @@ function resolveId(nick, cb, o) {
     o = o || {};
     var since = o.since || (Date.now() - 1500);
     var deadline = Date.now() + (o.budget || 3000);
+    var retried = false;
     (function go() {
         awaitList(since, Math.max(300, deadline - Date.now()), function (got) {
             if (_dead) return;
             var id = idByNick(nick);
             // снимок не пришёл вовремя: список не старше 15 с ещё терпим, старее — нет
             if (id !== null && (got || Date.now() - listAt() < 15000)) return cb(id);
-            if (got && deadline - Date.now() > 900) { since = Date.now() + 400; return setTimeout(go, 400); }
+            // ника нет в свежем снимке: он мог быть снят до входа игрока — берём ещё один снимок (один раз, не до конца бюджета)
+            if (got && !retried && deadline - Date.now() > 900) { retried = true; since = Date.now() + 400; return setTimeout(go, 400); }
             var cid = chatIdByNick(nick);
             if (cid !== null) { log('ник', nick, 'не найден в списке — ID', cid, 'взят из строки чата'); return cb(cid); }
             var l = plist();
-            warn('не удалось определить ID для', nick, '|', got ? 'ника нет в свежем списке' : 'список игроков не ответил',
+            warn('не удалось определить ID для', nick, '|', got ? 'ника нет в свежем списке (маска Mask_N / подмена ника /gh?)' : 'список игроков не ответил',
                  '| игроков в списке:', l && Array.isArray(l.players) ? l.players.length : '—', '| count:', l && l.count !== undefined ? l.count : '—',
                  '| возраст списка, мс:', listAt() ? Date.now() - listAt() : '—');
             cb(null, got ? 'nolist' : 'noresp');
         });
     })();
+}
+
+// Сервер (menu_interaction.pwn → GetPlayerNameEx) пишет в заголовок меню НАСТОЯЩИЙ ник игрока, а список игроков и чат
+// содержат ник, который сейчас виден в SA-MP: у игрока в маске (/mask, только ПК) это «Mask_<id аккаунта>», у админа с /gh — временный ник.
+// Поэтому ник из меню в списке не находится вообще — это не сбой, а подмена; ID тут можно только ввести вручную (ники над головами видны).
+function isMaskNick(n) { return /^mask_\d+$/i.test(String(n || '')); }
+function askIdManually(nick) {
+    log('ник', nick, 'не найден в свежем списке игроков — вероятно, маска или подмена ника; просим ввести ID вручную');
+    gtAdd('~y~Игрок скрыл ник~n~~w~Маска или подмена ника — введите ID (он виден над головой)', 3500, 3);
+    setTimeout(function () { if (!_dead) showIdInput(); }, 150);
 }
 
 // ══════════════════════════ СКИН И ЗВАНИЕ ══════════════════════════
@@ -615,7 +627,7 @@ function giveByIndex(targetId, idx, nick) {
 // Как обратиться к игроку по последней выдаче: запомненный ник → иначе «Жетон N» (но не «ник по ID из текущего списка»)
 function lastWho(last) {
     var raw = last && last.nick;
-    return raw ? String(raw).split('_').join(' ') : null;
+    return (raw && !isMaskNick(raw)) ? String(raw).split('_').join(' ') : null;
 }
 var reissueTimer = null;
 function reissueSend() {
@@ -770,8 +782,14 @@ function circleHandle(nick, params) {
     resolveId(nick, function (id, why) {
         if (!circle.pending || circle.seq !== my || _dead) return;   // за это время открыли меню другого игрока / сработала страховка
         if (id === null) {
+            if (why === 'nolist') {   // список ответил, но ника в нём нет: маска / подмена ника — вводим ID вручную
+                circleDone();
+                srvSend('MenuInt_OnCloseInterface', 0);
+                askIdManually(nick);
+                return;
+            }
             circleShowNormal(params, nick);
-            gtAdd('~r~Круговое меню~n~~w~' + (why === 'noresp' ? 'Список игроков не ответил — откройте меню ещё раз' : 'Не удалось определить ID игрока'), 3000, 3);
+            gtAdd('~r~Круговое меню~n~~w~Список игроков не ответил — откройте меню ещё раз', 3000, 3);
             return;
         }
         circleDone();
@@ -844,7 +862,8 @@ var Radial = (function () {
             if (_dead || !piOpen()) { busy = false; return; }
             if (id === null) {
                 busy = false;
-                notify('~r~Выдача лицензии~n~~w~' + (why === 'noresp' ? 'Список игроков не ответил — нажмите ещё раз' : 'Не удалось определить ID игрока'));
+                if (why === 'nolist') { closeMenu(); askIdManually(nick); return; }   // маска / подмена ника — ID вводим вручную
+                notify('~r~Выдача лицензии~n~~w~Список игроков не ответил — нажмите ещё раз');
                 return;
             }
             if (lastNick !== nick) { busy = false; return; }   // пока ждали, меню стало меню другого игрока
@@ -1410,6 +1429,7 @@ function addr(id) {
     var l = STATE.last, raw = null;
     if (l && String(l.targetId) === String(id) && l.nick) raw = l.nick;
     if (!raw) raw = bestNickById(id);
+    if (isMaskNick(raw)) return 'Жетон ' + id;   // «Mask 123» — не ник человека; обращаемся по жетону (ID)
     return raw ? String(raw).split('_').join(' ') : ('Жетон ' + id);
 }
 
