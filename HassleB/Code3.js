@@ -11,9 +11,11 @@
 // ║   • «Просьба о чае» и авто-ответы игроку (штрафы, запрет, нет денег) ║
 // ║   • /dahk — меню лицензёра; /givelic и /givelic <ID> показывают наши ║
 // ║     диалоги поверх штатной команды                                   ║
+// ║   • кнопка «Авто-ответ» у входящих SMS и звонков: выбор «Место» /    ║
+// ║     «Ценовая политика» → ответ SMS-кой (как в pravo.js)              ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
-// ║  мышь/колесо, проверка ника, SMS-кнопка, перетаскивание окон.        ║
+// ║  мышь/колесо, проверка ника, перетаскивание окон.                 ║
 // ║                                                                      ║
 // ║  Доступно только в правительственном скине со званием «Лицензёр».    ║
 // ║  Звание берётся из профиля, который уже грузит Code.js               ║
@@ -28,7 +30,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.0';
+var VERSION = 'code3 v1.1';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -48,6 +50,10 @@ var OPTS = (function () {
         PANEL: true,             // кнопки в панели Interactions
         AUTO_REISSUE: true,      // «Перевыдать» (/cancel + повтор последнего /givelic)
         AUTO_REPLIES: true,      // авто-сообщения игроку: штрафы / запрет на оружие / нет денег / уже есть
+        SMS_REPLY: true,         // кнопка «Авто-ответ» у входящих SMS (выбор: Место / Ценовая политика)
+        SMS_REPLY_CALLS: true,   // ...и у входящих звонков (SMS уходит на номер из строки «Номер: …»)
+        SMS_TEXT: 'Здравствуйте, нахожусь в правительстве [/gps - Правительство]',   // текст пункта «Место»
+        SMS_TEXT_PRICE: '',      // текст «Ценовой политики»; '' = собирается из цен лицензий (LIC_TYPES)
         TEA_ASK: false,          // «Просьба о чае» по умолчанию (переключается в меню)
         TEA_TEXT: '{nick}, на чай не найдётся? А то 10 процентов с лицензии, буду благодарен',
         CIRCLE_LIC: false,       // «Круговое меню» по умолчанию (переключается в меню)
@@ -1267,6 +1273,394 @@ var Chat = (function () {
     };
 })();
 
+// ══════════════════════════ АВТО-ОТВЕТ НА SMS И ЗВОНКИ ══════════════════════════
+// Порт кнопки авто-ответа из pravo.js. К входящему SMS и к строке «Входящий звонок» дописывается кнопка «Авто-ответ».
+// Клик раскрывает под сообщением выбор «Место» / «Ценовая политика»; выбранный текст уходит командой /sms на номер
+// отправителя (у звонка — на номер из строки «Номер: …»). Сам звонок кнопка не принимает и не сбрасывает.
+// Работает только пока licensorReady() (правительственный скин + звание «Лицензёр»). Выключатели: OPTS.SMS_REPLY / SMS_REPLY_CALLS.
+var AR_ACTION = 9101;          // числовой id действия: парсер чата принимает только {btn:число:число:число}
+var AR_ICON = 4;               // id иконки, которой нет в Hud.js (там 0..3) → кнопка без картинки, подпись рисуем CSS-ом
+var AR_LABEL = 'Авто-ответ';   // надпись на кнопке (закрыто: стрелка вниз)
+var AR_LABEL_CLOSE = 'Закрыть';// надпись, пока выбор раскрыт (стрелка вверх)
+var AR_LABEL_PLACE = 'Место';
+var AR_LABEL_PRICE = 'Ценовая политика';
+var AR_SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.\s*(\d+)\]/;     // «SMS: текст | Отправитель: Ник [т.333351]»
+var AR_CALL_RE = /Входящий звонок\s*\|\s*Номер:\s*(\d+)/;         // «Входящий звонок | Номер: 333351 | Вызывает Ник»
+// Сервер режет SMS длиннее лимита («Слишком длинное сообщение»; 61 символ проходил, 80 — нет): режем на части и шлём по очереди
+var AR_MAX_LEN = 61;
+var AR_PART_DELAY = 700;       // мс между частями
+var AR_GAP_STEP = 1500;        // мс: на сколько растёт пауза после каждого «Подождите несколько секунд...»
+var AR_GAP_MAX = 8000;         // мс: потолок паузы
+var AR_RETRIES = 4;            // сколько раз повторяем одну часть, прежде чем сдаться
+var AR_ACK_WINDOW = 2500;      // мс после отправки части, в течение которых «Подождите...» считаем ответом именно на неё
+var AR_MENU_TIMEOUT = 30000;   // мс: через сколько авто-свернуть раскрытый выбор (0 = не сворачивать)
+var AR_PC_SCALE = 1.5, AR_MOBILE_SCALE = 2, AR_OPT_LINE = 1.15;   // размеры кнопок (как PRAVO_SMS_* в pravo.js)
+var AR_OUTLINE = 'rgba(255,255,255,.65)', AR_OUTLINE_R = '1.4vh'; // рамка вокруг сообщения + кнопок выбора ('' = без рамки)
+var AR_STYLE_ID = 'code3-ar-css';
+
+var arQueue = [], arBusy = false, arLastAt = 0, arGap = AR_PART_DELAY, arLast = null, arLastBtn = null;
+
+function arPlaceText() { return String(OPTS.SMS_TEXT || 'Здравствуйте, нахожусь в правительстве [/gps - Правительство]'); }
+function arPriceText() {
+    if (OPTS.SMS_TEXT_PRICE) return String(OPTS.SMS_TEXT_PRICE);
+    // Одним SMS: «Проф. права» → «Проф», цены в тысячах; префикс «Цены: » — только если влезает в лимит
+    var list = LIC_TYPES.map(function (t) { return t.name.replace(/^Проф\.? права$/i, 'Проф') + ' ' + Math.round(t.price / 1000) + 'к'; }).join(', ');
+    var cands = ['Цены: ' + list, list];
+    for (var i = 0; i < cands.length; i++) if (cands[i].length <= AR_MAX_LEN) return cands[i];
+    return cands[0];   // не влезло даже без префикса — arSend порежет на части
+}
+
+// Режем по «, » (запятая остаётся в конце куска); слишком длинный кусок без запятых — резаком по словам
+function arSplit(text, max) {
+    text = String(text == null ? '' : text).trim();
+    max = max || AR_MAX_LEN;
+    if (text.length <= max) return text ? [text] : [];
+    var toks = text.split(', '), parts = [], cur = '';
+    for (var i = 0; i < toks.length; i++) {
+        var piece = toks[i] + (i < toks.length - 1 ? ',' : '');
+        var cand = cur ? cur + ' ' + piece : piece;
+        if (cand.length <= max) { cur = cand; continue; }
+        if (cur) parts.push(cur);
+        cur = piece;
+        if (cur.length > max) {
+            var sub = splitSay(cur, max);
+            cur = sub.pop() || '';
+            parts = parts.concat(sub);
+        }
+    }
+    if (cur) parts.push(cur);
+    return parts;
+}
+function arDrain() {
+    if (arBusy) return;
+    arBusy = true;
+    (function next() {
+        if (_dead) { arQueue = []; arBusy = false; return; }
+        if (!arQueue.length) { arBusy = false; return; }
+        var gap = Math.max(0, arGap - (Date.now() - arLastAt));   // пауза между частями (растёт, если сервер просил подождать)
+        var fw = floodWait(1);                                    // антифлуд сервера
+        var w = Math.max(gap, fw);
+        if (w > 0) {
+            if (fw >= 700) gtAdd('~y~Антифлуд~n~~w~SMS через ' + (fw / 1000).toFixed(1) + ' с', Math.min(fw + 300, 2500), 3);
+            setTimeout(next, w + 5);
+            return;
+        }
+        var job = arQueue.shift();
+        rawSend('/sms ' + job.number + ' ' + job.text);
+        arLastAt = Date.now();
+        arLast = { job: job, at: arLastAt, done: false };
+        setTimeout(next, arGap);
+    })();
+}
+// Сервер ответил «Подождите несколько секунд...» на только что отправленную часть → повторяем её позже
+function arOnWait() {
+    var l = arLast;
+    if (!l || l.done || Date.now() - l.at > AR_ACK_WINDOW) return;   // это «Подождите» от другой команды
+    l.done = true;
+    var job = l.job;
+    job.tries = (job.tries || 0) + 1;
+    arGap = Math.min(AR_GAP_MAX, arGap + AR_GAP_STEP);
+    log('[SMS] «Подождите...» → повтор части (' + job.tries + '), пауза ' + arGap + ' мс');
+    if (job.tries > AR_RETRIES) { gtAdd('~r~SMS не ушло~n~~w~Сервер не принял сообщение', 3000, 3); return; }
+    gtAdd('~y~SMS~n~~w~Сервер просит подождать, повтор через ' + (arGap / 1000).toFixed(1) + ' с', Math.min(arGap + 300, 3500), 3);
+    arQueue.unshift(job);
+    arDrain();   // если цикл уже остановился (очередь опустела) — запускаем заново
+}
+// Эхо отправителю «SMS: … | Получатель: …» = часть дошла, «Подождите» после неё уже не к ней
+function arOnAck() { if (arLast) arLast.done = true; }
+function arSend(number, text) {
+    var parts = arSplit(text, AR_MAX_LEN);
+    for (var i = 0; i < parts.length; i++) arQueue.push({ number: number, text: parts[i] });
+    log('[SMS] → ' + number + ': ' + parts.length + ' сообщ.');
+    arDrain();
+}
+
+// ── Стили кнопки (вместо круглой иконки) ──
+function arInjectStyle() {
+    if (document.getElementById(AR_STYLE_ID)) return;
+    var pcH = 1.85 * AR_PC_SCALE, mbH = 2.78 * AR_MOBILE_SCALE;
+    var cssOpt = function (h) {
+        return 'height:auto!important;min-width:' + (h * 1.85).toFixed(2) + 'vh!important;' +
+               'padding:0 ' + (h * 0.38).toFixed(2) + 'vh!important;border-radius:' + (h / 2).toFixed(2) + 'vh!important;' +
+               'font-size:' + (h * 0.56).toFixed(2) + 'vh!important;line-height:' + AR_OPT_LINE + '!important;';
+    };
+    var css = function (h) {
+        return 'height:' + h + 'vh!important;min-width:' + (h * 1.85).toFixed(2) + 'vh!important;' +
+               'padding:0 ' + (h * 0.38).toFixed(2) + 'vh!important;border-radius:' + (h / 2).toFixed(2) + 'vh!important;' +
+               'font-size:' + (h * 0.56).toFixed(2) + 'vh!important;';
+    };
+    var B = '.chat-message-content__action.c3ar-btn';
+    var s = document.createElement('style');
+    s.id = AR_STYLE_ID;
+    s.textContent =
+        B + '{' + css(pcH) + 'box-sizing:border-box;background:rgba(255,255,255,.25);color:inherit;font-weight:700;line-height:1;' +
+            'letter-spacing:.05em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;}' +
+        B + ':hover{background:#fff;color:inherit;}' +
+        B + '>*{display:none!important;}' +
+        // подпись + стрелка-треугольник (рисуется границами: в шрифте чата может не быть символов-стрелок)
+        B + '::before{content:"' + AR_LABEL + '";}' +
+        B + '::after{content:"";display:block;width:0;height:0;margin-left:.45em;border-left:.36em solid transparent;border-right:.36em solid transparent;border-top:.46em solid currentColor;}' +
+        // раскрыто: «Закрыть» + стрелка вверх
+        B + '.c3ar-btn--open{background:rgba(255,255,255,.25);color:inherit;}' +
+        B + '.c3ar-btn--open:hover{background:#fff;color:inherit;}' +
+        B + '.c3ar-btn--open::before{content:"' + AR_LABEL_CLOSE + '";}' +
+        B + '.c3ar-btn--open::after{border-top:0;border-bottom:.46em solid currentColor;}' +
+        B + '.c3ar-btn--mobile{' + css(mbH) + '}' +
+        // раскрытый выбор — отдельная строка под сообщением (свои элементы без data-v: штатные стили чата на них не действуют)
+        '.c3ar-menu{display:flex;align-items:center;flex-wrap:wrap;box-sizing:border-box;padding:.3vh .6vh .35vh;color:#fff;font-weight:700;}' +
+        (AR_OUTLINE ?
+            '.chat-message.c3ar-row--active{background-color:rgba(255,255,255,.08)!important;border:.16vh solid ' + AR_OUTLINE + '!important;border-bottom:0!important;' +
+                'border-radius:' + AR_OUTLINE_R + ' ' + AR_OUTLINE_R + ' 0 0!important;}' +
+            '.c3ar-menu.c3ar-menu--attached{background-color:rgba(255,255,255,.08);border:.16vh solid ' + AR_OUTLINE + ';border-top:0;' +
+                'border-radius:0 0 ' + AR_OUTLINE_R + ' ' + AR_OUTLINE_R + ';}'
+        : '') +
+        '.c3ar-opt{' + cssOpt(pcH) +
+            'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.6vh;position:relative;' +
+            'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:#fff;font-weight:700;' +
+            'letter-spacing:.05em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;transition:all .25s ease;' +
+            'text-shadow:-0.05vw -0.05vw 0 #000,0 -0.05vw 0 #000,0.05vw -0.05vw 0 #000,0.05vw 0 0 #000,0.05vw 0.05vw 0 #000,0 0.05vw 0 #000,-0.05vw 0.05vw 0 #000,-0.05vw 0 0 #000;}' +
+        '.c3ar-opt.c3ar-opt--mobile{' + cssOpt(mbH) + '}' +
+        '.c3ar-opt:hover{background:#fff;color:#000;}' +
+        // сообщение в одну строку не переносим: иначе кнопка при смене подписи уезжает на вторую строку
+        '.chat-message.c3ar-row--nowrap .chat-message-content{white-space:nowrap!important;}';
+    document.head.appendChild(s);
+}
+
+// Помечаем наши кнопки в чате: у них нет иконки (id AR_ICON не существует → src оканчивается на «undefined»),
+// а рядом текст «SMS:» или «Входящий звонок»
+function arMarkBtns(root) {
+    try {
+        var scope = (root && root.querySelectorAll) ? root : document;
+        var imgs = scope.querySelectorAll('.chat-message-content__action-image');
+        var mobile = isMobile();
+        for (var i = 0; i < imgs.length; i++) {
+            var src = imgs[i].getAttribute('src');
+            if (src && !/undefined$/.test(src)) continue;   // у обычных кнопок иконка есть
+            var btn = imgs[i].parentNode;
+            if (!btn || !btn.classList || btn.classList.contains('c3ar-btn')) continue;
+            var p = btn.parentNode;
+            var t = p ? String(p.textContent || '') : '';
+            if (t.indexOf('SMS:') === -1 && t.indexOf('Входящий звонок') === -1) continue;
+            btn.classList.add('c3ar-btn');
+            if (mobile) btn.classList.add('c3ar-btn--mobile');
+        }
+    } catch (e) {}
+}
+
+// ── Раскрытие кнопки в выбор «Место / Ценовая политика» ──
+function arCollapse(menu) {
+    try {
+        if (!menu) return;
+        if (menu._arTimer) { clearTimeout(menu._arTimer); menu._arTimer = 0; }
+        var btn = menu._arBtn;
+        if (btn) { btn._arMenu = null; if (btn.classList) btn.classList.remove('c3ar-btn--open'); }
+        var r = menu._arRow;
+        if (r && r.classList) {
+            r.classList.remove('c3ar-row--active');
+            r.classList.remove('c3ar-row--nowrap');
+            r.style.width = r.style.boxSizing = r.style.paddingLeft = r.style.paddingRight = '';
+            r.style.flexGrow = r.style.flexShrink = r.style.alignSelf = '';
+        }
+        if (menu.parentNode) menu.parentNode.removeChild(menu);
+    } catch (e) {}
+}
+function arCollapseAll() {
+    try {
+        var menus = document.querySelectorAll('.c3ar-menu');
+        for (var i = 0; i < menus.length; i++) arCollapse(menus[i]);
+    } catch (e) {}
+}
+// Строка сообщения чата (flex: время + текст), под которой показываем выбор
+function arRow(btn) {
+    var el = btn;
+    for (var i = 0; i < 6 && el && el.parentNode; i++) {
+        if (el.classList && el.classList.contains('chat-message')) return el;
+        el = el.parentNode;
+    }
+    return null;
+}
+// getComputedStyle в этом движке может вернуть значение в vh/vw/em — переводим в px вёрстки сами
+function arPx(val, el) {
+    try {
+        var str = String(val == null ? '' : val).trim();
+        var n = parseFloat(str);
+        if (!isFinite(n)) return 0;
+        if (/vh\s*$/i.test(str)) return n * (window.innerHeight || 1080) / 100;
+        if (/vw\s*$/i.test(str)) return n * (window.innerWidth || 1920) / 100;
+        if (/em\s*$/i.test(str) && !/rem\s*$/i.test(str)) {
+            var fs = el ? arPx(getComputedStyle(el).fontSize, null) : 16;
+            return n * (fs || 16);
+        }
+        return n;
+    } catch (e) { return 0; }
+}
+// Одна скруглённая рамка по ширине самого длинного из двух — сообщения или строки кнопок (а не на весь чат)
+function arFit(row, menu, btn) {
+    try {
+        if (!AR_OUTLINE || !row || !menu || !menu.parentNode) return;
+        var kids = row.children, lastR = kids && kids.length ? kids[kids.length - 1] : null;
+        var lastM = menu.lastElementChild;
+        if (!lastR || !lastM) return;
+        // масштаб чата (экранные px → px вёрстки); без масштаба = 1
+        var scale = 1;
+        try {
+            var rw = row.getBoundingClientRect().width, ow = row.offsetWidth;
+            if (rw > 0 && ow > 0) scale = rw / ow;
+            if (!(scale > 0.4 && scale < 2.5) || Math.abs(scale - 1) < 0.03) scale = 1;
+        } catch (_) { scale = 1; }
+        var rr = row.getBoundingClientRect(), mm = menu.getBoundingClientRect();
+        var lr = lastR.getBoundingClientRect(), lm = lastM.getBoundingClientRect();
+        var padM = arPx(getComputedStyle(menu).paddingLeft, menu);
+        var bw = arPx(getComputedStyle(row).borderLeftWidth, row);
+        var mR = arPx(getComputedStyle(lastM).marginRight, lastM);
+        var w1 = (lr.right - rr.left) / scale + padM * 2 + bw * 2;   // сообщение
+        var w2 = (lm.right - mm.left) / scale + mR + padM + bw * 2;  // кнопки
+        // подпись меняется («Авто-ответ» → «Закрыть»), а движок отдаёт размеры прошлого кадра: закладываем запас вручную
+        var reserve = 0;
+        try {
+            var bfs = arPx(getComputedStyle(btn).fontSize, btn) || 16;
+            if (bfs < 6) bfs = (window.innerHeight || 1080) * 0.0155;
+            reserve = Math.max(0, AR_LABEL_CLOSE.length - AR_LABEL.length) * bfs * 0.75 + bfs * 0.6;
+        } catch (_) {}
+        w1 += reserve;
+        var full = rr.width / scale;
+        var W = Math.ceil(Math.max(w1, w2)) + 4;
+        if (full > 0) W = Math.min(W, Math.floor(full));
+        if (!(W > 0)) return;
+        row.style.boxSizing = 'border-box';
+        row.style.paddingLeft = padM + 'px';
+        row.style.paddingRight = padM + 'px';
+        row.style.width = W + 'px';
+        row.style.flexGrow = '0'; row.style.flexShrink = '0'; row.style.alignSelf = 'flex-start';
+        menu.style.width = W + 'px';
+        menu.style.flexWrap = 'nowrap';
+        menu.style.flexGrow = '0'; menu.style.flexShrink = '0'; menu.style.alignSelf = 'flex-start';
+        if (full > 0 && w1 + 40 < full) row.classList.add('c3ar-row--nowrap');   // короткое сообщение держим в одну строку
+    } catch (e) { dbg('arFit:', e); }
+}
+function arExpand(btn, number) {
+    try {
+        if (!btn || !btn.parentNode) return false;
+        // повторный клик сворачивает выбор
+        if (btn._arMenu && btn._arMenu.parentNode) { arCollapse(btn._arMenu); return true; }
+        arCollapseAll();   // одновременно раскрыта только одна кнопка
+        var mobile = btn.classList.contains('c3ar-btn--mobile');
+        var menu = document.createElement('div');
+        menu.className = 'c3ar-menu';
+        menu._arBtn = btn;
+        var opts = [
+            { label: AR_LABEL_PLACE, text: arPlaceText },
+            { label: AR_LABEL_PRICE, text: arPriceText }
+        ];
+        opts.forEach(function (o) {
+            var b = document.createElement('span');
+            b.className = 'c3ar-opt' + (mobile ? ' c3ar-opt--mobile' : '');
+            b.textContent = o.label;
+            b.addEventListener('click', function (ev) {
+                try { ev.stopPropagation(); ev.preventDefault(); } catch (_) {}
+                if (!_dead) { try { arSend(number, o.text()); } catch (e) { warn('SMS: ошибка отправки', e); } }
+                arCollapse(menu);   // отправили → выбор убирается, остаётся одна кнопка «Авто-ответ»
+            });
+            menu.appendChild(b);
+        });
+        btn.classList.add('c3ar-btn--open');   // «Закрыть» + стрелка вверх (до замеров рамки: подпись меняет ширину)
+        var row = arRow(btn);
+        if (row && row.parentNode) {
+            row.parentNode.insertBefore(menu, row.nextSibling);   // отдельной строкой под сообщением
+            row.classList.add('c3ar-row--active');
+            menu.classList.add('c3ar-menu--attached');
+            menu._arRow = row;
+            arFit(row, menu, btn);
+        } else btn.parentNode.appendChild(menu);
+        btn._arMenu = menu;
+        if (AR_MENU_TIMEOUT > 0) menu._arTimer = setTimeout(function () { arCollapse(menu); }, AR_MENU_TIMEOUT);
+        return true;
+    } catch (e) { return false; }
+}
+
+// Дописываем {btn:…} к входящему SMS / звонку. Для SMS, у которых уже есть своя кнопка, ничего не делаем (как в pravo.js)
+function arAddButton(message) {
+    if (!OPTS.SMS_REPLY || typeof message !== 'string' || !licensorReady()) return message;
+    if (message.indexOf(':' + AR_ACTION + ':') !== -1 || message.indexOf(':9001:') !== -1) return message;   // уже есть (наша / из pravo.js)
+    var plain = message.replace(/\{[0-9A-Fa-f]{6}\}/g, '');
+    var m = plain.match(AR_SMS_RE);
+    if (m) {
+        if (message.indexOf('{btn:') !== -1) return message;
+    } else if (OPTS.SMS_REPLY_CALLS) {
+        m = plain.match(AR_CALL_RE);   // у звонка штатные кнопки уже есть — наша дописывается к ним
+    }
+    if (!m) return message;
+    return message + ' {btn:' + AR_ICON + ':' + AR_ACTION + ':' + m[1] + '}';
+}
+
+function hudChat() { var hud = iface('Hud'); return (hud && hud.$refs && hud.$refs.chat) || null; }
+// Хуки: добавление кнопки при выводе сообщения (нужно ДО добавления в чат — OnChatAddMessage вызывается уже после) и клик по кнопке.
+// Вызывается раз в 1.5 с: чат/Hud могут пересоздаваться, а onChatMessageAction может появиться позже запуска скрипта
+function arEnsureHooks() {
+    if (_dead) return;
+    var chat = hudChat();
+    if (chat && typeof chat.add === 'function' && !chat.add.__code3ar) {
+        var prevAdd = chat.add;
+        var wAdd = function (message) {
+            var args = arguments;
+            if (!_dead) {
+                try {
+                    var m2 = arAddButton(message);
+                    if (m2 !== message) { args = [].slice.call(arguments); args[0] = m2; }
+                } catch (e) {}
+            }
+            return prevAdd.apply(this, args);
+        };
+        wAdd.__code3ar = true;
+        chat.add = wAdd;
+        onUndo(function () { try { if (chat.add === wAdd) chat.add = prevAdd; } catch (e) {} });
+        dbg('хук chat.add (авто-ответ) установлен');
+    }
+    var prevAct = window.onChatMessageAction;
+    if (typeof prevAct === 'function' && !prevAct.__code3ar) {
+        var wAct = function (button, action, value) {
+            if (!_dead && String(action) === String(AR_ACTION)) {
+                var b = arLastBtn; arLastBtn = null;
+                // Раскрываем выбор «Место / Ценовая политика»; если кнопку в DOM не нашли — шлём «Место»
+                if (!arExpand(b, value)) arSend(value, arPlaceText());
+                return;
+            }
+            return prevAct.apply(this, arguments);
+        };
+        wAct.__code3ar = true;
+        window.onChatMessageAction = wAct;
+        onUndo(function () { if (window.onChatMessageAction === wAct) window.onChatMessageAction = prevAct; });
+    }
+}
+
+// Запуск: стили, пометка кнопок (MutationObserver), запоминание «по какой именно кнопке кликнули»
+(function arInit() {
+    var tries = 0;
+    (function start() {
+        if (_dead) return;
+        if (!document.body || !document.head) { if (++tries < 100) setTimeout(start, 100); return; }
+        arInjectStyle();
+        onUndo(function () { arCollapseAll(); var st = document.getElementById(AR_STYLE_ID); if (st && st.parentNode) st.parentNode.removeChild(st); });
+        try {
+            var mo = new MutationObserver(function (muts) {
+                for (var i = 0; i < muts.length; i++) {
+                    var added = muts[i].addedNodes;
+                    for (var j = 0; j < added.length; j++) if (added[j].nodeType === 1) arMarkBtns(added[j]);
+                }
+            });
+            mo.observe(document.body, { childList: true, subtree: true });
+            onUndo(function () { try { mo.disconnect(); } catch (e) {} });
+        } catch (e) {}
+        arMarkBtns(document);
+        // capture: срабатывает раньше обработчика Vue, значение номера придёт уже в onChatMessageAction
+        var onClick = function (e) {
+            try { var t = e.target; arLastBtn = (t && t.closest) ? t.closest('.c3ar-btn') : null; } catch (_) { arLastBtn = null; }
+        };
+        document.addEventListener('click', onClick, true);
+        onUndo(function () { document.removeEventListener('click', onClick, true); });
+    })();
+})();
+
 // ══════════════════════════ РЕАКЦИИ НА ЧАТ ══════════════════════════
 var _cool = {};
 function cooled(key, ms) { var n = Date.now(); if (_cool[key] && n - _cool[key] < ms) return false; _cool[key] = n; return true; }
@@ -1285,6 +1679,10 @@ function onChat(message) {
     // Сервер сказал «Не флудите» — подтягиваем нашу модель антифлуда к реальному счётчику
     if (msg.indexOf('Пожалуйста, подождите несколько секунд') !== -1) floodServerSaid(true);
     else if (msg.indexOf('Не флудите') !== -1) floodServerSaid(false);
+
+    // Авто-ответ SMS: «Подождите несколько секунд...» на нашу часть → повтор; эхо «SMS: … | Получатель: …» → часть дошла
+    if (msg.indexOf('Подождите несколько секунд') !== -1) arOnWait();
+    else if (msg.indexOf('SMS:') !== -1 && msg.indexOf('Получатель:') !== -1) arOnAck();
 
     var clean = msg.replace(/\{[0-9a-fA-F]{6}\}/g, '');
     var last = STATE.last;
@@ -1491,6 +1889,10 @@ function ensureChatHook() {
     // Чат
     ensureChatHook();
     every(ensureChatHook, 1500);
+
+    // Кнопка «Авто-ответ» у SMS и звонков
+    arEnsureHooks();
+    every(arEnsureHooks, 1500);
 
     // Клавиатура: хуки на setDrawLabelStatus / hideKeyboard
     kbEnsureHooks();
