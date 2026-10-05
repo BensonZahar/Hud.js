@@ -887,40 +887,40 @@ function applyMainMenuTabPatch() {
 
 // Тег, по которому все аккаунты распознают broadcast-команду
 const HBGLOBAL_TAG = '#HBGLOBAL';
+// Через сколько мс удалять служебное сообщение с тегом из беседы (0 = не удалять).
+// Удаление безопасно: апдейт уже в очереди у других ботов и доставится, даже если сообщение удалено.
+const HBGLOBAL_DELETE_AFTER_MS = 10000;
 
-// Отправить глобальную команду — через Telegram broadcast-канал (основной) + BroadcastChannel (резерв)
-// Telegram канал: бот пишет в приватный канал, где все боты — админы.
-// Другие боты получают это как channel_post (не от бота!) → ограничение Telegram обходится.
-// BroadcastChannel оставлен как резерв на случай одного браузера, но между разными
-// процессами игры (отдельные окна/приложения) он не работает.
+// Отправить глобальную команду всем аккаунтам — через ту же Telegram-беседу (config.chatIds[0]).
+// Начиная с Bot API 10.0 (май 2026) боты видят сообщения друг друга в группах, если у бота
+// включён «Bot-to-Bot Communication Mode» в @BotFather и он админ группы (или privacy отключён).
+// Отдельный broadcast-канал больше не нужен.
+// BroadcastChannel (браузерный) оставлен как резерв для вкладок одного браузера;
+// дубль от него и от Telegram гасится в handleGlobalBroadcastCommand.
 function broadcastGlobalCommand(cmd, val) {
-    // 1. Telegram канал — главный метод для изолированных процессов игры
-    // FIX: используем tgApi() вместо сырого XHR — встроенный retry при 429 (до 3 раз)
-    const bcChanId = window.BROADCAST_CHANNEL_ID;
-    if (bcChanId) {
-        const chanTag = `${HBGLOBAL_TAG}:${cmd}:${val}`;
-        tgApi('sendMessage', {
-            chat_id: bcChanId,
-            text: chanTag,
-            disable_notification: true
-        },
-        () => debugLog(`[GLOBAL] Channel broadcast OK → ${bcChanId}: ${chanTag}`),
-        (statusOrErr) => {
-            debugLog(`[GLOBAL] ⚠️ Channel broadcast FAIL (${statusOrErr}) → ${chanTag}, повтор через 3с`);
-            setTimeout(() => tgApi('sendMessage', {
-                chat_id: bcChanId,
-                text: chanTag,
-                disable_notification: true
-            },
-            () => debugLog(`[GLOBAL] Channel broadcast OK (retry) → ${chanTag}`),
-            (s) => debugLog(`[GLOBAL] ❌ Channel broadcast окончательно не удался (${s}) → ${chanTag}`)
+    const chatId = (config.chatIds && config.chatIds[0]) || null;
+    if (chatId) {
+        const tag = `${HBGLOBAL_TAG}:${cmd}:${val}`;
+        const payload = { chat_id: chatId, text: tag, disable_notification: true };
+        const onOk = (data) => {
+            debugLog(`[GLOBAL] Broadcast в беседу OK → ${chatId}: ${tag}`);
+            const mid = data && data.result && data.result.message_id;
+            if (mid && HBGLOBAL_DELETE_AFTER_MS > 0) {
+                setTimeout(() => deleteMessage(chatId, mid), HBGLOBAL_DELETE_AFTER_MS);
+            }
+        };
+        // tgApi сам ретраит 429; при другой ошибке — один повтор через 3с
+        tgApi('sendMessage', payload, onOk, (statusOrErr) => {
+            debugLog(`[GLOBAL] ⚠️ Broadcast в беседу FAIL (${statusOrErr}) → ${tag}, повтор через 3с`);
+            setTimeout(() => tgApi('sendMessage', payload, onOk,
+                (s) => debugLog(`[GLOBAL] ❌ Broadcast в беседу не удался (${s}) → ${tag}`)
             ), 3000);
         });
     } else {
-        debugLog('[GLOBAL] BROADCAST_CHANNEL_ID не задан — channel broadcast пропущен');
+        debugLog('[GLOBAL] config.chatIds пуст — broadcast в беседу пропущен');
     }
 
-    // 2. BroadcastChannel — резерв для случая когда все вкладки в одном браузере
+    // Резерв: BroadcastChannel — вкладки одного браузера
     try {
         const _bc = new BroadcastChannel('hassle_global_v1');
         _bc.postMessage({ cmd, val, from: displayName });
@@ -936,8 +936,9 @@ function broadcastGlobalCommand(cmd, val) {
 // Перезагрузить ТЕКУЩИЙ аккаунт + broadcast для остальных
 // (боты не получают свои собственные сообщения, поэтому текущий перезагружаем напрямую)
 // FIX: broadcast только с аккаунта #1 (остальные получат /reload из чата напрямую).
+//      skipBroadcast=true — когда /reload уже пришёл всем из беседы (broadcast не нужен, иначе двойная перезагрузка).
 //      Стаггер N*800ms — аккаунты не стартуют одновременно и не создают rate-limit в канале.
-function reloadAllAccounts() {
+function reloadAllAccounts(skipBroadcast) {
     if (window._hassleReloading) {
         debugLog(`[RELOAD] Уже выполняется, игнорируем`);
         return;
@@ -946,7 +947,7 @@ function reloadAllAccounts() {
     const myNum = parseInt(window.ACCOUNT_NUMBER) || 1;
 
     // Broadcast нужен только аккаунту #1 — остальные и так получат /reload из общего чата
-    if (myNum === 1) {
+    if (myNum === 1 && !skipBroadcast) {
         broadcastGlobalCommand('reload', 'on');
     }
 
@@ -995,6 +996,16 @@ function reloadCurrentAccount() {
 
 // Применить глобальную команду на текущем аккаунте
 function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
+    // Дедуп: одна команда может прийти дважды (BroadcastChannel + беседа) — применяем один раз
+    if (fromBroadcast) {
+        const _now = Date.now();
+        const _last = (window._hbGlobalLast = window._hbGlobalLast || {})[cmd];
+        if (_last && _last.val === val && _now - _last.t < 4000) {
+            debugLog(`[GLOBAL] Дубль ${cmd} = ${val} — пропущен`);
+            return;
+        }
+        window._hbGlobalLast[cmd] = { val, t: _now };
+    }
     const isOn = val === 'on';
     switch (cmd) {
         case 'toggle_payday':
@@ -4530,7 +4541,7 @@ function checkTelegramCommands() {
 
     // -1 = свежий старт с пустой очередью; слать Telegram offset=0 (получать всё новое)
     const effectiveOffset = config.lastUpdateId < 0 ? 0 : config.lastUpdateId + 1;
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${effectiveOffset}&timeout=25&allowed_updates=${encodeURIComponent('["message","callback_query","channel_post"]')}`;
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${effectiveOffset}&timeout=25&allowed_updates=${encodeURIComponent('["message","callback_query"]')}`;
     const xhr = new XMLHttpRequest();
     _pollXhr = xhr;
     window._hassleCurrentPollXhr = xhr; // FIX: для hassleCleanupHooks
@@ -4605,21 +4616,6 @@ function processUpdates(updates) {
         config.lastUpdateId = update.update_id;
         setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
 
-        // ===== CHANNEL BROADCAST: #HBGLOBAL из приватного broadcast-канала =====
-        // Проверяем ДО фильтра chatIds — channel ID не входит в chatIds
-        if (update.channel_post && update.channel_post.text) {
-            const bcChanId = window.BROADCAST_CHANNEL_ID;
-            if (bcChanId && String(update.channel_post.chat.id) === String(bcChanId)) {
-                const globalMatch = update.channel_post.text.match(/#HBGLOBAL:(\w+):(\w+)/);
-                if (globalMatch) {
-                    const [, cmd, val] = globalMatch;
-                    debugLog(`[GLOBAL] Channel broadcast получен: ${cmd} = ${val}`);
-                    handleGlobalBroadcastCommand(cmd, val, true);
-                    continue; // не передавать дальше
-                }
-            }
-        }
-        // ===== END CHANNEL BROADCAST =====
 
         let chatId = null;
         if (update.message) {
@@ -4638,6 +4634,7 @@ function processUpdates(updates) {
             const globalMatch = update.message.text.match(/#HBGLOBAL:(\w+):(\w+)/);
             if (globalMatch) {
                 const [, cmd, val] = globalMatch;
+                debugLog(`[GLOBAL] Broadcast из беседы: ${cmd} = ${val}` + (update.message.from && update.message.from.is_bot ? ' (от бота)' : ''));
                 handleGlobalBroadcastCommand(cmd, val, true);
                 config.lastUpdateId = update.update_id;
                 setSharedLastUpdateId(config.lastUpdateId);
@@ -4645,6 +4642,12 @@ function processUpdates(updates) {
             }
         }
         // ===== END GLOBAL BROADCAST =====
+
+        // Bot-to-Bot: теперь мы видим сообщения других ботов (статусы «PayDay ВКЛ (Акк2)» и т.п.) —
+        // это не команды, в обычный обработчик их не пускаем (защита от петель между ботами)
+        if (update.message && update.message.from && update.message.from.is_bot) {
+            continue;
+        }
 
         if (update.message) {
             const message = update.message.text ? update.message.text.trim() : '';
@@ -4674,7 +4677,7 @@ function processUpdates(updates) {
             }
             // Глобальные команды (работают на все аккаунты)
             if (message === '/reload') {
-                reloadAllAccounts();
+                reloadAllAccounts(true); // /reload видят все боты сами — broadcast не нужен
             } else if (message === '/dbg_on') {
                 startDebugStatTracker(); // сам отправляет стартовое сообщение через _dbg3TgPush
             } else if (message === '/dbg_off') {
@@ -5051,7 +5054,7 @@ function processUpdates(updates) {
                     // Для всех аккаунтов — рассылаем broadcast с тем же действием
                     if (_scope === 'global') {
                         const _bcVal = _isPaused ? 'off' : 'on'; // если были на паузе — выходим у всех, иначе — входим
-                        handleGlobalBroadcastCommand('toggle_pause', _bcVal); // применяем у себя (бот не получает свои channel_post)
+                        handleGlobalBroadcastCommand('toggle_pause', _bcVal); // применяем у себя (бот не получает свои собственные сообщения)
                         broadcastGlobalCommand('toggle_pause', _bcVal);
                     }
                     showFunctionsMenu(chatId, messageId, callbackUniqueId);
@@ -5062,7 +5065,7 @@ function processUpdates(updates) {
                         sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
                         // Для всех аккаунтов — рассылаем broadcast
                         if (_scope === 'global') {
-                            handleGlobalBroadcastCommand('toggle_autologin', 'off'); // применяем у себя (бот не получает свои channel_post)
+                            handleGlobalBroadcastCommand('toggle_autologin', 'off'); // применяем у себя (бот не получает свои собственные сообщения)
                             broadcastGlobalCommand('toggle_autologin', 'off');
                         }
                     } else {
@@ -5071,7 +5074,7 @@ function processUpdates(updates) {
                         sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                         // Для всех аккаунтов — рассылаем broadcast
                         if (_scope === 'global') {
-                            handleGlobalBroadcastCommand('toggle_autologin', 'on'); // применяем у себя (бот не получает свои channel_post)
+                            handleGlobalBroadcastCommand('toggle_autologin', 'on'); // применяем у себя (бот не получает свои собственные сообщения)
                             broadcastGlobalCommand('toggle_autologin', 'on');
                         }
                     }
@@ -5109,11 +5112,11 @@ function processUpdates(updates) {
                 // legacy — редирект на новый scope-selector для KAC
                 showFuncScopeMenu(chatId, messageId, 'kac', callbackUniqueId);
             } else if (message.startsWith(`global_kac_on_`)) {
-                handleGlobalBroadcastCommand('toggle_kac', 'on'); // FIX: применяем у себя (бот не получает свои channel_post)
+                handleGlobalBroadcastCommand('toggle_kac', 'on'); // FIX: применяем у себя (бот не получает свои собственные сообщения)
                 broadcastGlobalCommand('toggle_kac', 'on');
                 sendWelcomeMessage(true);
             } else if (message.startsWith(`global_kac_off_`)) {
-                handleGlobalBroadcastCommand('toggle_kac', 'off'); // FIX: применяем у себя (бот не получает свои channel_post)
+                handleGlobalBroadcastCommand('toggle_kac', 'off'); // FIX: применяем у себя (бот не получает свои собственные сообщения)
                 broadcastGlobalCommand('toggle_kac', 'off');
                 sendWelcomeMessage(true);
             } else if (message.startsWith(`global_p_on_`)) {
@@ -5492,7 +5495,7 @@ function processUpdates(updates) {
                     };
                     const _broadcastCmd = _cmdMap[_type];
                     if (_broadcastCmd) {
-                        handleGlobalBroadcastCommand(_broadcastCmd, _action); // FIX: применяем у себя (бот не получает свои channel_post)
+                        handleGlobalBroadcastCommand(_broadcastCmd, _action); // FIX: применяем у себя (бот не получает свои собственные сообщения)
                         broadcastGlobalCommand(_broadcastCmd, _action);
                     }
                 }
