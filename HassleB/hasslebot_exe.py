@@ -110,6 +110,8 @@ class MEmuHudManager:
         self.script_dir = Path(__file__).parent
         self.hud_file = self.script_dir / "Hud.js"
         self.hud_nocode_file = self.script_dir / "Hud_nocode.js"
+        self.index_file = self.script_dir / "index.js"
+        self.index_nocode_file = self.script_dir / "index_nocode.js"
         self.temp_file = self.script_dir / "temp_hud.tmp"
         self.github_repo = "https://api.github.com/repos/BensonZahar/Hud.js/contents/HassleB"
         self.code_files = []
@@ -2399,30 +2401,92 @@ class MEmuHudManager:
             f".map(function(c){{return String.fromCharCode(c)}}).join(''));"
         )
 
+    # Файл, в конец которого вставляется код бота
+    CODE_FILE = "index.js"
+    # Старое место вставки: оттуда код при установке/удалении вычищается,
+    # чтобы бот не запускался дважды
+    LEGACY_CODE_FILE = "Hud.js"
+
+    def _has_code_markers(self, content):
+        return ("//\u200b\u200c\u200b" in content
+                or "// === HASSLE LOAD BOT CODE START ===" in content)
+
+    def _pull_text(self, remote_path, name):
+        """Скачивает файл с устройства и возвращает его текст (или None при ошибке)."""
+        cmd = [self.adb_path] + self.device_param + ["pull", remote_path, str(self.temp_file)]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+        )
+        if result.returncode != 0:
+            self.log(f"[X] Ошибка: Не удалось получить файл {name}" if not self.full_logging
+                     else f"[X] Не выполнено: Не удалось получить файл {name}: {result.stderr}")
+            return None
+        try:
+            with open(self.temp_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            self.log(f"[X] Ошибка: Не удалось декодировать файл {name}")
+            return None
+        if not content:
+            self.log(f"[X] Ошибка: Файл {name} пуст")
+            return None
+        return content
+
+    def _push_text(self, remote_path, content, local_file, name):
+        """Сохраняет текст локально и отправляет на устройство. True при успехе."""
+        content = content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
+        target_file = local_file if self.full_logging else self.temp_file
+        with open(target_file, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(content)
+        if self.full_logging:
+            self.log(f"Размер нового файла {name}: {os.path.getsize(target_file)} байт")
+        self.log(f"Копирование файла {name}..." if not self.full_logging
+                 else f"Копирование файла {target_file} на устройство в {remote_path}...")
+        cmd = [self.adb_path] + self.device_param + ["push", str(target_file), remote_path]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+        )
+        if result.returncode != 0:
+            self.log(f"[X] Ошибка: Не удалось заменить файл {name}" if not self.full_logging
+                     else f"[X] Не выполнено: Ошибка замены файла {name}: {result.stderr}")
+            return False
+        return True
+
+    def _clean_code_from(self, target_path, name, local_file):
+        """Удаляет код бота (по маркерам) из файла на устройстве.
+        True — если кода там нет или он успешно удалён; False — при ошибке."""
+        remote = f"{target_path}/{name}"
+        content = self._pull_text(remote, name)
+        if content is None:
+            return False
+        if not self._has_code_markers(content):
+            if self.full_logging:
+                self.log(f"[i] В {name} кода бота нет — пропуск")
+            return True
+        content = self.remove_old_code(content, "")
+        if not self._push_text(remote, content, local_file, name):
+            return False
+        self.log(f"[√] Код бота удалён из {name}")
+        return True
+
     def replace_with_code(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-        source_file = f"{target_path}/Hud.js"
+        code_remote = f"{target_path}/{self.CODE_FILE}"
         try:
-            self.log("Скачивание файла..." if not self.full_logging
-                     else f"Скачивание файла {source_file} для обработки...")
-            cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.temp_file)]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-            )
-            if result.returncode != 0:
-                self.log("[X] Ошибка: Не удалось получить файл" if not self.full_logging
-                         else f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
+            # 1. Вычищаем код из старого места (Hud.js), чтобы бот не запускался дважды
+            if not self._clean_code_from(target_path, self.LEGACY_CODE_FILE, self.hud_nocode_file):
+                self.log(f"[X] Ошибка: Не удалось очистить {self.LEGACY_CODE_FILE}, установка отменена")
                 return
-            try:
-                with open(self.temp_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-            except UnicodeDecodeError:
-                self.log("[X] Ошибка: Не удалось декодировать файл Hud.js")
+
+            # 2. Качаем index.js
+            self.log(f"Скачивание файла {self.CODE_FILE}..." if not self.full_logging
+                     else f"Скачивание файла {code_remote} для обработки...")
+            content = self._pull_text(code_remote, self.CODE_FILE)
+            if content is None:
                 return
-            if not content:
-                self.log("[X] Ошибка: Файл Hud.js пуст")
-                return
+
             load_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/Load.js"
             load_code = self.download_code(load_url)
             if not load_code:
@@ -2443,32 +2507,18 @@ class MEmuHudManager:
             load_code = load_code.replace("const accountToken = '';", f"const accountToken = '{acc_token}';")
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
-                self.log("Поиск и удаление старого кода по маркерам...")
+                self.log(f"Поиск и удаление старого кода в {self.CODE_FILE} по маркерам...")
             content = self.remove_old_code(content, load_code)
             start_marker = "//\u200b\u200c\u200b\n"
             end_marker = "\n//\u200c\u200b\u200c\n"
             obfuscated_code = self.simple_obfuscate(load_code)
             new_content = content + start_marker + obfuscated_code + end_marker
-            new_content = new_content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
-            target_file = self.hud_file if self.full_logging else self.temp_file
-            with open(target_file, 'w', encoding='utf-8', newline='\n') as f:
-                f.write(new_content)
-            if self.full_logging:
-                self.log(f"Размер нового файла: {os.path.getsize(target_file)} байт")
-                self.log("[√] Выполнено: Новый код добавлен с маркерами и simple обфускацией")
-            self.log("Копирование файла..." if not self.full_logging
-                     else f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
-            cmd = [self.adb_path] + self.device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-            )
-            if result.returncode == 0:
-                self.log("[√] Успешно: Файл заменен" if not self.full_logging
-                         else f"[√] Выполнено: Файл заменен с конфигурацией пользователя {user_name}")
-            else:
-                self.log("[X] Ошибка: Не удалось заменить файл" if not self.full_logging
-                         else f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
+
+            # 3. Отправляем index.js обратно
+            if self._push_text(code_remote, new_content, self.index_file, self.CODE_FILE):
+                if self.full_logging:
+                    self.log(f"[√] Выполнено: Новый код добавлен в конец {self.CODE_FILE} (пользователь {user_name})")
+                self.log(f"[√] Успешно: Код вставлен в {self.CODE_FILE}")
         except Exception as e:
             self.log("[X] Ошибка: Не удалось обработать файл" if not self.full_logging
                      else f"[X] Не выполнено: Ошибка обработки: {e}")
@@ -2478,50 +2528,15 @@ class MEmuHudManager:
 
     def download_without_code(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-        source_file = f"{target_path}/Hud.js"
         try:
-            self.log("Скачивание файла..." if not self.full_logging
-                     else f"Скачивание файла {source_file}...")
-            cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.temp_file)]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-            )
-            if result.returncode != 0:
-                self.log("[X] Ошибка: Не удалось получить файл" if not self.full_logging
-                         else f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
-                return
-            try:
-                with open(self.temp_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-            except UnicodeDecodeError:
-                self.log("[X] Ошибка: Не удалось декодировать файл Hud.js")
-                return
-            if not content:
-                self.log("[X] Ошибка: Файл Hud.js пуст")
-                return
-            if self.full_logging:
-                self.log("Удаление кода из файла...")
-            content = self.remove_old_code(content, "")
-            target_file = self.hud_nocode_file if self.full_logging else self.temp_file
-            with open(target_file, 'w', encoding='utf-8', newline='\n') as f:
-                f.write(content)
-            if self.full_logging:
-                self.log(f"Размер нового файла: {os.path.getsize(target_file)} байт")
-                self.log("[√] Выполнено: Код удален из файла")
-            self.log("Копирование файла..." if not self.full_logging
-                     else f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
-            cmd = [self.adb_path] + self.device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-            )
-            if result.returncode == 0:
-                self.log("[√] Успешно: Файл заменен" if not self.full_logging
-                         else "[√] Выполнено: Файл заменен без кода")
+            self.log("Удаление кода бота...")
+            ok_index = self._clean_code_from(target_path, self.CODE_FILE, self.index_nocode_file)
+            # заодно чистим Hud.js — туда код вставлялся раньше
+            ok_hud = self._clean_code_from(target_path, self.LEGACY_CODE_FILE, self.hud_nocode_file)
+            if ok_index and ok_hud:
+                self.log("[√] Успешно: Код бота удалён")
             else:
-                self.log("[X] Ошибка: Не удалось заменить файл" if not self.full_logging
-                         else f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
+                self.log("[X] Ошибка: Не удалось полностью удалить код")
         except Exception as e:
             self.log("[X] Ошибка: Не удалось обработать файл" if not self.full_logging
                      else f"[X] Не выполнено: Ошибка обработки: {e}")
