@@ -101,75 +101,128 @@ function getChatRadius(color) {
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: FACTIONS                                        ║
 // ║  Описание: Данные фракций — цвета, скины, ранги          ║
-// ║             (government, mz, trk, mo, mchs, mvd, fsb)   ║
+// ║             (government, mz, trk, mo, mchs, mvd, fsb,   ║
+// ║              fsin, ng); звания генерирует gen_factions.py║
 // ║  Зависимости: нет                                        ║
 // ╚══════════════════════════════════════════════════════════╝
 // START FACTIONS MODULE //
+// >>> FACTION_RANKS (AUTO-GENERATED gen_factions.py из g_rank_data мода — не править руками)
+const FACTION_RANKS = {
+    government: {
+        1: 'водитель', 2: 'охранник', 3: 'нач. охраны',
+        4: 'секретарь', 5: 'старший секретарь', 6: 'лицензёр',
+        7: 'адвокат', 8: 'депутат', 9: 'вице-губернатор',
+        10: 'губернатор'
+    },
+    mo: {
+        1: 'рядовой', 2: 'ефрейтор', 3: 'сержант',
+        4: 'прапорщик', 5: 'лейтенант', 6: 'капитан',
+        7: 'майор', 8: 'подполковник', 9: 'полковник',
+        10: 'генерал'
+    },
+    mz: {
+        1: 'интерн', 2: 'фельдшер', 3: 'участковый врач',
+        4: 'терапевт', 5: 'проктолог', 6: 'нарколог',
+        7: 'хирург', 8: 'зав. отделом', 9: 'зам глав врача',
+        10: 'глав врач'
+    },
+    trk: {
+        1: 'стажер', 2: 'светотехник', 3: 'монтажер',
+        4: 'оператор', 5: 'дизайнер', 6: 'репортер',
+        7: 'ведущий', 8: 'режиссер', 9: 'редактор',
+        10: 'гл. редактор'
+    },
+    mvd: {
+        1: 'рядовой', 2: 'сержант', 3: 'старшина',
+        4: 'прапорщик', 5: 'лейтенант', 6: 'капитан',
+        7: 'майор', 8: 'подполковник', 9: 'полковник',
+        10: 'генерал'
+    },
+    fsb: {
+        1: 'старший лейтенант', 2: 'капитан', 3: 'майор',
+        4: 'подполковник', 5: 'полковник', 6: 'генерал'
+    },
+    mchs: {
+        1: 'рядовой', 2: 'сержант', 3: 'старшина',
+        4: 'прапорщик', 5: 'лейтенант', 6: 'капитан',
+        7: 'майор', 8: 'подполковник', 9: 'полковник',
+        10: 'генерал'
+    },
+    fsin: {
+        1: 'охранник', 2: 'конвоир', 3: 'надзиратель',
+        4: 'инспектор', 5: 'зам. нач. тюрьмы', 6: 'начальник тюрьмы'
+    },
+    ng: {
+        1: 'рядовой', 2: 'ефрейтор', 3: 'сержант',
+        4: 'прапорщик', 5: 'лейтенант', 6: 'капитан',
+        7: 'майор', 8: 'подполковник', 9: 'полковник',
+        10: 'генерал'
+    }
+};
+// <<< FACTION_RANKS
+// Цвета/скины/пороги ниже — «живые» данные сервера, скрипт их не трогает. Звания берутся из FACTION_RANKS.
+// rankAliases — дополнительные написания звания, которые видел живой сервер (искать в тексте тоже).
 const factions = {
     government: {
         color: 'CCFF00',
         skins: [57, 141, 147, 164, 165, 187, 208, 227],
-        ranks: {
-            1: 'водитель', 2: 'охранник', 3: 'нач. охраны', 4: 'секретарь',
-            5: 'старший секретарь', 6: 'лицензёр', 7: 'адвокат', 8: 'депутат',
-            9: 'вице-губернатор', 10: 'губернатор'
-        }
+        ranks: FACTION_RANKS.government
     },
     mz: {
         color: 'FF6666',
-        skins: [276, 15381, 15382, 15383, 15384, 15385, 15386, 15387, 15388, 15389],
-        ranks: {
-            1: 'интерн', 2: 'фельдшер', 3: 'участковый врач', 4: 'терапевт',
-            5: 'проктолог', 6: 'нарколог', 7: 'хирург', 8: 'зав. отделом',
-            9: 'заместитель глав врача', 10: 'глав врач'
-        }
+        skins: [276, 15379, 15381, 15382, 15383, 15384, 15385, 15386, 15387, 15388, 15389], // 15379 — женская форма (uniforms.pwn)
+        ranks: FACTION_RANKS.mz,
+        rankAliases: { 9: 'заместитель глав врача' } // в моде «Зам Глав Врача»
     },
     trk: {
         color: 'FF6600',
         skins: [15438, 15439, 15440, 15441, 15442, 15443, 15444, 15445, 15446, 15447],
-        ranks: {
-            1: 'стажер', 2: 'светотехник', 3: 'монтажер', 4: 'оператор',
-            5: 'дизайнер', 6: 'репортер', 7: 'ведущий', 8: 'режиссер',
-            9: 'редактор', 10: 'гл. редактор'
-        }
+        ranks: FACTION_RANKS.trk
     },
     mo: {
         color: '996633',
         skins: [30, 61, 179, 191, 253, 255, 287, 162, 218, 220],
-        ranks: {
-            1: 'рядовой', 2: 'ефрейтор', 3: 'сержант', 4: 'прапорщик',
-            5: 'лейтенант', 6: 'капитан', 7: 'майор', 8: 'подполковник',
-            9: 'полковник', 10: 'генерал'
-        }
+        ranks: FACTION_RANKS.mo
     },
     mchs: {
         color: '009999',
+        colorAlt: ['007575'], // в моде user_13 у МЧС 0x007575 — принимаем оба варианта
         skins: [15316, 15365, 15366, 15367, 15368, 15369, 15370, 15371, 15372, 15373, 15374, 15375, 15376, 15377, 15378, 15396, 15397],
-        ranks: {
-            1: 'рядовой', 2: 'сержант', 3: 'старшина', 4: 'прапорщик',
-            5: 'лейтенант', 6: 'капитан', 7: 'майор', 8: 'подполковник',
-            9: 'полковник', 10: 'генерал'
-        }
+        ranks: FACTION_RANKS.mchs
     },
     mvd: {
         color: '0000FF',
         skins: [15321, 15323, 15325, 15330, 15332, 15334, 15335, 190, 148, 15340, 15341, 15342, 15343, 15344, 15348, 15351],
-        ranks: {
-            1: 'рядовой', 2: 'сержант', 3: 'старшина', 4: 'прапорщик',
-            5: 'лейтенант', 6: 'капитан', 7: 'майор', 8: 'подполковник',
-            9: 'полковник', 10: 'генерал'
-        }
+        ranks: FACTION_RANKS.mvd
     },
     fsb: {
         color: '7F7F7F',
         skins: [15346, 15349, 17034, 17035, 17036, 17037, 17082, 17083, 17084],
         highRankThreshold: 4, // Строй/рация: учитываем с 4 ранга (подполковник, полковник, генерал)
-        ranks: {
-            1: 'старший лейтенант', 2: 'капитан', 3: 'майор',
-            4: 'подполковник', 5: 'полковник', 6: 'генерал'
-        }
+        ranks: FACTION_RANKS.fsb
+    },
+    // НОВОЕ (цвет и скины взяты из мода, на живом сервере не проверены):
+    fsin: {
+        color: 'C0C0C0',
+        skins: [15398, 15399, 15400, 15401, 15402, 15403, 15404, 15405], // 15398/15399 — женская форма
+        ranks: FACTION_RANKS.fsin // порог высокого ранга по умолчанию (6 = только начальник тюрьмы)
+    },
+    ng: {
+        color: '996633',
+        skins: [], // скины совпадают с МО → по скину от МО не отличить; нужна фракция по orgTitle
+        ranks: FACTION_RANKS.ng
     }
 };
+// Все написания званий фракции: [[номер, звание_нижним_регистром], ...] с учётом rankAliases
+function getFactionRankEntries(f) {
+    const out = [];
+    for (const num in f.ranks) {
+        out.push([parseInt(num), f.ranks[num].toLowerCase()]);
+        const al = f.rankAliases && f.rankAliases[num];
+        if (al) (Array.isArray(al) ? al : [al]).forEach(a => out.push([parseInt(num), a.toLowerCase()]));
+    }
+    return out;
+}
 // Короткие русские названия фракций для отображения в Telegram
 const FACTION_NAMES = {
     government: 'Правительство',
@@ -178,10 +231,73 @@ const FACTION_NAMES = {
     mo:         'МО',
     mchs:       'МЧС',
     mvd:        'МВД',
-    fsb:        'ФСБ'
+    fsb:        'ФСБ',
+    fsin:       'ФСИН',
+    ng:         'Нацгвардия'
 };
 function getFactionLabel(factionKey) {
     return factionKey ? (FACTION_NAMES[factionKey] || factionKey.toUpperCase()) : null;
+}
+// ── Автоопределение фракции ────────────────────────────────────────────────
+// Главный источник — профиль (MainMenu → «Персонаж»): сервер сам присылает название фракции (orgTitle =
+// GetPlayerTeamName, т.е. настоящая фракция, а не маска ФСБ). Скин — только быстрая подсказка до загрузки профиля.
+// Названия из мода (g_team): «Правительство», «Мин. Обороны», «Мин. Здравоохранения», «ТРК `Ритм`»,
+// «Мин. внутренних дел», «ФСБ», «Мин. чрезв. ситуаций», «ФСИН», «Национальная гвардия».
+// Шаблоны нестрогие — переживут «Министерство обороны» и т.п.
+const FACTION_ORG_PATTERNS = {
+    government: /правительств/,
+    mo:         /оборон|(^| )мо( |$)/,
+    mz:         /здравоохран|(^| )мз( |$)/,
+    trk:        /(^| )трк( |$)|ритм/,
+    mvd:        /внутрен|(^| )мвд( |$)/,
+    fsb:        /(^| )фсб( |$)/,
+    mchs:       /чрезв|(^| )мчс( |$)/,
+    fsin:       /(^| )фсин( |$)|исправит/,
+    ng:         /национальн.*гвард|нацгвард|(^| )нг( |$)/
+};
+function normalizeOrgTitle(title) {
+    return String(title || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
+}
+function detectFactionByOrgTitle(title) {
+    const n = normalizeOrgTitle(title);
+    if (!n) return null;
+    for (const key in FACTION_ORG_PATTERNS) {
+        if (factions[key] && FACTION_ORG_PATTERNS[key].test(n)) return key;
+    }
+    return null;
+}
+function detectFactionBySkin(skinId) {
+    if (!skinId) return null;
+    for (const faction in factions) {
+        if (factions[faction].skins.includes(skinId)) return faction;
+    }
+    return null;
+}
+// Цвета фракции в чате ({RRGGBB} у ника коллеги в рабочей форме): основной + запасные
+function getFactionColors(key) {
+    const f = key && factions[key];
+    if (!f || !f.color) return ['CCFF00'];
+    return [f.color].concat(f.colorAlt || []);
+}
+// Ставит config.currentFaction по загруженному профилю. true — профиль был загружен (решение принято).
+function applyFactionFromProfile(reason) {
+    const p = config.accountInfo && config.accountInfo.profile;
+    if (!p || !p.loaded) return false;
+    let key = null;
+    if (p.orgTitle) {
+        key = detectFactionByOrgTitle(p.orgTitle);
+        if (!key) {
+            // Фракция есть, но название незнакомое (сервер переименовал/новая фракция) — запасной путь по скину
+            key = detectFactionBySkin(Number(config.accountInfo.skinId));
+            debugLog(`[Faction] ⚠️ Незнакомое название фракции «${p.orgTitle}», по скину: ${key || 'не определена'}`);
+        }
+    }
+    config.factionSource = 'profile';
+    if (config.currentFaction !== key) {
+        config.currentFaction = key;
+        debugLog(`[Faction] ✅ Фракция по профилю (${reason || '-'}): ${key || 'нет'} («${p.orgTitle || '—'}»)`);
+    }
+    return true;
 }
 // END FACTIONS MODULE //
 
@@ -260,6 +376,7 @@ const config = {
         }
     },
     currentFaction: null,
+    factionSource: null, // 'profile' (из orgTitle) | 'skin' (временно, до загрузки профиля)
     lastPlayerId: null,
     govMessageTrackers: {},
     isSitting: false,
@@ -564,6 +681,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 Object.assign(config.accountInfo.profile, data);
                 config.accountInfo.profile.loaded = true;
                 globalState.profileRetry = 0; // сбрасываем счётчик — успех
+                applyFactionFromProfile('profile'); // фракция по orgTitle — до приветственного сообщения
                 debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
                 // Обновляем приветственное сообщение с полными данными профиля
                 if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
@@ -1210,7 +1328,7 @@ function _alDoSend() {
     globalState.hpAlertMessageIds = [];
     // Сброс флага спавна и профиля для нового входа
     globalState._spawnProfileLoaded = false;
-    try { config.accountInfo.profile.loaded = false; } catch (e) {}
+    try { config.accountInfo.profile.loaded = false; config.factionSource = null; } catch (e) {}
 }
 
 function _alFire() {
@@ -2532,46 +2650,60 @@ function waitForSpawnThenLoadProfile() {
 function updateFaction() {
     const skinId = Number(config.accountInfo.skinId); // Приводим к числу
     if (!skinId) return;
-    for (const faction in factions) {
-        if (factions[faction].skins.includes(skinId)) {
-            if (config.currentFaction !== faction) {
-                config.currentFaction = faction;
-                debugLog(`Фракция обновлена: ${faction} (Skin ID: ${skinId})`);
-                // Загружаем профиль при первом определении фракционного скина.
-                // Именно здесь — сервер уже назначил скин, значит мы точно в игре
-                // и MainMenu отдаст реальные данные (не mock).
-                if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
-                    debugLog('[Profile] Фракция определена → загружаем профиль...');
-                    // Помечаем спавн как обработанный — spawn-трекер дублировать не будет
-                    globalState._spawnProfileLoaded = true;
-                    setTimeout(function() {
-                        window._hassleLoadPlayerProfile(null);
-                    }, 300);
+    const skinFaction = detectFactionBySkin(skinId);
+    const prof = config.accountInfo.profile;
+    const canLoad = typeof window._hassleLoadPlayerProfile === 'function';
+
+    // 1) Профиль загружен → фракция берётся из него, смена скина её не трогает (форма ≠ членство).
+    if (prof.loaded) {
+        applyFactionFromProfile('skin-check');
+        // Профиль говорит «без фракции», а надета форма фракции → мог устареть (приняли уже в игре).
+        // Перечитываем один раз на каждый скин (защита от цикла).
+        if (skinFaction && !config.currentFaction && globalState._factionRecheckSkin !== skinId && canLoad) {
+            let isConnected = false;
+            try {
+                if (window.App && window.App.$store) {
+                    isConnected = window.App.$store.getters['player/isPlayerConnected'];
                 }
-                // Если профиль уже загружен (игрок был без фракции, потом надел форму) —
-                // пересчитываем: фракционный статус мог измениться.
-                else if (config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
-                    let isConnected = false;
-                    try {
-                        if (window.App && window.App.$store) {
-                            isConnected = window.App.$store.getters['player/isPlayerConnected'];
-                        }
-                    } catch(e) {}
-                    if (isConnected) {
-                        debugLog('[Profile] 👔 Надета форма фракции → сбрасываем профиль и перезагружаем...');
-                        config.accountInfo.profile.loaded = false;
-                        setTimeout(function() {
-                            window._hassleLoadPlayerProfile(null);
-                        }, 500);
-                    }
-                }
-                // /c 60 теперь запускается только через кнопку «Отыгровка 27 мин» в Telegram
-                debugLog('[ANIM] Фракционный скин определён; /c 60 не отправляем (используй Отыгровку в Telegram)');
+            } catch(e) {}
+            if (isConnected) {
+                globalState._factionRecheckSkin = skinId;
+                globalState._profileReloadPending = true;
+                debugLog('[Profile] 👔 Надета форма фракции, но профиль без фракции → перечитываем профиль...');
+                prof.loaded = false;
+                setTimeout(function() {
+                    globalState._profileReloadPending = false;
+                    window._hassleLoadPlayerProfile(null);
+                }, 500);
             }
-            return;
         }
+        return;
+    }
+
+    // 2) Профиля ещё нет → временно по скину (быстро), окончательно решит профиль.
+    if (skinFaction) {
+        if (config.currentFaction !== skinFaction) {
+            config.currentFaction = skinFaction;
+            config.factionSource = 'skin';
+            debugLog(`Фракция (временно, по скину): ${skinFaction} (Skin ID: ${skinId})`);
+            // Загружаем профиль при первом определении фракционного скина.
+            // Именно здесь — сервер уже назначил скин, значит мы точно в игре
+            // и MainMenu отдаст реальные данные (не mock).
+            if (canLoad && !globalState._profileReloadPending) {
+                debugLog('[Profile] Фракция определена → загружаем профиль...');
+                // Помечаем спавн как обработанный — spawn-трекер дублировать не будет
+                globalState._spawnProfileLoaded = true;
+                setTimeout(function() {
+                    window._hassleLoadPlayerProfile(null);
+                }, 300);
+            }
+            // /c 60 теперь запускается только через кнопку «Отыгровка 27 мин» в Telegram
+            debugLog('[ANIM] Фракционный скин определён; /c 60 не отправляем (используй Отыгровку в Telegram)');
+        }
+        return;
     }
     config.currentFaction = null;
+    config.factionSource = null;
     debugLog(`Фракция не определена для Skin ID: ${skinId}`);
 }
 // Применяет новый скин: обновляет фракцию и режим тюрьмы. Дубли (hook + watch + поллинг) отсекаются сравнением.
@@ -5531,15 +5663,15 @@ function isImportantRadioMessage(msg) {
 }
 function getRankKeywords() {
     if (!config.currentFaction || !factions[config.currentFaction]) return [];
-    return Object.values(factions[config.currentFaction].ranks).map(rank => rank.toLowerCase());
+    return getFactionRankEntries(factions[config.currentFaction]).map(e => e[1]);
 }
 function getHighRankKeywords() {
     if (!config.currentFaction || !factions[config.currentFaction]) return [];
     const faction = factions[config.currentFaction];
     const threshold = faction.highRankThreshold !== undefined ? faction.highRankThreshold : 6;
-    return Object.entries(faction.ranks)
-        .filter(([rankNum]) => parseInt(rankNum) >= threshold)
-        .map(([, rank]) => rank.toLowerCase());
+    return getFactionRankEntries(faction)
+        .filter(e => e[0] >= threshold)
+        .map(e => e[1]);
 }
 // Возвращает все звания высокого ранга из ВСЕХ фракций (для проверки рации)
 // Порог берётся из highRankThreshold фракции (по умолчанию 6)
@@ -5548,12 +5680,9 @@ function getAllHighRankKeywords() {
     for (const faction in factions) {
         const f = factions[faction];
         const threshold = f.highRankThreshold !== undefined ? f.highRankThreshold : 6;
-        const ranks = f.ranks;
-        for (const rankNum in ranks) {
-            if (parseInt(rankNum) >= threshold) {
-                highRanks.push(ranks[rankNum].toLowerCase());
-            }
-        }
+        getFactionRankEntries(f).forEach(e => {
+            if (e[0] >= threshold) highRanks.push(e[1]);
+        });
     }
     return highRanks;
 }
@@ -6238,11 +6367,9 @@ function initializeChatMonitor() {
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
             }
         }
-        let factionColor = 'CCFF00'; // По умолчанию
-        if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
-            factionColor = factions[config.currentFaction].color;
-        }
-        const govMessageRegex = new RegExp(`^\\- (.+?) \\{${factionColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
+        // Цвет у ника — цвет сотрудника в рабочей форме (P_COLOR = T_COLOR фракции). Берём основной + запасные цвета.
+        const factionColor = getFactionColors(config.currentFaction).join('|');
+        const govMessageRegex = new RegExp(`^\\- (.+?) \\{(?:${factionColor})\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`, 'i');
         const govMatch = msg.match(govMessageRegex);
         if (govMatch) {
             const messageText = govMatch[1]; // Текст сообщения
