@@ -9,7 +9,7 @@ const USER_CONFIGS = {
         RECONNECT_ENABLED_DEFAULT: true
     },
     'Kolya': {
-        HWID: 'ВСТАВЬ_HWID_КОЛИ',     // 16-символьный HWID из HassleBot
+        HWID: '7F1D49243EE66277',     // 16-символьный HWID из HassleBot
         DEBUG: false,                  // false = без отладки
         CHAT_IDS: ['-1003102212423'],
         PASSWORD: 'kol16052011',
