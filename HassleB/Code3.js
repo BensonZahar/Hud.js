@@ -1,4 +1,4 @@
-// ╔══════════════════════════════════════════════════════════════════════╗
+\// ╔══════════════════════════════════════════════════════════════════════╗
 // ║  Code3.js — ПОМОЩНИК ЛИЦЕНЗЁРА (Правительство) для HassleB          ║
 // ║  Порт функций Лицензёра из pravo.js. Работает рядом с Code.js/Code2.js║
 // ║                                                                      ║
@@ -1126,7 +1126,8 @@ var Radial = (function () {
     }
     onUndo(function () { try { cleanup(); } catch (e) {} });
     return {
-        setNick: function (n) { if (n) lastNick = n; },
+        // как в pravo.js: пустой ник (меню машины/дома/NPC) обязан СБРОСИТЬ прошлого игрока, иначе «Выдача лицензии» уйдёт ему
+        setNick: function (n) { lastNick = n || ''; },
         resetBusy: function () { busy = false; },
         inject: inject,
         cleanup: cleanup
