@@ -16,6 +16,8 @@ import platform
 import base64
 import re
 from tkinter import messagebox, filedialog
+import tkinter as tk
+import queue
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DPAPI — шифрование локальных данных (только текущий пользователь Windows)
@@ -87,6 +89,8 @@ def resource_path(relative_path):
 
 class MEmuHudManager:
     def __init__(self):
+        self._main_thread = threading.current_thread()
+        self._log_queue = queue.Queue()
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
         self.memu_paths = [
@@ -181,6 +185,8 @@ class MEmuHudManager:
         except Exception:
             pass
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self._setup_clipboard_shortcuts()
+        self.root.after(50, self._drain_log_queue)
 
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
@@ -279,6 +285,103 @@ class MEmuHudManager:
     # ──────────────────────────────────────────────────────────────────────────
     # Вспомогательные утилиты
     # ──────────────────────────────────────────────────────────────────────────
+    # ── Буфер обмена: Ctrl+V/C/X/A на любой раскладке + меню ПКМ ─────────────
+    def _setup_clipboard_shortcuts(self):
+        for cls in ("Entry", "Text"):
+            self.root.bind_class(cls, "<Control-KeyPress>", self._on_ctrl_key, add="+")
+            self.root.bind_class(cls, "<Button-3>", self._on_right_click, add="+")
+
+    def _on_ctrl_key(self, event):
+        """Tk реагирует на Ctrl+V только с латинской раскладкой. Здесь ловим по коду клавиши."""
+        if platform.system() != "Windows":
+            return None
+        w = event.widget
+        try:
+            if event.keycode == 65:  # Ctrl+A — выделить всё (на любой раскладке)
+                if isinstance(w, tk.Text):
+                    w.tag_add("sel", "1.0", "end-1c")
+                else:
+                    w.select_range(0, "end")
+                    w.icursor("end")
+                return "break"
+            if event.keycode in (86, 67, 88):  # V / C / X
+                # Латиница: стандартные биндинги Tk сами всё сделают (иначе будет двойная вставка)
+                if (event.keysym or "").lower() in ("v", "c", "x"):
+                    return None
+                virt = {86: "<<Paste>>", 67: "<<Copy>>", 88: "<<Cut>>"}[event.keycode]
+                w.event_generate(virt)
+                return "break"
+        except tk.TclError:
+            return "break"
+        return None
+
+    def _on_right_click(self, event):
+        w = event.widget
+        C = self.C
+        try:
+            w.focus_set()
+            menu = tk.Menu(
+                w, tearoff=0, bg=C["card"], fg=C["text"],
+                activebackground=C["accent"], activeforeground=C["btntext"],
+                bd=0, font=("Segoe UI", 10),
+            )
+            menu.add_command(label="Вырезать", command=lambda: w.event_generate("<<Cut>>"))
+            menu.add_command(label="Копировать", command=lambda: w.event_generate("<<Copy>>"))
+            menu.add_command(label="Вставить", command=lambda: w.event_generate("<<Paste>>"))
+            menu.add_separator()
+            menu.add_command(
+                label="Выделить всё",
+                command=lambda: (w.select_range(0, "end") if not isinstance(w, tk.Text)
+                                 else w.tag_add("sel", "1.0", "end-1c")),
+            )
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+        except tk.TclError:
+            pass
+        return "break"
+
+    def _make_modal(self, dialog, focus_widget=None):
+        """Делает окно модальным и отдаёт фокус полю ВВОДА — но только когда окно реально показано.
+        grab_set() сразу после создания CTkToplevel падает/не срабатывает, а отложенная
+        установка иконки в customtkinter отбирает фокус — поэтому поля «не принимали» Ctrl+V."""
+        state = {"tries": 0}
+
+        def _apply():
+            try:
+                if not dialog.winfo_exists():
+                    return
+                dialog.lift()
+                try:
+                    dialog.grab_set()
+                except tk.TclError:
+                    state["tries"] += 1
+                    if state["tries"] < 20:
+                        dialog.after(50, _apply)
+                    return
+                dialog.focus_force()
+                if focus_widget is not None:
+                    focus_widget.focus_set()
+            except tk.TclError:
+                pass
+
+        dialog.after(250, _apply)
+
+    def _drain_log_queue(self):
+        """Сообщения лога из фоновых потоков показываем только в главном потоке."""
+        try:
+            while True:
+                self.log(self._log_queue.get_nowait())
+        except queue.Empty:
+            pass
+        except Exception:
+            pass
+        try:
+            self.root.after(50, self._drain_log_queue)
+        except Exception:
+            pass
+
     def load_skip_warning(self):
         if self.skip_warning_file.exists():
             try:
@@ -327,13 +430,20 @@ class MEmuHudManager:
             return json.loads(decrypted.decode("utf-8"))
         except Exception as e:
             print(f"Не удалось загрузить локальные аккаунты: {e}")
+            try:
+                if self.local_accounts_file.exists():
+                    shutil.copy2(self.local_accounts_file, self.local_accounts_file.with_suffix(".bak"))
+            except Exception:
+                pass
             return {}
 
     def save_local_accounts(self):
         try:
             data = json.dumps(self.local_accounts, ensure_ascii=False, indent=2).encode("utf-8")
             encrypted = self._encrypt_bytes(data)
-            self.local_accounts_file.write_bytes(encrypted)
+            tmp_file = self.local_accounts_file.with_suffix(".tmp")
+            tmp_file.write_bytes(encrypted)
+            os.replace(tmp_file, self.local_accounts_file)
             self.log("[√] Локальные аккаунты сохранены")
         except Exception as e:
             self.log(f"[X] Ошибка сохранения локальных аккаунтов: {e}")
@@ -397,12 +507,21 @@ class MEmuHudManager:
 
     TOKEN_RE = r"\d{8,10}:[A-Za-z0-9_-]{30,70}"
 
+    @staticmethod
+    def _clean_text(text):
+        """Убирает невидимые символы (zero-width, неразрывный пробел, BOM), которые тянутся при копировании."""
+        return re.sub(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff\xa0]", " ", text or "")
+
+    def extract_token(self, text):
+        m = re.search(self.TOKEN_RE, self._clean_text(text))
+        return m.group(0) if m else ""
+
     def import_accounts_from_text(self, user, text):
         """Разбирает текст вида  1: 123456789:AAE...  /  '1': '123456789:AAE...'  /  1 123456789:AAE...
         Возвращает количество добавленных/обновлённых токенов."""
         pairs = re.findall(
             r"(?<![\w:])['\"]?(\d{1,3})['\"]?\s*[:=\s]\s*['\"]?(" + self.TOKEN_RE + r")",
-            text or ""
+            self._clean_text(text)
         )
         count = 0
         for acc, token in pairs:
@@ -410,7 +529,7 @@ class MEmuHudManager:
             count += 1
         return count
 
-    def open_local_account_manager(self):
+    def open_local_account_manager(self, on_close=None):
         user = self.selected_code_name
         if not user:
             self.log("[X] Ошибка: пользователь не выбран")
@@ -420,12 +539,11 @@ class MEmuHudManager:
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Локальные токены")
         dialog.resizable(False, False)
-        dialog.grab_set()
         dialog.transient(self.root)
         dialog.configure(fg_color=C["bg"])
         dialog.update_idletasks()
 
-        DW, DH = 680, 520
+        DW, DH = 680, 580
         rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
         ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
         dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
@@ -522,15 +640,26 @@ class MEmuHudManager:
 
         def add_account():
             acc = acc_entry.get().strip()
-            token = token_entry.get().strip()
+            raw_token = token_entry.get()
             note = note_entry.get().strip()
+            if not acc:
+                # В поле токена вставили сразу «номер: токен» (или несколько строк) — импортируем
+                n = self.import_accounts_from_text(user, raw_token)
+                if n:
+                    token_entry.delete(0, "end")
+                    note_entry.delete(0, "end")
+                    refresh()
+                    messagebox.showinfo("Готово", f"Импортировано токенов: {n}", parent=dialog)
+                    return
             if not re.match(r"^\d{1,3}$", acc):
-                messagebox.showerror("Ошибка", "Номер аккаунта должен быть числом, например 9")
+                messagebox.showerror("Ошибка", "Номер аккаунта должен быть числом, например 9", parent=dialog)
                 return
-            if not re.match(r"^\d{8,10}:[A-Za-z0-9_-]{30,70}$", token):
+            token = self.extract_token(raw_token)
+            if not token:
                 messagebox.showerror(
                     "Ошибка",
-                    "Токен бота похож на неверный.\n\nПример формата:\n1234567890:AAE..."
+                    "Токен бота похож на неверный.\n\nПример формата:\n1234567890:AAE...",
+                    parent=dialog,
                 )
                 return
             self.add_local_account(user, acc, token, note)
@@ -538,6 +667,7 @@ class MEmuHudManager:
             token_entry.delete(0, "end")
             note_entry.delete(0, "end")
             refresh()
+            acc_entry.focus_set()
 
         ctk.CTkButton(
             form, text="＋ Добавить токен",
@@ -554,12 +684,13 @@ class MEmuHudManager:
                 text = ""
             n = self.import_accounts_from_text(user, text)
             if n:
-                messagebox.showinfo("Готово", f"Импортировано токенов: {n}")
+                messagebox.showinfo("Готово", f"Импортировано токенов: {n}", parent=dialog)
             else:
                 messagebox.showwarning(
                     "Ничего не найдено",
                     "В буфере обмена не найдено пар «номер + токен».\n\n"
-                    "Скопируйте текст вида:\n1: 1234567890:AAE...\n2: 1234567891:AAF..."
+                    "Скопируйте текст вида:\n1: 1234567890:AAE...\n2: 1234567891:AAF...",
+                    parent=dialog,
                 )
             refresh()
 
@@ -572,7 +703,24 @@ class MEmuHudManager:
             command=import_clipboard,
         ).grid(row=4, column=0, columnspan=3, pady=(6, 0), sticky="ew")
 
+        def _close():
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+            if on_close:
+                self.root.after(50, on_close)
+
+        ctk.CTkButton(
+            form, text="Готово", font=("Segoe UI", 11),
+            fg_color="transparent", hover_color=C["surface"],
+            text_color=C["muted"], height=30, corner_radius=8,
+            command=_close,
+        ).grid(row=5, column=0, columnspan=3, pady=(6, 0), sticky="ew")
+        dialog.protocol("WM_DELETE_WINDOW", _close)
+
         refresh()
+        self._make_modal(dialog, acc_entry)
 
     def _section_label(self, parent, text, row=0):
         """Заголовок секции — янтарная полоса + текст."""
@@ -682,7 +830,7 @@ class MEmuHudManager:
     def fetch_last_commit(self, file_name, subdir=".js%2BLoad.js"):
         commit_cache_file = self.script_dir / f"commit_cache_{subdir}_{file_name}.json"
         current_time = time.time()
-        if current_time - self.cache_time < 3600 and commit_cache_file.exists():
+        if commit_cache_file.exists() and current_time - commit_cache_file.stat().st_mtime < 3600:
             try:
                 with open(commit_cache_file, 'r', encoding='utf-8') as f:
                     last_commit = json.load(f)
@@ -732,7 +880,7 @@ class MEmuHudManager:
             variable=self.conn_var,
             row=2,
         )
-        self.conn_var.trace("w", self.detect_app_folders)
+        self.conn_var.trace_add("write", self.detect_app_folders)
 
         self._field_label(sect1, "ПАПКА ПРИЛОЖЕНИЯ", row=3)
         self.app_var = ctk.StringVar(value="")
@@ -1014,13 +1162,13 @@ class MEmuHudManager:
                 f"[{current_time}] ⚠️ НЕИЗВЕСТНЫЙ HWID!\n"
                 f"Устройство: {device_name}\n"
                 f"HWID: {hwid_str}\n"
-                f"Этот HWID отсутствует в keys.json. Добавьте его для выдачи доступа."
+                f"Этот HWID отсутствует в List.js. Добавьте его для выдачи доступа."
             )
             buttons = []
         elif stage == "debug_choice":
             message_text = (
                 f"[{current_time}] Выберите режим отладки для HASSLE BOT "
-                f"с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+                f"с устройства {device_name} (HWID: {hwid_str}) 🎮🔧"
             )
             buttons = [
                 {"text": "С отладкой 🛠️", "callback_data": "with_debug"},
@@ -1317,6 +1465,7 @@ class MEmuHudManager:
         if self.full_logging:
             self.load_commit_info = self.fetch_last_commit("Load.js", "HassleB")
             self.script_commit_info = self.fetch_last_commit("hasslebot_exe.py", "installerEXE")
+            self.last_commit_info = self.load_commit_info
         else:
             self.load_commit_info = ""
             self.script_commit_info = ""
@@ -1567,7 +1716,6 @@ class MEmuHudManager:
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("")
         dialog.resizable(False, False)
-        dialog.grab_set()
         dialog.transient(self.root)
         dialog.configure(fg_color=C["bg"])
         dialog.update_idletasks()
@@ -1639,7 +1787,11 @@ class MEmuHudManager:
                 font=("Segoe UI", 11, "bold"),
                 fg_color=C["accent"], hover_color="#E09500",
                 text_color=C["btntext"], corner_radius=8,
-                command=lambda: (dialog.destroy(), self.open_local_account_manager()),
+                command=lambda: (
+                    dialog.destroy(),
+                    self.open_local_account_manager(
+                        on_close=lambda: self.show_replace_warning(app_folder)),
+                ),
             ).grid(row=1, column=0)
 
         for idx, n in enumerate(acc_nums):
@@ -1692,6 +1844,7 @@ class MEmuHudManager:
         ).grid(row=0, column=1, padx=6)
 
         dialog.update_idletasks()
+        self._make_modal(dialog)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Диалог скачивания .js (переработан)
@@ -1709,7 +1862,6 @@ class MEmuHudManager:
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Скачать .js файлы")
         dialog.resizable(False, False)
-        dialog.grab_set()
         dialog.transient(self.root)
         dialog.configure(fg_color=C["bg"])
         dialog.update_idletasks()
@@ -1744,7 +1896,7 @@ class MEmuHudManager:
 
         import tkinter as tk
         search_var = tk.StringVar()
-        ctk.CTkEntry(
+        search_entry = ctk.CTkEntry(
             search_frame,
             textvariable=search_var,
             placeholder_text="Поиск файла...",
@@ -1754,7 +1906,9 @@ class MEmuHudManager:
             placeholder_text_color=C["muted"],
             font=("Segoe UI", 11),
             height=28, corner_radius=6, border_width=1,
-        ).pack(side="left", fill="x", expand=True, padx=(0, 12), pady=6)
+        )
+        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=6)
+        self._make_modal(dialog, search_entry)
 
         # Список файлов
         list_frame = ctk.CTkScrollableFrame(
@@ -1812,7 +1966,7 @@ class MEmuHudManager:
         def on_search(*_):
             render_list(search_var.get())
 
-        search_var.trace("w", on_search)
+        search_var.trace_add("write", on_search)
 
         def populate(files):
             all_files.clear()
@@ -2069,23 +2223,26 @@ class MEmuHudManager:
                 [self.adb_path, "devices"], capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
             )
-            if "device" not in result.stdout:
-                self.log("[X] Ошибка: Устройство не найдено")
-                return False
-            lines = result.stdout.strip().split('\n')
-            device_found = False
-            for line in lines:
-                if "\tdevice" in line and "127.0.0.1:" not in line:
-                    device_id = line.split('\t')[0].strip()
-                    self.device_param = ["-s", device_id]
-                    self.log("[√] Успешно: Устройство подключено" if not self.full_logging
-                             else "[√] Выполнено: Устройство подключено")
-                    device_found = True
-                    break
-            if not device_found:
+            ready, not_ready = [], []
+            for line in result.stdout.splitlines():
+                if "\t" not in line:
+                    continue
+                serial, state = [x.strip() for x in line.split("\t", 1)]
+                (ready if state == "device" else not_ready).append(serial)
+            if not ready:
                 self.device_param = []
-                self.log("[√] Успешно: Устройство подключено" if not self.full_logging
-                         else "[√] Выполнено: Устройство подключено")
+                if not_ready:
+                    self.log("[X] Ошибка: Устройство не готово (unauthorized/offline) — "
+                             "подтвердите отладку по USB на телефоне")
+                else:
+                    self.log("[X] Ошибка: Устройство не найдено")
+                return False
+            real = [d for d in ready
+                    if not d.startswith("127.0.0.1:") and not d.startswith("emulator-")]
+            chosen = real[0] if real else ready[0]
+            self.device_param = ["-s", chosen]
+            self.log("[√] Успешно: Устройство подключено" if not self.full_logging
+                     else f"[√] Выполнено: Устройство подключено ({chosen})")
             return True
         except Exception as e:
             self.log("[X] Ошибка: Не удалось проверить устройство" if not self.full_logging
@@ -2209,7 +2366,7 @@ class MEmuHudManager:
                 self.log(f"Используется конфигурация пользователя: {self.selected_code_name}, "
                          f"аккаунт: #{self.selected_account_number or '?'}")
             if action == "1":
-                self.show_replace_warning(app_folder)
+                self.root.after(0, lambda f=app_folder: self.show_replace_warning(f))
             elif action == "2":
                 self._run_on_targets(self.download_without_code, app_folder)
             elif action == "3":
@@ -2281,6 +2438,8 @@ class MEmuHudManager:
                 self.log(f"[√] Токен аккаунта #{acc_num} взят из локального хранилища")
             else:
                 self.log(f"[!] Локальный токен для аккаунта #{acc_num} не найден — добавьте его в «Токены аккаунтов»")
+            if acc_token and "const accountToken = '';" not in load_code:
+                self.log("[!] В Load.js не найден «const accountToken = '';» — токен не будет вставлен")
             load_code = load_code.replace("const accountToken = '';", f"const accountToken = '{acc_token}';")
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
@@ -2447,6 +2606,9 @@ class MEmuHudManager:
     # Уведомления (toast)
     # ──────────────────────────────────────────────────────────────────────────
     def log(self, message):
+        if threading.current_thread() is not self._main_thread:
+            self._log_queue.put(message)
+            return
         print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
         if not hasattr(self, '_notif_strip'):
             return
@@ -2498,7 +2660,7 @@ class MEmuHudManager:
         ).grid(row=0, column=2, padx=(0, 8), sticky="ew")
 
         try:
-            self.root.update()
+            self.root.update_idletasks()
         except Exception:
             pass
 
@@ -2521,7 +2683,8 @@ class MEmuHudManager:
                 exe_path = sys.executable
                 if self.full_logging:
                     self.log(f"Попытка удаления исполняемого файла: {exe_path}")
-                os.remove(exe_path)
+                if getattr(sys, "frozen", False):
+                    os.remove(exe_path)
                 self.log("[√] Успешно: Программа завершена")
             except PermissionError:
                 self.log("[X] Ошибка: Доступ запрещен")
