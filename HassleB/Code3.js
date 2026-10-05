@@ -11,9 +11,10 @@
 // ║   • «Просьба о чае» и авто-ответы игроку (штрафы, запрет, нет денег) ║
 // ║   • /dahk — меню лицензёра; /givelic и /givelic <ID> показывают наши ║
 // ║     диалоги поверх штатной команды                                   ║
+// ║   • кнопка «Ответ» у входящих SMS → «Место» / «Ценовая политика»     ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
-// ║  мышь/колесо, проверка ника, SMS-кнопка, перетаскивание окон.        ║
+// ║  мышь/колесо, проверка ника, перетаскивание окон.                    ║
 // ║                                                                      ║
 // ║  Доступно только в правительственном скине со званием «Лицензёр».    ║
 // ║  Звание берётся из профиля, который уже грузит Code.js               ║
@@ -28,7 +29,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.0';
+var VERSION = 'code3 v1.1';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -60,6 +61,9 @@ var OPTS = (function () {
         RADIAL_LAYER_SHIFT: null,
         RADIAL_ICON: '',         // своя иконка пункта: URL или data:image/...
         CHAT_UNDIM: true,        // чат поверх затемнения круга, пока раскрыт выбор лицензии
+        SMS_BTN: true,           // кнопка «Ответ» у входящих SMS → «Место» / «Ценовая политика» (как в pravo.js)
+        SMS_TEXT: '',            // свой текст пункта «Место» (пусто = «Здравствуйте, нахожусь в правительстве [/gps - Правительство]»)
+        SMS_TEXT_PRICE: '',      // свой текст «Ценовой политики» (пусто = собирается из цен лицензий)
         DEBUG: false
     };
     try { var g = window.CODE3_OPTS; if (g) for (var k in g) o[k] = g[k]; } catch (e) {}
@@ -434,6 +438,12 @@ onUndo(function () { if (kbTimer) { clearInterval(kbTimer); kbTimer = null; } kb
     document.addEventListener('keydown', onKey, true);
     onUndo(function () { document.removeEventListener('keydown', onKey, true); });
 })();
+// Страховка как в pravo.js: ESC тоже сбрасывает флаг «наша клавиатура»
+(function () {
+    function onEsc(e) { if (e.keyCode === 27) kbOurs = false; }
+    window.addEventListener('keyup', onEsc);
+    onUndo(function () { window.removeEventListener('keyup', onEsc); });
+})();
 
 // ── Диалог 678: ввод ID игрока ──
 function showIdInput() {
@@ -451,6 +461,7 @@ function showTypeDialog(id) {
 }
 // ── Диалог 677: меню лицензёра ──
 var menuItems = [];
+var skipIntReopen = false;   // как _pravoSkipIntReopen: меню открыто кнопкой панели — панель поверх диалога не возвращаем
 function onOff(v) { return v ? '{00FF00}Вкл' : '{FF0000}Выкл'; }
 function showLicMenu() {
     if (!licensorReady()) {
@@ -466,6 +477,9 @@ function showLicMenu() {
     var list = 'Помощник лицензёра<n>';
     menuItems.forEach(function (it, i) { list += (i + 1) + '. ' + it.name + '<n>'; });
     addDialog('[677,4,"ПРАВИТЕЛЬСТВО | Лицензёр","","Выбрать","Отмена",0,0]', list, 0);
+    // Hassle: панель Interactions остаётся/возвращается поверх диалога (если он открыт не её кнопкой)
+    if (!skipIntReopen) setTimeout(function () { if (!_dead) updatePanel(); }, 120);
+    skipIntReopen = false;
 }
 function toggleTea() {
     STATE.tea = !STATE.tea;
@@ -628,6 +642,7 @@ window.__code3UpdatePanel = updatePanel;
 function onInteractionsClick(tp) {
     if (tp === INT_MENU) {
         intOpen = false;
+        skipIntReopen = true;
         try { window.closeInterface('Interactions'); } catch (e) {}
         setTimeout(showLicMenu, 50);
         return true;
@@ -1304,20 +1319,23 @@ function onChat(message) {
     var msg = String(message);
     // защита от двойной обработки, если обёртка чата оказалась в цепочке дважды
     var now = Date.now();
-    if (msg === _lastChat.msg && now - _lastChat.at < 40) return;
+    if (msg === _lastChat.msg && now - _lastChat.at < 150) return;
     _lastChat.msg = msg; _lastChat.at = now;
     if (!licensorReady()) return;   // не правительственный скин или не Лицензёр — ничего не делаем
 
     // Сервер сказал «Не флудите» — подтягиваем нашу модель антифлуда к реальному счётчику
     if (msg.indexOf('Пожалуйста, подождите несколько секунд') !== -1) floodServerSaid(true);
     else if (msg.indexOf('Не флудите') !== -1) floodServerSaid(false);
+    // SMS: «Подождите несколько секунд...» = часть не ушла (повторим); эхо «SMS: ... | Получатель: ...» = ушла
+    if (msg.indexOf('Подождите несколько секунд') !== -1) { try { _c3SmsOnWait(); } catch (e) {} }
+    else if (msg.indexOf('SMS:') !== -1 && msg.indexOf('Получатель:') !== -1) { try { _c3SmsOnAck(); } catch (e) {} }
 
     var clean = msg.replace(/\{[0-9a-fA-F]{6}\}/g, '');
     var last = STATE.last;
 
     if (OPTS.AUTO_REPLIES && last && licensorReady()) {
         // Неоплаченные штрафы у покупателя
-        if (clean.indexOf('У человека есть неоплаченные штрафы') !== -1 && cooled('fines', 3000)) {
+        if (clean.indexOf('У человека есть неоплаченные штрафы') !== -1) {
             var fid = last.targetId;
             setTimeout(function () { if (!_dead) sendSay(addr(fid) + ', у вас имеются неоплаченные штрафы. Оплатить их можно в любом банкомате'); }, 300);
         }
@@ -1334,7 +1352,7 @@ function onChat(message) {
         // Недостаточно денег / лицензия уже есть
         var noMoney = clean.indexOf('У покупателя недостаточно денег') !== -1;
         var hasLic = clean.indexOf('У покупателя уже есть этот тип лицензии') !== -1;
-        if ((noMoney || hasLic) && cooled('money_has', 3000)) {
+        if (noMoney || hasLic) {
             var ld = last;
             setTimeout(function () {
                 if (_dead) return;
@@ -1374,6 +1392,453 @@ function ensureChatHook() {
         window.OnChatAddMessage = w;
         dbg('хук чата установлен');
     }
+}
+
+// ══════ Кнопка авто-ответа «Нахожусь в правительстве» у входящих SMS ══════
+var SMS_BTN_ENABLED = OPTS.SMS_BTN !== false;
+var SMS_TEXT = 'Здравствуйте, нахожусь в правительстве [/gps - Правительство]'; // текст пункта «Место»
+// Пункты, в которые раскрывается кнопка SMS: подпись -> что отправить в /sms
+var SMS_LABEL_PLACE = 'Место';
+var SMS_LABEL_PRICE = 'Ценовая политика';
+// Текст «Ценовой политики» собирается из LIC_TYPES (те же цены, что в меню выдачи). Хочешь свой текст - впиши строку сюда.
+var SMS_TEXT_PRICE = '';
+if (OPTS.SMS_TEXT) SMS_TEXT = String(OPTS.SMS_TEXT);
+if (OPTS.SMS_TEXT_PRICE) SMS_TEXT_PRICE = String(OPTS.SMS_TEXT_PRICE);
+// ── Отправка SMS с разбиением на части и очередью ─────────────────────────────
+// Сервер отвечает «Слишком длинное сообщение», если текст SMS длинный: 61 символ проходил, 80 - нет (точный лимит /sms в дампе мода не найден).
+// Поэтому режем на части <= SMS_MAX_LEN и шлём подряд. Если снова увидите «Слишком длинное сообщение» - уменьшите число.
+var SMS_MAX_LEN = 61;
+var SMS_PART_DELAY = 700; // мс между частями (как PRAVO_CHAT_PART_DELAY у обычного чата); плюс ждём по модели антифлуда
+var _c3SmsQueue = [];
+var _c3SmsBusy = false;
+var _c3SmsLastAt = 0;
+// Сервер режет частые SMS ответом «Подождите несколько секунд...» (серый текст в чате, команда НЕ выполняется).
+// Своего кулдауна /sms в дампе мода нет (PHONE_SMS_INTERVAL = 500 мс нигде не применяется, проверка в закрытой части), поэтому подстраиваемся:
+// получили «Подождите...» -> часть возвращается в начало очереди, пауза между частями растёт и запоминается.
+var SMS_GAP_STEP = 1500;   // мс: на сколько растёт пауза между частями после каждого «Подождите...»
+var SMS_GAP_MAX = 8000;    // мс: потолок паузы
+var SMS_RETRIES = 4;       // сколько раз повторяем одну часть, прежде чем сдаться
+var SMS_ACK_WINDOW = 2500; // мс после отправки части, в течение которых «Подождите...» считаем ответом именно на неё
+var _c3SmsGap = SMS_PART_DELAY;
+var _c3SmsLast = null;        // { job, at, done } - последняя отправленная часть
+
+// Режем по ", " (запятая остаётся в конце строки); слишком длинный кусок без запятых - общим резаком по словам
+function _c3SmsSplit(text, max) {
+    text = String(text == null ? '' : text).trim();
+    max = max || SMS_MAX_LEN;
+    if (text.length <= max) return text ? [text] : [];
+    var toks = text.split(', '), parts = [], cur = '';
+    for (var i = 0; i < toks.length; i++) {
+        var piece = toks[i] + (i < toks.length - 1 ? ',' : '');
+        var cand = cur ? cur + ' ' + piece : piece;
+        if (cand.length <= max) { cur = cand; continue; }
+        if (cur) parts.push(cur);
+        cur = piece;
+        if (cur.length > max) {
+            var sub = splitSay(cur, max);
+            cur = sub.pop() || '';
+            parts = parts.concat(sub);
+        }
+    }
+    if (cur) parts.push(cur);
+    return parts;
+}
+function _c3SmsDrain() {
+    if (_c3SmsBusy) return;
+    _c3SmsBusy = true;
+    (function next() {
+        if (!_c3SmsQueue.length) { _c3SmsBusy = false; return; }
+        var now = Date.now();
+        var gap = Math.max(0, _c3SmsGap - (now - _c3SmsLastAt));         // пауза между частями (растёт, если сервер просил подождать)
+        var fw = floodWait(1);                                            // антифлуд сервера (3000/1000 за команду)
+        var w = Math.max(gap, fw);
+        if (w > 0) {
+            if (fw >= 700) { try { gtAdd('~y~Антифлуд~n~~w~SMS через ' + (fw / 1000).toFixed(1) + ' с', Math.min(fw + 300, 2500), 3); } catch (_) {} }
+            setTimeout(next, w + 5);
+            return;
+        }
+        var job = _c3SmsQueue.shift();
+        rawSend('/sms ' + job.number + ' ' + job.text);
+        _c3SmsLastAt = Date.now();
+        _c3SmsLast = { job: job, at: _c3SmsLastAt, done: false };
+        setTimeout(next, _c3SmsGap);
+    })();
+}
+// Сервер ответил «Подождите несколько секунд...» на только что отправленную часть -> повторяем её позже
+function _c3SmsOnWait() {
+    var l = _c3SmsLast;
+    if (!l || l.done || Date.now() - l.at > SMS_ACK_WINDOW) return; // это «Подождите» от другой команды
+    l.done = true;
+    var job = l.job;
+    job.tries = (job.tries || 0) + 1;
+    _c3SmsGap = Math.min(SMS_GAP_MAX, _c3SmsGap + SMS_GAP_STEP);
+    try { console.log('[CODE3][SMS] «Подождите...» -> повтор части (' + job.tries + '), пауза ' + _c3SmsGap + ' мс', job.text); } catch (_) {}
+    if (job.tries > SMS_RETRIES) {
+        try { gtAdd('~r~SMS не ушло~n~~w~Сервер не принял сообщение', 3000, 3); } catch (_) {}
+        return;
+    }
+    try { gtAdd('~y~SMS~n~~w~Сервер просит подождать, повтор через ' + (_c3SmsGap / 1000).toFixed(1) + ' с', Math.min(_c3SmsGap + 300, 3500), 3); } catch (_) {}
+    _c3SmsQueue.unshift(job);
+    _c3SmsDrain(); // если цикл уже остановился (очередь опустела) - запускаем заново
+}
+// Эхо отправителю «SMS: ... | Получатель: ...» = часть дошла, «Подождите» после неё уже не к ней
+function _c3SmsOnAck() {
+    if (_c3SmsLast) _c3SmsLast.done = true;
+}
+function _c3SmsSend(number, text) {
+    var parts = _c3SmsSplit(text, SMS_MAX_LEN);
+    for (var i = 0; i < parts.length; i++) _c3SmsQueue.push({ number: number, text: parts[i] });
+    try { console.log('[CODE3][SMS] -> ' + number + ': ' + parts.length + ' сообщ.', parts); } catch (_) {}
+    _c3SmsDrain();
+}
+
+function _c3SmsPriceText() {
+    if (SMS_TEXT_PRICE) return SMS_TEXT_PRICE;
+    try {
+        // Одним SMS: короткие названия («Проф. права» -> «Проф»), префикс «Цены: » - только если влезает в SMS_MAX_LEN
+        var list = LIC_TYPES.map(function (t) { return t.name.replace(/^Проф\.? права$/i, 'Проф') + ' ' + Math.round(t.price / 1000) + 'к'; }).join(', ');
+        var cands = ['Цены: ' + list, list];
+        for (var i = 0; i < cands.length; i++) if (cands[i].length <= SMS_MAX_LEN) return cands[i];
+        return cands[0]; // не влезло даже без префикса - _c3SmsSend порежет на части
+    } catch (e) {
+        return 'Цены: Права 10к, Проф 40к, Оружие 85к, Рыбалка 40к, Охота 65к';
+    }
+}
+// Входящее: "SMS: текст | Отправитель: {v:Ник} [т.333351]"; группа 1 = номер
+var SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
+var SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
+var SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
+var SMS_LABEL = 'Ответ'; // надпись на кнопке (закрыто: стрелка вниз = можно открыть)
+var SMS_LABEL_CLOSE = 'Закрыть'; // надпись, пока выбор раскрыт (стрелка вверх = можно закрыть)
+var SMS_OPT_SCALE = 1; // размер кнопок «Место / Ценовая политика» относительно «Ответ» / «Закрыть» (1 = одинаковые)
+var SMS_OPT_LINE = 1.15; // высота кнопок выбора в размерах шрифта (так движок рисует «Ответ»: ~19px при шрифте ~16.8px); выросла/упала разница - подправьте
+var SMS_OUTLINE_COLOR = 'rgba(255,255,255,.65)'; // цвет контура вокруг сообщения + кнопок при раскрытии ('' = без контура)
+var SMS_OUTLINE_RADIUS = '1.4vh'; // скругление углов рамки
+var SMS_MENU_TIMEOUT = 30000; // мс: через сколько авто-свернуть раскрытый выбор, если ничего не нажали (0 = не сворачивать)
+var SMS_MOBILE_SCALE = 2; // Хасл: во сколько раз кнопка больше, чем стандартная мобильная (2.78vh)
+var SMS_PC_SCALE = 1.5;    // ПК: во сколько раз кнопка больше штатного кружка (1.85vh); 1.5 = 2.78vh
+var SMS_HOVER_TEXT = 'inherit'; // цвет текста «Ответ»/«Закрыть» при наведении и в раскрытом виде: 'inherit' = цвет самого сообщения (жёлтый), либо любой CSS-цвет, например '#000'
+var SMS_HOVER_INVERT = true; // при наведении: белый фон + чёрный текст (как у штатных кнопок чата); false = без подсветки
+
+// ── Стили кнопки «SMS» (вместо круглой иконки-трубки) ─────────────────────────
+(function _c3SmsBtnStyle() {
+    var id = 'code3-sms-btn-css';
+    if (document.getElementById(id)) return;
+    var pcH = 1.85 * SMS_PC_SCALE;              // высота на ПК (штатный кружок 1.85vh * scale)
+    var mbH = 2.78 * SMS_MOBILE_SCALE;          // высота на Хасле (штатные 2.78vh * scale)
+    var cssOpt = function (h) {
+        return 'height:auto!important;min-width:' + (h * 1.85).toFixed(2) + 'vh!important;' +
+               'padding:0 ' + (h * 0.38).toFixed(2) + 'vh!important;border-radius:' + (h / 2).toFixed(2) + 'vh!important;' +
+               'font-size:' + (h * 0.56).toFixed(2) + 'vh!important;line-height:' + SMS_OPT_LINE + '!important;';
+    };
+    var css = function (h) {
+        return 'height:' + h + 'vh!important;min-width:' + (h * 1.85).toFixed(2) + 'vh!important;' +
+               'padding:0 ' + (h * 0.38).toFixed(2) + 'vh!important;border-radius:' + (h / 2).toFixed(2) + 'vh!important;' +
+               'font-size:' + (h * 0.56).toFixed(2) + 'vh!important;';
+    };
+    var s = document.createElement('style');
+    s.id = id;
+    s.textContent =
+        '.chat-message-content__action.code3-sms-btn{' + css(pcH) +
+            'box-sizing:border-box;background:rgba(255,255,255,.25);color:inherit;font-weight:700;line-height:1;' +
+            'letter-spacing:.05em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;}' +
+        (SMS_HOVER_INVERT ? '.chat-message-content__action.code3-sms-btn:hover{background:#fff;color:' + SMS_HOVER_TEXT + ';}' : '') +
+        '.chat-message-content__action.code3-sms-btn>*{display:none!important;}' +
+        // подпись + стрелка-треугольник (рисуется границами, не глифом - в шрифте чата может не быть символов-стрелок)
+        '.chat-message-content__action.code3-sms-btn::before{content:"' + SMS_LABEL + '";}' +
+        '.chat-message-content__action.code3-sms-btn::after{content:"";display:block;width:0;height:0;margin-left:.45em;' +
+            'border-left:.36em solid transparent;border-right:.36em solid transparent;border-top:.46em solid currentColor;}' +
+        // раскрыто: «Закрыть» + стрелка вверх, фон как у обычной «Ответ» (не белый); белым становится только при наведении
+        '.chat-message-content__action.code3-sms-btn.code3-sms-btn--open{background:rgba(255,255,255,.25);color:inherit;}' +
+        (SMS_HOVER_INVERT ? '.chat-message-content__action.code3-sms-btn.code3-sms-btn--open:hover{background:#fff;color:' + SMS_HOVER_TEXT + ';}' : '') +
+        '.chat-message-content__action.code3-sms-btn.code3-sms-btn--open::before{content:"' + SMS_LABEL_CLOSE + '";}' +
+        '.chat-message-content__action.code3-sms-btn.code3-sms-btn--open::after{border-top:0;border-bottom:.46em solid currentColor;}' +
+        '.chat-message-content__action.code3-sms-btn.code3-sms-btn--mobile{' + css(mbH) + '}' +
+        // раскрытый выбор - отдельная строка под сообщением; вид тот же, что у кнопки «Ответ» (свои элементы без data-v -> штатные стили чата не действуют)
+        '.code3-sms-menu{display:flex;align-items:center;flex-wrap:wrap;box-sizing:border-box;padding:.3vh .6vh .35vh;color:#fff;font-weight:700;}' +
+        // контур: сообщение (верх+бока) и строка кнопок (бока+низ) = одна скруглённая рамка из настоящих границ (углы ровные).
+        // Ширину обеих частей выставляет _c3SmsFit() по реальным размерам
+        (SMS_OUTLINE_COLOR ?
+            '.chat-message.code3-sms-row--active{background-color:rgba(255,255,255,.08)!important;border:.16vh solid ' + SMS_OUTLINE_COLOR + '!important;border-bottom:0!important;' +
+                'border-radius:' + SMS_OUTLINE_RADIUS + ' ' + SMS_OUTLINE_RADIUS + ' 0 0!important;}' +
+            '.code3-sms-menu.code3-sms-menu--attached{background-color:rgba(255,255,255,.08);border:.16vh solid ' + SMS_OUTLINE_COLOR + ';border-top:0;' +
+                'border-radius:0 0 ' + SMS_OUTLINE_RADIUS + ' ' + SMS_OUTLINE_RADIUS + ';}'
+        : '') +
+        // кнопки выбора = тот же вид, что у «Ответ / Закрыть»: тот же шрифт, отступы, скругление, межбуквенный интервал, обводка текста.
+        // Высоту НЕ задаём: у «Ответ» (она внутри строки чата) движок игнорирует height и берёт высоту по шрифту, поэтому и тут высота по шрифту.
+        '.code3-sms-opt{' + cssOpt(pcH * SMS_OPT_SCALE) +
+            'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-right:.6vh;position:relative;' +
+            'box-sizing:border-box;white-space:nowrap;background:rgba(255,255,255,.25);color:#fff;font-weight:700;' +
+            'letter-spacing:.05em;font-family:"Open Sans",var(--fallback-font),sans-serif;user-select:none;-webkit-user-select:none;transition:all .25s ease;' +
+            'text-shadow:-0.05vw -0.05vw 0 #000,0 -0.05vw 0 #000,0.05vw -0.05vw 0 #000,0.05vw 0 0 #000,0.05vw 0.05vw 0 #000,0 0.05vw 0 #000,-0.05vw 0.05vw 0 #000,-0.05vw 0 0 #000;}' +
+        '.code3-sms-opt.code3-sms-opt--mobile{' + cssOpt(mbH * SMS_OPT_SCALE) + '}' +
+        '.code3-sms-opt:hover{background:#fff;color:#000;}' +
+        // сообщение в одну строку не переносим: «Ответ» -> «Закрыть» длиннее, иначе кнопка уезжает на вторую строку
+        '.chat-message.code3-sms-row--nowrap .chat-message-content{white-space:nowrap!important;}';
+    document.head.appendChild(s);
+    onUndo(function () { if (s.parentNode) s.parentNode.removeChild(s); });
+})();
+
+// Помечаем кнопки SMS в чате: у них нет иконки (id SMS_ICON не существует) и рядом текст «SMS:»
+function _c3MarkSmsBtns(root) {
+    try {
+        var scope = (root && root.querySelectorAll) ? root : document;
+        var imgs = scope.querySelectorAll('.chat-message-content__action-image');
+        var mobile = !!(window.App && window.App.isMobile);
+        for (var i = 0; i < imgs.length; i++) {
+            var src = imgs[i].getAttribute('src');
+            if (src && !/undefined$/.test(src)) continue;         // у обычных кнопок иконка есть
+            var btn = imgs[i].parentNode;
+            if (!btn || !btn.classList || btn.classList.contains('code3-sms-btn')) continue;
+            var p = btn.parentNode;
+            if (!p || String(p.textContent || '').indexOf('SMS:') === -1) continue;
+            btn.classList.add('code3-sms-btn');
+            if (mobile) btn.classList.add('code3-sms-btn--mobile');
+        }
+    } catch (e) {}
+}
+(function _c3SmsBtnObserver() {
+    var tries = 0;
+    (function start() {
+        if (!document.body) { if (++tries < 100) setTimeout(start, 100); return; }
+        try {
+            var mo = new MutationObserver(function (muts) {
+                if (_dead) return;
+                for (var i = 0; i < muts.length; i++) {
+                    var added = muts[i].addedNodes;
+                    for (var j = 0; j < added.length; j++) {
+                        if (added[j].nodeType === 1) _c3MarkSmsBtns(added[j]);
+                    }
+                }
+            });
+            mo.observe(document.body, { childList: true, subtree: true });
+            onUndo(function () { try { mo.disconnect(); } catch (e) {} });
+        } catch (e) {}
+        if (!_dead) _c3MarkSmsBtns(document);
+    })();
+})();
+
+// ── Раскрытие кнопки SMS в выбор «Место / Ценовая политика» ───────────────────
+var _c3SmsLastBtn = null; // кнопка SMS, по которой кликнули (DOM-элемент); значение номера придёт в onChatMessageAction
+
+function _c3SmsCollapse(menu) {
+    try {
+        if (!menu) return;
+        if (menu._c3Timer) { clearTimeout(menu._c3Timer); menu._c3Timer = 0; }
+        var btn = menu._c3Btn;
+        if (btn) { btn._c3Menu = null; if (btn.classList) btn.classList.remove('code3-sms-btn--open'); }
+        if (menu._c3Row && menu._c3Row.classList) {
+            var r = menu._c3Row;
+            r.classList.remove('code3-sms-row--active');
+            r.classList.remove('code3-sms-row--nowrap');
+            r.style.width = r.style.boxSizing = r.style.paddingLeft = r.style.paddingRight = '';
+            r.style.flexGrow = r.style.flexShrink = r.style.alignSelf = '';
+        }
+        if (menu.parentNode) menu.parentNode.removeChild(menu);
+    } catch (e) {}
+}
+function _c3SmsCollapseAll() {
+    try {
+        var menus = document.querySelectorAll('.code3-sms-menu');
+        for (var i = 0; i < menus.length; i++) _c3SmsCollapse(menus[i]);
+    } catch (e) {}
+}
+// Строка сообщения чата (flex: время + текст), под которой показываем выбор
+function _c3SmsRow(btn) {
+    var el = btn;
+    for (var i = 0; i < 6 && el && el.parentNode; i++) {
+        if (el.classList && el.classList.contains('chat-message')) return el;
+        el = el.parentNode;
+    }
+    return null;
+}
+// Подгоняем рамку: одна скруглённая рамка по ширине самого длинного из двух - сообщения или строки кнопок (а не на весь чат).
+// Размеры берём из getBoundingClientRect (экранные px) и переводим в px вёрстки через эталон: у чата может быть scale/transform.
+// getComputedStyle в этом движке может вернуть значение в vh/vw/em (напр. "1.55vh"), а не в px - переводим в px вёрстки сами
+function _c3Px(val, el) {
+    try {
+        var str = String(val == null ? '' : val).trim();
+        var n = parseFloat(str);
+        if (!isFinite(n)) return 0;
+        if (/vh\s*$/i.test(str)) return n * (window.innerHeight || 1080) / 100;
+        if (/vw\s*$/i.test(str)) return n * (window.innerWidth || 1920) / 100;
+        if (/em\s*$/i.test(str) && !/rem\s*$/i.test(str)) {
+            var fs = el ? _c3Px(getComputedStyle(el).fontSize, null) : 16;
+            return n * (fs || 16);
+        }
+        return n;
+    } catch (e) { return 0; }
+}
+function _c3SmsFit(row, menu, btn) {
+    try {
+        if (!SMS_OUTLINE_COLOR || !row || !menu || !menu.parentNode) return;
+        var kids = row.children, lastR = kids && kids.length ? kids[kids.length - 1] : null;
+        var lastM = menu.lastElementChild;
+        if (!lastR || !lastM) return;
+        // 1) масштаб чата (экранные px -> px вёрстки): отношение экранной ширины строки к её offsetWidth; без масштаба = 1
+        var scale = 1;
+        try {
+            var _rw = row.getBoundingClientRect().width, _ow = row.offsetWidth;
+            if (_rw > 0 && _ow > 0) scale = _rw / _ow;
+            if (!(scale > 0.4 && scale < 2.5) || Math.abs(scale - 1) < 0.03) scale = 1;
+        } catch (_) { scale = 1; }
+        // 2) естественные ширины (до наших отступов)
+        var rr = row.getBoundingClientRect(), mm = menu.getBoundingClientRect();
+        var lr = lastR.getBoundingClientRect(), lm = lastM.getBoundingClientRect();
+        var padM = _c3Px(getComputedStyle(menu).paddingLeft, menu);
+        var padR = padM;
+        var bw = _c3Px(getComputedStyle(row).borderLeftWidth, row); // толщина границы рамки
+        var mR = _c3Px(getComputedStyle(lastM).marginRight, lastM);
+        var w1 = (lr.right - rr.left) / scale + padR * 2 + bw * 2; // сообщение
+        var w2 = (lm.right - mm.left) / scale + mR + padM + bw * 2; // кнопки
+        // 2b) подпись «Ответ» -> «Закрыть» длиннее на ~2 буквы, а движок пересчитывает её не сразу.
+        //     Движок отдаёт размеры прошлого кадра (с подписью «Ответ»), поэтому запас закладываем вручную, иначе «Закрыть» не влезает и переносится вниз.
+        var reserve = 0;
+        try {
+            var bfs = _c3Px(getComputedStyle(btn).fontSize, btn) || 16;
+            if (bfs < 6) bfs = (window.innerHeight || 1080) * 0.0155; // страховка: шрифт кнопки ~1.55vh
+            // «Закрыть» шире «Ответ» на ~25px при шрифте ~16.8px (замер по скриншотам: 100px против 75px) = ~0.75 шрифта на лишнюю букву.
+            // + запас 0.6 шрифта (~10px), чтобы кнопка гарантированно не переносилась на вторую строку. Свойство min-width на кнопку в чате движок игнорирует
+            reserve = Math.max(0, SMS_LABEL_CLOSE.length - SMS_LABEL.length) * bfs * 0.75 + bfs * 0.6;
+        } catch (_) {}
+        w1 += reserve;
+        var full = rr.width / scale;                        // ширина списка сообщений
+        var W = Math.ceil(Math.max(w1, w2)) + 4;            // +4px запаса: иначе из-за округления текст/кнопки могут перенестись
+        if (full > 0) W = Math.min(W, Math.floor(full));
+        try { console.log('[CODE3][SMS] рамка: scale=' + scale.toFixed(3) + ' сообщение=' + Math.round(w1) + ' (запас ' + Math.round(reserve) + ') кнопки=' + Math.round(w2) + ' список=' + Math.round(full) + ' -> ' + W + 'px'); } catch (_) {}
+        if (!(W > 0)) return;
+        // 3) обе части одной ширины = одна рамка
+        row.style.boxSizing = 'border-box';
+        row.style.paddingLeft = padR + 'px';
+        row.style.paddingRight = padR + 'px';
+        row.style.width = W + 'px';
+        row.style.flexGrow = '0'; row.style.flexShrink = '0'; row.style.alignSelf = 'flex-start';
+        menu.style.width = W + 'px';
+        menu.style.flexWrap = 'nowrap';
+        menu.style.flexGrow = '0'; menu.style.flexShrink = '0'; menu.style.alignSelf = 'flex-start';
+        // 4) сообщение, которое и так умещалось в одну строку, держим в одну строку; длинные (в несколько строк) переносятся как обычно
+        if (full > 0 && w1 + 40 < full) row.classList.add('code3-sms-row--nowrap');
+    } catch (e) { try { console.log('[CODE3][SMS] ошибка подгонки рамки', e); } catch (_) {} }
+}
+function _c3SmsExpand(btn, number) {
+    try {
+        if (!btn || !btn.parentNode) return false;
+        // повторный клик по «Ответ» сворачивает выбор
+        if (btn._c3Menu && btn._c3Menu.parentNode) { _c3SmsCollapse(btn._c3Menu); return true; }
+        _c3SmsCollapseAll(); // одновременно раскрыта только одна кнопка
+        var mobile = btn.classList.contains('code3-sms-btn--mobile');
+        var menu = document.createElement('div');
+        menu.className = 'code3-sms-menu';
+        menu._c3Btn = btn;
+        var opts = [
+            { label: SMS_LABEL_PLACE, text: function () { return SMS_TEXT; } },
+            { label: SMS_LABEL_PRICE, text: _c3SmsPriceText }
+        ];
+        opts.forEach(function (o) {
+            var b = document.createElement('span');
+            b.className = 'code3-sms-opt' + (mobile ? ' code3-sms-opt--mobile' : '');
+            b.textContent = o.label;
+            b.addEventListener('click', function (ev) {
+                try { ev.stopPropagation(); ev.preventDefault(); } catch (_) {}
+                try { _c3SmsSend(number, o.text()); } catch (e) {
+                    try { console.log('[CODE3] SMS: ошибка отправки', e); } catch (_) {}
+                }
+                _c3SmsCollapse(menu); // отправили -> выбор убирается, остаётся одна кнопка «Ответ»
+            });
+            menu.appendChild(b);
+        });
+        btn.classList.add('code3-sms-btn--open'); // «Закрыть» + стрелка вверх (до замеров рамки: подпись меняет ширину)
+        var row = _c3SmsRow(btn);
+        if (row && row.parentNode) {
+            row.parentNode.insertBefore(menu, row.nextSibling); // отдельной строкой под сообщением
+            row.classList.add('code3-sms-row--active');        // контур вокруг «своего» сообщения + строки кнопок
+            menu.classList.add('code3-sms-menu--attached');
+            menu._c3Row = row;
+            _c3SmsFit(row, menu, btn);
+        } else btn.parentNode.appendChild(menu);
+        btn._c3Menu = menu;
+        if (SMS_MENU_TIMEOUT > 0) menu._c3Timer = setTimeout(function () { _c3SmsCollapse(menu); }, SMS_MENU_TIMEOUT);
+        return true;
+    } catch (e) { return false; }
+}
+// Запоминаем, по какой именно кнопке SMS кликнули (capture: срабатывает раньше обработчика Vue)
+(function _c3SmsClickTracker() {
+    var tries = 0;
+    (function start() {
+        if (!document.body) { if (++tries < 100) setTimeout(start, 100); return; }
+        var onClk = function (e) {
+            try {
+                var t = e.target;
+                _c3SmsLastBtn = (t && t.closest) ? t.closest('.code3-sms-btn') : null;
+            } catch (_) { _c3SmsLastBtn = null; }
+        };
+        document.addEventListener('click', onClk, true);
+        onUndo(function () { document.removeEventListener('click', onClk, true); });
+    })();
+})();
+
+function _c3AddSmsButton(message) {
+    try {
+        if (!SMS_BTN_ENABLED || typeof message !== 'string') return message;
+        if (!licensorReady()) return message;
+        if (message.indexOf('{btn:') !== -1) return message; // уже есть кнопка
+        var m = message.match(SMS_RE);
+        if (!m) return message;
+        return message + ' {btn:' + SMS_ICON + ':' + SMS_ACTION + ':' + m[1] + '}';
+    } catch (e) { return message; }
+}
+
+(function _c3HookChatAction() {
+    var tries = 0;
+    (function hook() {
+        var orig = window.onChatMessageAction;
+        if (typeof orig !== 'function') {
+            if (++tries < 100 && !_dead) setTimeout(hook, 100);
+            return;
+        }
+        if (orig.__code3Sms) return;   // уже обёрнуто (повторный запуск после cleanup обёртку снимает)
+        var wrapped = function (button, action, value) {
+            if (!_dead && String(action) === String(SMS_ACTION)) {
+                var _b = _c3SmsLastBtn; _c3SmsLastBtn = null;
+                // Раскрываем выбор «Место / Ценовая политика»; если кнопку в DOM не нашли - шлём «Место» как раньше
+                if (!_c3SmsExpand(_b, value)) _c3SmsSend(value, SMS_TEXT);
+                return;
+            }
+            return orig.apply(this, arguments);
+        };
+        wrapped.__code3Sms = true;
+        window.onChatMessageAction = wrapped;
+        onUndo(function () { if (window.onChatMessageAction === wrapped) window.onChatMessageAction = orig; });
+    })();
+})();
+onUndo(function () { try { _c3SmsCollapseAll(); } catch (e) {} });
+
+
+// Главный перехват чата — как в pravo.js: Hud.$refs.chat.add видит КАЖДОЕ сообщение (OnChatAddMessage остаётся запасным
+// путём; дубль одного и того же сообщения отсекается в onChat). Заодно дописывает кнопку SMS к входящим SMS.
+function ensureChatAddHook() {
+    if (_dead) return;
+    try {
+        var hud = iface('Hud');
+        var chat = hud && hud.$refs && hud.$refs.chat;
+        if (!chat || typeof chat.add !== 'function' || chat.add.__code3) return;
+        var orig = chat.add;
+        var w = function (message) {
+            var args = arguments;
+            if (!_dead && typeof message === 'string') {
+                try { onChat(message); } catch (er) { warn('onChat:', er); }
+                try {
+                    var m2 = _c3AddSmsButton(message);
+                    if (m2 !== message) { args = [].slice.call(arguments); args[0] = m2; }
+                } catch (er2) {}
+            }
+            return orig.apply(this, args);
+        };
+        w.__code3 = true;
+        chat.add = w;
+        dbg('хук Hud.chat.add установлен');
+        onUndo(function () { if (chat.add === w) chat.add = orig; });
+    } catch (e) {}
 }
 
 // ══════════════════════════ УСТАНОВКА ХУКОВ ══════════════════════════
@@ -1513,6 +1978,8 @@ function ensureChatHook() {
     // Чат
     ensureChatHook();
     every(ensureChatHook, 1500);
+    ensureChatAddHook();
+    every(ensureChatAddHook, 1500);   // чат (Hud) может появиться позже или пересоздаться — ставим заново
 
     // Клавиатура: хуки на setDrawLabelStatus / hideKeyboard
     kbEnsureHooks();
