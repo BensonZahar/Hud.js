@@ -29,7 +29,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.1';
+var VERSION = 'code3 v1.2';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -130,7 +130,11 @@ function gtAdd(text, duration, type) {
 
 // ══════════════════════════ СПИСОК ИГРОКОВ ══════════════════════════
 // Сервер присылает { local: {id, name, ...}, players: [{id, name, mobile, ...}] } в window.onUpdatePlayersList
+// Список — это СНИМОК на момент ответа. Движок сам запрашивает его раз в 3–5 с, только пока открыто меню/«Онлайн»;
+// в остальное время он стареет. ID на сервере переиспользуются, поэтому «найден в старом списке» ≠ «верно»:
+// каждая запись о нике/ID должна опираться на снимок, снятый ПОСЛЕ того, как ник был замечен (см. resolveId).
 function plist() { return window.__code3PlayerList || null; }
+function listAt() { return window.__code3PlayerListAt || 0; }   // когда получен последний снимок (Date.now())
 function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
 function nickById(id) {
     try {
@@ -150,41 +154,103 @@ function idByNick(nick) {
     } catch (e) {}
     return null;
 }
+
+// Запасной источник «ник ↔ ID»: каждая строка чата игрока заканчивается на «({v:Ник})[ID]» — пара ровно на момент сообщения.
+// Нужен, когда список игроков не ответил/неполный. Используется только как запасной вариант и только пока запись свежая.
+var CHAT_SEEN_TTL = 120000;
+var _chatSeen = {};   // norm(ник) → { id, nick, at }
+var _chatSeenById = {};   // id → { nick, at }
+function chatNote(msg) {
+    var m = /\((?:\{v:)?([^(){}\s]+)\}?\)\[(\d+)\]\s*$/.exec(String(msg));
+    if (!m) return;
+    var now = Date.now(), id = m[2], nick = m[1];
+    _chatSeen[norm(nick)] = { id: id, nick: nick, at: now };
+    _chatSeenById[id] = { nick: nick, at: now };
+    var keys = Object.keys(_chatSeen);
+    if (keys.length > 400) keys.forEach(function (k) { if (now - _chatSeen[k].at > CHAT_SEEN_TTL) delete _chatSeen[k]; });
+}
+function chatIdByNick(nick) {
+    var e = _chatSeen[norm(nick || '')];
+    return (e && Date.now() - e.at < CHAT_SEEN_TTL) ? e.id : null;
+}
+function chatNickById(id) {
+    var e = _chatSeenById[String(id)];
+    return (e && Date.now() - e.at < CHAT_SEEN_TTL) ? e.nick : null;
+}
+// Лучший доступный ник по ID: что новее — строка чата или снимок списка (список «молчит» об ушедших — тогда чат)
+function bestNickById(id) {
+    var c = _chatSeenById[String(id)], fromList = nickById(id);
+    if (c && Date.now() - c.at < CHAT_SEEN_TTL && (!fromList || c.at > listAt())) return c.nick;
+    return fromList;
+}
+
 // Хук на window.onUpdatePlayersList. Code.js/движок могут переприсвоить эту функцию уже после нас — тогда наша
 // обёртка пропадает, список остаётся пустым и получается «не удалось определить ID» / «Жетон N».
 // Поэтому перед каждым запросом списка проверяем, что обёртка на месте, и ставим её заново.
 var RUN = {};   // метка именно этого запуска (после перезагрузки скрипта старая обёртка не считается нашей)
+var _hookW = null, _reqAt = 0;
 function capturePlayers(e) {
     try {
         if (typeof e === 'string') { try { e = JSON.parse(e); } catch (er) { return; } }
-        if (e && (e.local || Array.isArray(e.players))) window.__code3PlayerList = e;
+        if (e && (e.local || Array.isArray(e.players))) { window.__code3PlayerList = e; window.__code3PlayerListAt = Date.now(); }
     } catch (er) {}
 }
 function ensurePlayersHook() {
     if (_dead) return;
     var prev = window.onUpdatePlayersList;
     if (prev && prev.__code3 === RUN) return;
+    // нас обернул кто-то другой, но ответы по-прежнему доходят до нас — переустановка не нужна (иначе цепочка обёрток растёт)
+    if (_hookW && _reqAt && listAt() >= _reqAt) return;
     var w = function (e) {
         if (!_dead) capturePlayers(e);
         if (typeof prev === 'function') return prev.apply(this, arguments);
     };
     w.__code3 = RUN;
+    _hookW = w;
     window.onUpdatePlayersList = w;
     dbg('хук onUpdatePlayersList (пере)установлен');
     onUndo(function () { if (window.onUpdatePlayersList === w) window.onUpdatePlayersList = prev; });
 }
 function refreshPlayers() {
     ensurePlayersHook();
+    _reqAt = Date.now();
     try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (e) {}
 }
-// Определяет ID по нику; список обновляется редко — просим движок обновить и ждём до ~2 с
-function resolveId(nick, cb, tries) {
-    tries = tries || 0;
-    var id = idByNick(nick);
-    if (id !== null) return cb(id);
-    if (tries >= 8) return cb(null);
-    if (tries === 0 || tries === 4) refreshPlayers();   // второй запрос — если первый ответ потерялся
-    setTimeout(function () { if (!_dead) resolveId(nick, cb, tries + 1); }, 250);
+// Ждём снимок списка, полученный не раньше since (мс). Пока ждём — повторяем запрос раз в ~0.9 с (ответ мог потеряться)
+function awaitList(since, timeout, cb) {
+    var t0 = Date.now(), lastReq = 0;
+    (function step() {
+        if (_dead) return;
+        if (plist() && listAt() >= since) return cb(true);
+        var n = Date.now();
+        if (n - t0 >= timeout) return cb(false);
+        if (n - lastReq >= 900) { lastReq = n; refreshPlayers(); }
+        setTimeout(step, 100);
+    })();
+}
+// Определяет ID по нику. Берём ТОЛЬКО свежий снимок (since — не раньше этого момента; по умолчанию не старше 1.5 с):
+// старый снимок мог остаться от другого игрока с тем же ID/ником. Если ника нет даже в свежем снимке — ждём ещё снимок
+// (он мог быть снят до входа игрока), затем смотрим строки чата. cb(id) или cb(null, причина)
+function resolveId(nick, cb, o) {
+    o = o || {};
+    var since = o.since || (Date.now() - 1500);
+    var deadline = Date.now() + (o.budget || 3000);
+    (function go() {
+        awaitList(since, Math.max(300, deadline - Date.now()), function (got) {
+            if (_dead) return;
+            var id = idByNick(nick);
+            // снимок не пришёл вовремя: список не старше 15 с ещё терпим, старее — нет
+            if (id !== null && (got || Date.now() - listAt() < 15000)) return cb(id);
+            if (got && deadline - Date.now() > 900) { since = Date.now() + 400; return setTimeout(go, 400); }
+            var cid = chatIdByNick(nick);
+            if (cid !== null) { log('ник', nick, 'не найден в списке — ID', cid, 'взят из строки чата'); return cb(cid); }
+            var l = plist();
+            warn('не удалось определить ID для', nick, '|', got ? 'ника нет в свежем списке' : 'список игроков не ответил',
+                 '| игроков в списке:', l && Array.isArray(l.players) ? l.players.length : '—', '| count:', l && l.count !== undefined ? l.count : '—',
+                 '| возраст списка, мс:', listAt() ? Date.now() - listAt() : '—');
+            cb(null, got ? 'nolist' : 'noresp');
+        });
+    })();
 }
 
 // ══════════════════════════ СКИН И ЗВАНИЕ ══════════════════════════
@@ -452,12 +518,14 @@ function showIdInput() {
     addDialog('[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]', '', 0);
 }
 // ── Диалог 679: выбор типа лицензии ──
-var giveTarget = -1;
-function showTypeDialog(id) {
+var giveTarget = -1, giveTargetNick = '';
+function showTypeDialog(id, nick) {
     giveTarget = id;
+    giveTargetNick = nick ? String(nick) : '';
+    var who = giveTargetNick ? ' | ' + giveTargetNick.split('_').join(' ').replace(/["\\\[\]]/g, '') : '';   // ник в заголовке — видно, кому выдаёшь
     var list = 'Выберите тип лицензии:<n>';
     LIC_TYPES.forEach(function (t, i) { list += (i + 1) + '. ' + t.name + '  [' + t.price.toLocaleString('ru-RU') + ' ₽]<n>'; });
-    addDialog('[679,4,"Выдача лицензии | ID: ' + id + '","","Выдать","Отмена",0,0]', list, 0);
+    addDialog('[679,4,"Выдача лицензии | ID: ' + id + who + '","","Выдать","Отмена",0,0]', list, 0);
 }
 // ── Диалог 677: меню лицензёра ──
 var menuItems = [];
@@ -515,22 +583,39 @@ function onDialogResponse(args) {
     }
     // DLG_TYPE
     if (btn !== 1) setTimeout(updatePanel, 100);
-    else if (li >= 0 && li < LIC_TYPES.length) giveByIndex(giveTarget, li);
-    giveTarget = -1;
+    else if (li >= 0 && li < LIC_TYPES.length) giveByIndex(giveTarget, li, giveTargetNick);
+    giveTarget = -1; giveTargetNick = '';
     return true;
 }
 
 // ══════════════════════════ ВЫДАЧА ЛИЦЕНЗИИ И ПЕРЕВЫДАЧА ══════════════════════════
 // Шлёт /givelic <ID> <тип> <цена>, запоминает данные для перевыдачи и авто-ответов
-function giveByIndex(targetId, idx) {
+// nick — ник цели, если он точно известен (радиальное меню: берётся из заголовка меню). Иначе берём лучшее из того, что есть,
+// и через пару секунд уточняем по свежему списку. Ник запоминается ВМЕСТЕ с ID: позже искать его «по ID» в списке нельзя —
+// список к тому времени уже другой, и на этом ID может сидеть другой игрок (отсюда были чужие ники в авто-ответах).
+function giveByIndex(targetId, idx, nick) {
     var c = LIC_TYPES[idx];
     if (!c || targetId === null || targetId === undefined || targetId === '') return false;
     var cmd = '/givelic ' + targetId + ' ' + c.type + ' ' + c.price;
     log('отправка:', cmd);
     rawSend(cmd);
-    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, at: Date.now() };
+    var exact = !!nick;
+    var last = { targetId: targetId, type: c.type, price: c.price, name: c.name, at: Date.now(), nick: nick ? String(nick) : (bestNickById(targetId) || ''), nickExact: exact };
+    STATE.last = last;
+    if (!exact) {   // ID ввели вручную / из Telegram: уточняем ник по снимку, снятому уже после выдачи
+        awaitList(last.at, 2500, function (ok) {
+            if (_dead || !ok || STATE.last !== last || last.nickExact) return;
+            var n = nickById(last.targetId);
+            if (n) last.nick = n;
+        });
+    }
     setTimeout(updatePanel, 350);
     return true;
+}
+// Как обратиться к игроку по последней выдаче: запомненный ник → иначе «Жетон N» (но не «ник по ID из текущего списка»)
+function lastWho(last) {
+    var raw = last && last.nick;
+    return raw ? String(raw).split('_').join(' ') : null;
 }
 var reissueTimer = null;
 function reissueSend() {
@@ -581,8 +666,7 @@ function ownItems() {
     if (!panelAllowed()) return [];
     var items = [[INT_MENU, 'Лицензёр: меню']];
     if (OPTS.AUTO_REISSUE && STATE.last) {
-        var raw = nickById(STATE.last.targetId);
-        var who = raw ? raw.split('_').join(' ') : STATE.last.name;
+        var who = lastWho(STATE.last) || ('ID ' + STATE.last.targetId);
         items.push([INT_REISSUE, 'Перевыдать на ' + STATE.last.name + ': ' + who]);
     }
     items.push([INT_GIVE, 'Выдать лицензию']);
@@ -667,28 +751,34 @@ function parseNick(params) {
         return (typeof raw === 'string') ? raw.trim().split(' ').join('_') : '';
     } catch (e) { return ''; }
 }
-var circle = { pending: false, timer: null };
+var circle = { pending: false, timer: null, nick: '', seq: 0 };
 function circleDone() { circle.pending = false; if (circle.timer) { clearTimeout(circle.timer); circle.timer = null; } }
 function circleCanIntercept(nick) { return STATE.circle && licensorReady() && NICK_RE.test(nick); }
 // Не смогли определить цель — открываем обычное круговое меню
 function circleShowNormal(params, nick) {
     circleDone();
     try { openPrev.call(window, 'PlayerInteraction', params); } catch (e) {}
-    Radial.setNick(nick);
+    Radial.setNick(nick, true);
     setTimeout(function () { Radial.inject(0); }, 0);
 }
 function circleHandle(nick, params) {
+    var my = ++circle.seq;
     circle.pending = true;
+    circle.nick = nick;
     if (circle.timer) clearTimeout(circle.timer);
-    circle.timer = setTimeout(function () { if (circle.pending && !_dead) circleShowNormal(params, nick); }, 3000);   // страховка
-    resolveId(nick, function (id) {
-        if (!circle.pending || _dead) return;
-        if (id === null) { circleShowNormal(params, nick); gtAdd('~r~Круговое меню~n~~w~Не удалось определить ID игрока', 3000, 3); return; }
+    circle.timer = setTimeout(function () { if (circle.pending && circle.seq === my && !_dead) circleShowNormal(params, nick); }, 3500);   // страховка
+    resolveId(nick, function (id, why) {
+        if (!circle.pending || circle.seq !== my || _dead) return;   // за это время открыли меню другого игрока / сработала страховка
+        if (id === null) {
+            circleShowNormal(params, nick);
+            gtAdd('~r~Круговое меню~n~~w~' + (why === 'noresp' ? 'Список игроков не ответил — откройте меню ещё раз' : 'Не удалось определить ID игрока'), 3000, 3);
+            return;
+        }
         circleDone();
         log('круговое меню: выдача лицензии →', nick, '| ID:', id);
         srvSend('MenuInt_OnCloseInterface', 0);   // сам компонент мы не открывали — сообщаем серверу, что меню «закрыто»
-        setTimeout(function () { showTypeDialog(id); }, 80);
-    });
+        setTimeout(function () { showTypeDialog(id, nick); }, 80);
+    }, { budget: 3000 });
 }
 
 // ══════════════════════════ ПУНКТ «ВЫДАЧА ЛИЦЕНЗИИ» В РАДИАЛЬНОМ МЕНЮ ИГРОКА ══════════════════════════
@@ -701,6 +791,7 @@ var Radial = (function () {
     var ENTRY_ID = 'code3_lic', MASK_ID = 'code3LicMask', BTN_ID = 'code3-moblic-btn';
     var TITLE = 'Выдача лицензии';
     var SVG_NS = 'http://www.w3.org/2000/svg';
+    var nickAt = 0;   // когда меню стало меню этого игрока: ID берём из снимка списка, полученного не раньше
     var lastNick = '', busy = false, syncTimer = null, mode = '', patchedFor = null, capBox = null, warned = false;
     var labelsOn = false, watchedFor = null, shiftOn = false;
 
@@ -744,24 +835,25 @@ var Radial = (function () {
         try { window.closeInterface('PlayerInteraction'); } catch (e) {}
         srvSend('MenuInt_OnCloseInterface', 0);
     }
-    // ID цели по нику; список игроков обновляется редко — просим движок обновить
+    // ID цели по нику — только по снимку списка, полученному ПОСЛЕ открытия меню (см. resolveId). Ник цели не доверяем
+    // прошлому состоянию: меню могло переключиться на другого игрока, пока ждали ответ
     function withTargetId(cb) {
         var nick = lastNick;
         if (!nick) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
-        var id = idByNick(nick);
-        if (id !== null) return cb(id);
-        refreshPlayers();
-        var tries = 0;
-        var t = setInterval(function () {
-            if (_dead || !piOpen()) { clearInterval(t); busy = false; return; }
-            var f = idByNick(nick);
-            if (f !== null) { clearInterval(t); return cb(f); }
-            if (++tries >= 4) { clearInterval(t); busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить ID игрока'); }
-        }, 250);
+        resolveId(nick, function (id, why) {
+            if (_dead || !piOpen()) { busy = false; return; }
+            if (id === null) {
+                busy = false;
+                notify('~r~Выдача лицензии~n~~w~' + (why === 'noresp' ? 'Список игроков не ответил — нажмите ещё раз' : 'Не удалось определить ID игрока'));
+                return;
+            }
+            if (lastNick !== nick) { busy = false; return; }   // пока ждали, меню стало меню другого игрока
+            cb(id, nick);
+        }, { since: nickAt, budget: 4500 });
     }
-    function giveLicense(id, idx) {
-        try { if (giveByIndex(id, idx)) return; } catch (er) { warn('выдача из круга:', er); }
-        showTypeDialog(id);   // запасной путь — диалог выбора
+    function giveLicense(id, idx, nick) {
+        try { if (giveByIndex(id, idx, nick)) return; } catch (er) { warn('выдача из круга:', er); }
+        showTypeDialog(id, nick);   // запасной путь — диалог выбора
     }
 
     // ══════════ НАТИВНЫЙ РЕЖИМ: пункт внутри vm.menu ══════════
@@ -895,9 +987,9 @@ var Radial = (function () {
         var typeIdx = (typeof o._code3LicIdx === 'number') ? o._code3LicIdx : i;
         busy = true;
         try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
-        withTargetId(function (id) {
+        withTargetId(function (id, nick) {
             closeMenu();
-            setTimeout(function () { busy = false; giveLicense(id, typeIdx); }, 80);
+            setTimeout(function () { busy = false; giveLicense(id, typeIdx, nick); }, 80);
         });
     }
     // Подменяем методы компонента — на случай, если игра вызовет их сама
@@ -1102,9 +1194,9 @@ var Radial = (function () {
         for (var i = vm.menu.length; i < total; i++) { var c = coordsFor(vm, i); if (c && c.x < bestX) { bestX = c.x; best = i; } }
         return best;
     }
-    function openDialog(id) {
+    function openDialog(id, nick) {
         closeMenu();
-        setTimeout(function () { busy = false; showTypeDialog(id); }, 80);
+        setTimeout(function () { busy = false; showTypeDialog(id, nick); }, 80);
     }
     function onBtnClick(e) {
         try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
@@ -1168,7 +1260,7 @@ var Radial = (function () {
     onUndo(function () { try { cleanup(); } catch (e) {} });
     return {
         // как в pravo.js: пустой ник (меню машины/дома/NPC) обязан СБРОСИТЬ прошлого игрока, иначе «Выдача лицензии» уйдёт ему
-        setNick: function (n) { lastNick = n || ''; },
+        setNick: function (n, fresh) { n = n || ''; if (fresh || n !== lastNick || !nickAt) nickAt = Date.now(); lastNick = n; },
         resetBusy: function () { busy = false; },
         inject: inject,
         cleanup: cleanup
@@ -1313,7 +1405,13 @@ var _cool = {};
 function cooled(key, ms) { var n = Date.now(); if (_cool[key] && n - _cool[key] < ms) return false; _cool[key] = n; return true; }
 var _lastChat = { msg: '', at: 0 };
 
-function addr(id) { var raw = nickById(id); return raw ? raw.split('_').join(' ') : ('Жетон ' + id); }
+// Обращение к игроку: если это цель последней выдачи — её запомненный ник; иначе лучший ник по ID (свежее из чата/списка)
+function addr(id) {
+    var l = STATE.last, raw = null;
+    if (l && String(l.targetId) === String(id) && l.nick) raw = l.nick;
+    if (!raw) raw = bestNickById(id);
+    return raw ? String(raw).split('_').join(' ') : ('Жетон ' + id);
+}
 
 function onChat(message) {
     var msg = String(message);
@@ -1321,6 +1419,7 @@ function onChat(message) {
     var now = Date.now();
     if (msg === _lastChat.msg && now - _lastChat.at < 150) return;
     _lastChat.msg = msg; _lastChat.at = now;
+    try { chatNote(msg); } catch (e) {}
     if (!licensorReady()) return;   // не правительственный скин или не Лицензёр — ничего не делаем
 
     // Сервер сказал «Не флудите» — подтягиваем нашу модель антифлуда к реальному счётчику
@@ -1370,6 +1469,7 @@ function onChat(message) {
         var tm = clean.match(/Вы выдали\s+(?:лицензию\s+)?["«“`'][^"»”`']+["»”`']\s+игроку\s+(\S+)\s+за\s+[\d.\s]+\s*руб/i);
         if (tm && cooled('tea_' + tm[1], 5000)) {
             var tNick = tm[1];
+            if (STATE.last && !STATE.last.nickExact) { STATE.last.nick = tNick; STATE.last.nickExact = true; }   // сервер сам назвал игрока
             var tText = '/n ' + String(OPTS.TEA_TEXT).split('{nick}').join(tNick);
             setTimeout(function () { if (!_dead) { sendCmdPaced(tText); log('просьба о чае →', tNick); } }, 1500);
         }
@@ -1924,8 +2024,13 @@ function ensureChatAddHook() {
             if (name === 'PlayerInteraction') {
                 var was = isOpen('PlayerInteraction');
                 if (!was) {
-                    if (circle.pending) return Promise.resolve();   // это открытие уже обрабатываем
                     var nick = parseNick(params);
+                    if (circle.pending) {
+                        // то же открытие повторилось — уже обрабатываем; а вот другой игрок = новый запрос, старый отменяем
+                        // (раньше второй игрок молча отбрасывался, и выдача уходила первому)
+                        if (!nick || nick === circle.nick) return Promise.resolve();
+                        circleDone();
+                    }
                     var intercept = false;
                     try { intercept = !!nick && circleCanIntercept(nick); } catch (e) {}
                     if (intercept) {
@@ -1935,7 +2040,12 @@ function ensureChatAddHook() {
                 }
                 var r = prev.apply(this, arguments);
                 if (!was) {
-                    try { Radial.setNick(parseNick(params)); Radial.resetBusy(); setTimeout(function () { Radial.inject(0); }, 0); Chat.kick(); } catch (e) {}
+                    try {
+                        var nk = parseNick(params);
+                        Radial.setNick(nk, true);   // новое открытие меню: ID брать только из снимка списка, полученного после этого момента
+                        if (nk) refreshPlayers();   // запрашиваем сразу — к моменту клика по лицензии снимок уже будет свежим
+                        Radial.resetBusy(); setTimeout(function () { Radial.inject(0); }, 0); Chat.kick();
+                    } catch (e) {}
                 }
                 return r;
             }
@@ -2345,6 +2455,8 @@ try { (function () {
     function lastGive() { try { return (api() && api().last && api().last()) || null; } catch (e) { return null; } }
     function nickOf(id) {
         try {
+            const lg = lastGive();   // у последней выдачи ник запомнен вместе с ID — по текущему списку искать нельзя (ID переиспользуются)
+            if (lg && String(lg.targetId) === String(id) && lg.nick) return lg.nick;
             const l = window.__code3PlayerList, sid = String(id);
             if (!l) return null;
             if (l.local && String(l.local.id) === sid) return l.local.name;
