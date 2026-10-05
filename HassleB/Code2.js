@@ -2062,7 +2062,7 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
 // ==================== END FRIEND TRACKER MODULE ====================
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: SOBESED (уведомления о собеседованиях/наборах)   ║
-// ║  • Жёлтое SMS (FFFF00) со словом "набор"                  ║
+// ║  • Жёлтое SMS (FFFF00): точные шаблоны из мода (7 орг.)    ║
 // ║        → "Планируется собеседование: ..."                 ║
 // ║  • Синяя гос-волна (4466CC)                               ║
 // ║        → "Обнаружено собеседование: ..."                  ║
@@ -2070,7 +2070,9 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
 // ║        1 минуты → редактируем одно сообщение в TG         ║
 // ║  • Кнопка "Увед. о собесе" в Функции (TG + /hb)           ║
 // ║        с выбором: этот аккаунт / все аккаунты             ║
-// ║  • По умолчанию — ВЫКЛ                                    ║
+// ║  • Выбор организации: все / одна / несколько (TG-меню)    ║
+// ║    Правительство, МВД, ФСИН, МО, МЗ, ТРК, МЧС             ║
+// ║  • По умолчанию — ВЫКЛ (организации: все)                 ║
 // ║  • После ВКЛ/ВЫКЛ — возврат сообщения к исходному         ║
 // ║    виду (текст welcome + кнопки Управление и т.д.)        ║
 // ╚══════════════════════════════════════════════════════════╝
@@ -2080,6 +2082,170 @@ const SOBESED_GOV_COLOR = '0x4466CC';   // синяя гос-волна
 const SOBESED_AGG_WINDOW_MS = 60 * 1000; // 1 минута — окно склейки по нику
 
 if (config.sobesNotifications === undefined) config.sobesNotifications = false; // ← изначально ВЫКЛ
+// Какие организации отслеживаем: 'all' или массив ключей из SOBES_ORGS
+if (config.sobesOrgs === undefined) config.sobesOrgs = 'all';
+
+// ТОЧНЫЕ тексты из мода (user_13 → events.pwn). Ничего «примерного» не ловим: строка должна
+// совпасть с одной из зашитых в моде. Если сервер поменяет текст — обновить таблицы ниже.
+const SOBES_ORGS = [
+    { key: "gov", label: "Правительство" },
+    { key: "mvd", label: "МВД" },
+    { key: "fsin", label: "ФСИН" },
+    { key: "mo", label: "МО" },
+    { key: "mz", label: "МЗ" },
+    { key: "trk", label: "ТРК" },
+    { key: "mchs", label: "МЧС" }
+];
+const SOBES_ORG_KEYS = SOBES_ORGS.map(function (o) { return o.key; });
+
+// Синяя гос-волна: Events:AddAlerts → Events:SendAlert. Строка в чате: «<Ранг> <Ник>: <текст>»,
+// start = объявление набора, replay = напоминание, finish = завершение.
+// МО = армия и Нац. гвардия (общий шаблон); у ФСБ шаблона нет.
+const SOBES_ALERTS = {
+    gov: [
+        ["start", "Уважаемые граждане! Правительство Нижегородской области объявляет набор сотрудников."],
+        ["start", "Мы гарантируем стабильную зарплату, карьерный рост и участие в развитии региона."],
+        ["start", "Критерии: высшее образование, водительские права и медицинская карта."],
+        ["start", "Ждём всех желающих в месте проведения собеседования."],
+        ["replay", "Уважаемые граждане! Напоминаем, что в данный момент проходит собеседование в Правительство Нижегородской области."],
+        ["replay", "Желающим присоединиться просьба прибыть к месту проведения собеседования."],
+        ["finish", "Собеседование в Правительство Нижегородской области завершено."],
+        ["finish", "Благодарим всех, кто проявил интерес к государственной службе."]
+    ],
+    mvd: [
+        ["start", "Уважаемые граждане! Министерство внутренних дел объявляет набор сотрудников."],
+        ["start", "Служба в полиции - это гарантия стабильной работы, уважения и возможности внести вклад в общественную безопасность."],
+        ["start", "Критерии: водительские права, медицинская карта, военный билет и лицензия на оружие."],
+        ["start", "Ждём всех желающих в месте проведения собеседования."],
+        ["replay", "Уважаемые граждане! Напоминаем, что в данный момент проходит собеседование в Министерство внутренних дел."],
+        ["replay", "Желающим присоединиться просьба прибыть к месту проведения собеседования."],
+        ["finish", "Собеседование в Министерство внутренних дел завершено."],
+        ["finish", "Благодарим всех, кто проявил интерес к службе в органах правопорядка."]
+    ],
+    fsin: [
+        ["start", "Уважаемые граждане! Федеральная служба исполнения наказаний объявляет набор на службу."],
+        ["start", "Работа в ФСИН - это стабильность, дисциплина и участие в обеспечении правопорядка."],
+        ["start", "Критерии: водительские права, медицинская карта, военный билет и лицензия на оружие."],
+        ["start", "Ждём всех желающих в месте проведения собеседования."],
+        ["replay", "Уважаемые граждане! Напоминаем, что проходит собеседование в ФСИН."],
+        ["replay", "Желающим поступить на службу прибыть к месту проведения собеседования."],
+        ["finish", "Собеседование в ФСИН завершено. Благодарим за интерес к службе в системе исполнения наказаний."]
+    ],
+    mo: [
+        ["start", "Уважаемые граждане! Министерство обороны объявляет набор добровольцев."],
+        ["start", "Служба в армии — это долг, честь и гарантия достойного будущего."],
+        ["start", "Критерии: хорошая физическая подготовка, медицинская карта и водительские права."],
+        ["start", "Ждём всех желающих в месте проведения собеседования."],
+        ["replay", "Уважаемые граждане! Напоминаем, что в данный момент проходит собеседование в Министерство обороны."],
+        ["replay", "Желающим пройти отбор просьба прибыть к месту проведения собеседования."],
+        ["finish", "Собеседование в Министерство обороны завершено. Благодарим всех, кто готов служить на благо Родины."]
+    ],
+    mz: [
+        ["start", "Уважаемые граждане! Министерство здравоохранения объявляет набор сотрудников."],
+        ["start", "Работа в системе здравоохранения — это помощь людям, стабильность и развитие профессиональных навыков."],
+        ["start", "Критерии: медицинская карта и водительские права."],
+        ["start", "Ждём всех желающих в месте проведения собеседования."],
+        ["replay", "Уважаемые граждане! Напоминаем, что в данный момент проходит собеседование в Министерство здравоохранения."],
+        ["replay", "Желающим присоединиться просьба прибыть к месту проведения собеседования."],
+        ["finish", "Собеседование в Министерство здравоохранения завершено. Благодарим за интерес к медицинской службе."]
+    ],
+    trk: [
+        ["start", "Телерадиокомпания 'Ритм' приглашает творческих и инициативных людей присоединиться к нашему коллективу."],
+        ["start", "Работа у нас - это возможность реализовать себя в сфере медиа, стабильный доход..."],
+        ["start", "... и участие в создании информационного контента."],
+        ["start", "Критерии: прописка от 4 лет, грамотная речь, медицинская карта и водительские права."],
+        ["start", "Ждём всех желающих в месте проведения собеседования."],
+        ["replay", "Напоминаем, что в данный момент проходит собеседование в телерадиокомпанию 'Ритм'."],
+        ["replay", "Желающим присоединиться просьба прибыть к месту проведения собеседования."],
+        ["finish", "Собеседование в ТРК 'Ритм' завершено. Благодарим всех, кто хочет внести вклад в развитие региональных СМИ."]
+    ],
+    mchs: [
+        ["start", "Уважаемые граждане! Министерство по чрезвычайным ситуациям объявляет набор спасателей."],
+        ["start", "Служба в МЧС — это готовность прийти на помощь, стабильность и работа в сплочённой команде."],
+        ["start", "Критерии: физическая подготовка, медицинская карта и водительские права."],
+        ["start", "Ждём всех желающих в месте проведения собеседования."],
+        ["replay", "Уважаемые граждане! Напоминаем, что проходит собеседование в Министерство по чрезвычайным ситуациям."],
+        ["replay", "Желающим присоединиться просьба прибыть к месту проведения собеседования."],
+        ["finish", "Собеседование в МЧС завершено. Благодарим всех, кто готов защищать жизни и помогать в экстренных ситуациях."]
+    ]
+};
+// Жёлтое SMS при СОЗДАНИИ собеседования: Events:SendSMSOfCreation, получают только игроки
+// без организации. Строка: «SMS: <текст>. Отправитель: <Ник> [т. N]»; %02d:%02d = время начала.
+const SOBES_SMS_TPL = [
+    ["gov", "Правительство Нижегородской области проводит собеседование сегодня в %02d:%02d. Подробнее по телефону."],
+    ["mvd", "МВД объявляет набор. Собеседование сегодня в %02d:%02d. Подробнее по телефону"],
+    ["fsin", "ФСИН проводит набор. Приходите сегодня в %02d:%02d. к зданию ФСИН. Подробнее по телефону"],
+    ["mo", "Минобороны ждёт добровольцев сегодня в %02d:%02d. в военкомате. Подробнее по телефону"],
+    ["mz", "Мин. здрав. ищет сотрудников! Собеседование сегодня в %02d:%02d. в больнице. Подробнее по телефону"],
+    ["trk", "ТРК Ритм ищет кадры! Собеседование сегодня в %02d:%02d. в редакции. Подробнее по телефону"],
+    ["mchs", "МЧС набирает спасателей. Собеседование сегодня в %02d:%02d. в здании МЧС. Подробнее по телефону"]
+];
+
+function _sobesNorm(str) { return String(str).replace(/\s+/g, ' ').trim(); }
+// плоская таблица шаблонов гос-волны
+const _SOBES_ALERT_FLAT = [];
+Object.keys(SOBES_ALERTS).forEach(function (org) {
+    SOBES_ALERTS[org].forEach(function (pr) { _SOBES_ALERT_FLAT.push({ org: org, type: pr[0], text: _sobesNorm(pr[1]) }); });
+});
+// регэкспы SMS строятся из тех же шаблонов: спецсимволы экранируем, %02d:%02d → (\d{2}):(\d{2})
+const _SOBES_SMS_RE = SOBES_SMS_TPL.map(function (pr) {
+    const body = _sobesNorm(pr[1]).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').split('%02d').join('(\\d{2})');
+    return { org: pr[0], re: new RegExp('^SMS: ' + body + '\\. Отправитель: (.+?) \\[т\\. (\\d+)\\]') };
+});
+
+function _sobesOrgLabel(key) {
+    const o = SOBES_ORGS.find(function (x) { return x.key === key; });
+    return o ? o.label : null;
+}
+// Строка гос-волны → { orgs: [организации с таким текстом], type } или null (текст не из шаблонов).
+// Часть строк общая для нескольких организаций («Ждём всех желающих…», «Желающим присоединиться…»,
+// «Критерии…» у МВД и ФСИН) — тогда organizations несколько, а какая именно, решает пачка.
+function _sobesMatchAlert(text) {
+    const t = _sobesNorm(text);
+    let c = _SOBES_ALERT_FLAT.filter(function (x) { return x.text === t; });
+    // строка могла прийти обрезанной (лимит длины сообщения) — принимаем начало известной строки
+    if (!c.length && t.length >= 30) c = _SOBES_ALERT_FLAT.filter(function (x) { return x.text.indexOf(t) === 0; });
+    if (!c.length) return null;
+    const type = c[0].type;
+    if (c.some(function (x) { return x.type !== type; })) return null;
+    const orgs = [];
+    c.forEach(function (x) { if (orgs.indexOf(x.org) === -1) orgs.push(x.org); });
+    return { orgs: orgs, type: type };
+}
+// SMS → ключ организации или null (обычная SMS от игрока)
+function _sobesMatchSms(clean) {
+    const t = _sobesNorm(clean);
+    for (const x of _SOBES_SMS_RE) { if (x.re.test(t)) return x.org; }
+    return null;
+}
+
+function _sobesOrgAllowed(key) {
+    if (config.sobesOrgs === 'all' || !Array.isArray(config.sobesOrgs) || !config.sobesOrgs.length) return true;
+    return config.sobesOrgs.indexOf(key) !== -1;
+}
+function _sobesOrgsText() {
+    if (config.sobesOrgs === 'all' || !Array.isArray(config.sobesOrgs) || !config.sobesOrgs.length) return 'все';
+    return config.sobesOrgs.map(_sobesOrgLabel).filter(Boolean).join(', ');
+}
+// Для рассылки: приёмник #HBGLOBAL разбирает значение как \w+ → разделитель '_' (запятые нельзя)
+function _sobesOrgsToVal() {
+    return (config.sobesOrgs === 'all' || !Array.isArray(config.sobesOrgs) || !config.sobesOrgs.length)
+        ? 'all' : config.sobesOrgs.join('_');
+}
+function _sobesOrgsFromVal(val) {
+    if (!val || val === 'all') return 'all';
+    const arr = String(val).split('_').filter(function (k) { return SOBES_ORG_KEYS.indexOf(k) !== -1; });
+    return arr.length ? arr : 'all';
+}
+// Клик по организации в меню: из режима «все» → выбрана только она; снятие последней → снова «все»
+function _sobesToggleOrg(key) {
+    if (key === 'all') { config.sobesOrgs = 'all'; return; }
+    let cur = Array.isArray(config.sobesOrgs) ? config.sobesOrgs.slice() : [];
+    const i = cur.indexOf(key);
+    if (i === -1) cur.push(key); else cur.splice(i, 1);
+    cur = SOBES_ORG_KEYS.filter(function (k) { return cur.indexOf(k) !== -1; }); // стабильный порядок
+    config.sobesOrgs = cur.length ? cur : 'all';
+}
 
 const _sobesGovAgg = {}; // nick -> { lastTime, sender, lines[], ids[{chatId,messageId}] }
 
@@ -2087,7 +2253,11 @@ function _sobesEsc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 function _sobesBuildGovMsg(entry) {
-    return '🏛 <b>Обнаружено собеседование (' + displayName + '):</b>\n' +
+    const orgLbl = _sobesOrgLabel(entry.org);
+    const head = entry.type === 'finish' ? '🏁 Собеседование завершено'
+               : entry.type === 'replay' ? '🔁 Идёт собеседование'
+               :                           '🏛 Обнаружено собеседование';
+    return '<b>' + head + (orgLbl ? ' — ' + _sobesEsc(orgLbl) : '') + ' (' + displayName + '):</b>\n' +
            '👤 ' + _sobesEsc(entry.sender) + '\n' +
            entry.lines.map(_sobesEsc).join('\n');
 }
@@ -2096,32 +2266,58 @@ function _sobesBuildGovMsg(entry) {
 function _sobesOnChat(msg, colorArg) {
     if (!config.sobesNotifications) return;
     const color = normalizeColor(colorArg);
-    const clean = String(msg).replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim();
+    // {RRGGBB} — цвета; {btn:a:b:c} — кнопка-маршрут, которую мод дописывает к строкам «Ждём всех желающих…»
+    const clean = _sobesNorm(String(msg).replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\{btn:[^}]*\}/g, ''));
     if (!clean) return;
 
-    // 1) Жёлтое SMS со словом "набор"
-    if (color === SOBESED_SMS_COLOR && clean.toLowerCase().includes('набор')) {
-        debugLog('[SOBESED] Жёлтое SMS с "набор" → уведомление');
-        sendToTelegram('📅 <b>Планируется собеседование (' + displayName + '):</b>\n' + _sobesEsc(clean), false, null);
+    // 1) Жёлтое SMS — только точные шаблоны Events:SendSMSOfCreation
+    if (color === SOBESED_SMS_COLOR && clean.indexOf('SMS:') === 0) {
+        const smsOrg = _sobesMatchSms(clean);
+        if (!smsOrg) return; // обычная SMS от игрока
+        if (!_sobesOrgAllowed(smsOrg)) {
+            debugLog('[SOBESED] SMS: организация ' + smsOrg + ' не выбрана → пропуск');
+            return;
+        }
+        debugLog('[SOBESED] SMS о собеседовании (' + smsOrg + ') → уведомление');
+        sendToTelegram('📅 <b>Планируется собеседование — ' + _sobesEsc(_sobesOrgLabel(smsOrg)) + ' (' + displayName + '):</b>\n' + _sobesEsc(clean), false, null);
         return;
     }
 
-    // 2) Синяя гос-волна — склейка по нику в течение 1 минуты
+    // 2) Синяя гос-волна — только точные шаблоны Events:AddAlerts, склейка по нику в течение 1 минуты
     if (color === SOBESED_GOV_COLOR) {
         const m = clean.match(/^([^:]+?):\s*([\s\S]+)$/);
-        const senderFull = m ? m[1].trim() : clean;
-        const text       = m ? m[2].trim() : clean;
+        if (!m) return;
+        const senderFull = m[1].trim();
+        const text       = m[2].trim();
         const nickM = senderFull.match(/([A-Za-z]+_[A-Za-z]+)/);
         const nick  = nickM ? nickM[1] : null;
-
         // FIX: игнорируем сообщения без ника (свалка, системные и т.д.)
         if (!nick) {
             debugLog('[SOBESED] Гос-волна без ника → игнорируем');
             return;
         }
+        const hit = _sobesMatchAlert(text);
+        if (!hit) {
+            debugLog('[SOBESED] Гос-волна от ' + nick + ': текст не из шаблонов собеседований → игнорируем');
+            return;
+        }
 
         const now = Date.now();
         let entry = _sobesGovAgg[nick];
+        const inWin = !!(entry && (now - entry.lastTime) <= SOBESED_AGG_WINDOW_MS);
+
+        // Организация: если текст есть только у одной — она; если текст общий — из пачки этого же ника
+        // (первая строка пачки всегда содержит название организации). Нет контекста → неизвестна.
+        let org = null;
+        if (hit.orgs.length === 1) org = hit.orgs[0];
+        else if (inWin && hit.orgs.indexOf(entry.org) !== -1) org = entry.org;
+
+        if (!_sobesOrgAllowed(org)) {
+            // запоминаем пачку, чтобы её общие строки тоже глушились
+            _sobesGovAgg[nick] = { lastTime: now, sender: senderFull, lines: [], ids: [], org: org, type: hit.type, skipped: true };
+            debugLog('[SOBESED] Гос-волна от ' + nick + ': организация ' + (org || '?') + ' не выбрана → пропуск');
+            return;
+        }
 
         // FIX: убрали проверку entry.ids.length из условия.
         // Причина: три части собеседования приходят за доли секунды. sendToTelegram
@@ -2130,8 +2326,8 @@ function _sobesOnChat(msg, colorArg) {
         // и отправлял новое сообщение вместо редактирования существующего.
         // Теперь: проверяем только окно времени; если IDs ещё нет — буферизуем
         // строки, а callback сам сделает editMessageText после получения ID.
-        if (entry && (now - entry.lastTime) <= SOBESED_AGG_WINDOW_MS) {
-            // Пришло ещё сообщение от того же ника в окне 1 мин
+        if (inWin && !entry.skipped && entry.org === org && entry.type === hit.type) {
+            // Пришло ещё сообщение той же пачки (тот же ник, организация и тип) в окне 1 мин
             entry.lastTime = now;
             entry.lines.push(text);
             if (entry.ids.length) {
@@ -2145,9 +2341,9 @@ function _sobesOnChat(msg, colorArg) {
                 debugLog('[SOBESED] Гос-волна от ' + nick + ' → буферизуем (ID ещё не получен)');
             }
         } else {
-            entry = { lastTime: now, sender: senderFull, lines: [text], ids: [] };
+            entry = { lastTime: now, sender: senderFull, lines: [text], ids: [], org: org, type: hit.type };
             _sobesGovAgg[nick] = entry;
-            debugLog('[SOBESED] Гос-волна от ' + nick + ' → новое сообщение');
+            debugLog('[SOBESED] Гос-волна от ' + nick + ' (' + (org || '?') + ', ' + hit.type + ') → новое сообщение');
             sendToTelegram(_sobesBuildGovMsg(entry), false, null, function (chatId, messageId) {
                 entry.ids.push({ chatId: chatId, messageId: messageId });
                 // FIX: если пока ждали callback накопились ещё строки → редактируем
@@ -2206,6 +2402,12 @@ handleGlobalBroadcastCommand = function (cmd, val, fromBroadcast) {
         debugLog('[GLOBAL] Применена команда: toggle_sobes = ' + val);
         return;
     }
+    if (cmd === 'sobes_orgs') {
+        config.sobesOrgs = _sobesOrgsFromVal(val);
+        showScreenNotification("Hassle", '[Global] Собес: ' + _sobesOrgsText());
+        debugLog('[GLOBAL] Применена команда: sobes_orgs = ' + val);
+        return; // тихо: без сообщения в TG, чтобы N аккаунтов не спамили на каждый клик
+    }
     return _sobesOrigHandleGlobal(cmd, val, fromBroadcast);
 };
 
@@ -2255,17 +2457,40 @@ function showSobesToggleMenu(chatId, messageId, scope, uid) {
     const on = config.sobesNotifications;
     editMessageText(chatId, messageId,
         '🏛 <b>Увед. о собесе</b>\nСейчас: ' + (on ? '🟢 ВКЛ' : '🔴 ВЫКЛ') +
+        '\nОрганизации: ' + _sobesEsc(_sobesOrgsText()) +
         '\nСкоуп: ' + (scope === 'global' ? '👥 все аккаунты' : '👤 ' + displayName), {
         inline_keyboard: [
             [createButton("🔔 ВКЛ", `sobes_on_${scope}_${uid}`, 'success'),
              createButton("🔕 ВЫКЛ", `sobes_off_${scope}_${uid}`, 'danger')],
+            [createButton("🏢 Организации: " + _sobesOrgsText(), `sobes_orgs_${scope}_${uid}`, 'primary')],
             [createButton("⬅️ Вернуться назад", `sobes_scope_${uid}`)]
         ]
     });
 }
+function showSobesOrgsMenu(chatId, messageId, scope, uid) {
+    const isAll = _sobesOrgsText() === 'все';
+    const sel = function (k) { return Array.isArray(config.sobesOrgs) && config.sobesOrgs.indexOf(k) !== -1; };
+    const rows = [[createButton((isAll ? '✅ ' : '⬜ ') + 'Все организации', `sobes_ot_${scope}_all_${uid}`, isAll ? 'success' : undefined)]];
+    for (let i = 0; i < SOBES_ORGS.length; i += 2) {
+        rows.push(SOBES_ORGS.slice(i, i + 2).map(function (o) {
+            const on = !isAll && sel(o.key);
+            return createButton((on ? '✅ ' : '⬜ ') + o.label, `sobes_ot_${scope}_${o.key}_${uid}`, on ? 'success' : undefined);
+        }));
+    }
+    rows.push([createButton("⬅️ Назад", `sobes_action_${scope}_${uid}`)]);
+    editMessageText(chatId, messageId,
+        '🏢 <b>Организации для собеседований</b>\nВыбрано: ' + _sobesEsc(_sobesOrgsText()) +
+        '\nСкоуп: ' + (scope === 'global' ? '👥 все аккаунты' : '👤 ' + displayName) +
+        '\n\nНажимайте на организации, чтобы включать/выключать. Снять все = «Все организации».',
+        { inline_keyboard: rows });
+}
 
 // ── Перехват callback'ов sobes_* в processUpdates ────────────
 function _sobesParseUid(data) {
+    let mm = data.match(/^sobes_ot_(?:local|global)_(?:all|gov|mvd|fsin|mo|mz|trk|mchs)_(.+)$/);
+    if (mm) return mm[1];
+    mm = data.match(/^sobes_orgs_(?:local|global)_(.+)$/);
+    if (mm) return mm[1];
     const prefixes = ['sobes_scope_', 'sobes_action_local_', 'sobes_action_global_',
                       'sobes_on_local_', 'sobes_on_global_', 'sobes_off_local_', 'sobes_off_global_'];
     for (const p of prefixes) {
@@ -2280,6 +2505,18 @@ function _sobesHandleCallback(cq) {
     const uid = _sobesParseUid(data);
     answerCallbackQuery(cq.id);
     if (data.startsWith('sobes_scope_')) { showSobesScopeMenu(chatId, messageId, uid); return; }
+    if (data.startsWith('sobes_orgs_')) {
+        showSobesOrgsMenu(chatId, messageId, data.startsWith('sobes_orgs_global_') ? 'global' : 'local', uid);
+        return;
+    }
+    if (data.startsWith('sobes_ot_')) {
+        const om = data.match(/^sobes_ot_(local|global)_(all|gov|mvd|fsin|mo|mz|trk|mchs)_/);
+        if (!om) return;
+        _sobesToggleOrg(om[2]);
+        if (om[1] === 'global') broadcastGlobalCommand('sobes_orgs', _sobesOrgsToVal()); // остальным аккаунтам
+        showSobesOrgsMenu(chatId, messageId, om[1], uid); // остаёмся в меню — можно выбрать несколько
+        return;
+    }
     if (data.startsWith('sobes_action_')) {
         const scope = data.startsWith('sobes_action_local_') ? 'local' : 'global';
         showSobesToggleMenu(chatId, messageId, scope, uid);
