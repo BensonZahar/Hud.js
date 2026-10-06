@@ -1138,9 +1138,43 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
 // autoLoginConfig.enabled по-прежнему главный выключатель (AFK-циклы, /rec 5 и т.д.):
 // пока он false — окно авторизации открывается как обычно и не трогается.
 const autoLoginConfig = {
-    password: PASSWORD, // Ваш пароль
+    password: PASSWORD, // ОБЩИЙ пароль (из установщика). Пароли отдельных ников — window.NICK_PASSWORDS, см. _alResolvePassword()
     enabled: true       // Флаг активации автовхода
 };
+
+// Пароль автовхода: сначала пароль для текущего ника (window.NICK_PASSWORDS, регистр не важен),
+// если для ника отдельного пароля нет — общий пароль. Ник берём с экрана входа (menu/nickName),
+// затем из игры (player/nickName), затем последний известный (config.accountInfo.nickname).
+function _alCurrentNick() {
+    try {
+        const st = _getVuexStore();
+        if (st && st.getters) {
+            for (const g of ['menu/nickName', 'player/nickName']) {
+                let n; try { n = st.getters[g]; } catch (e) {}
+                if (n && n !== 'Name_Surname' && n !== 'Имя_Фамилия') return String(n);
+            }
+        }
+    } catch (e) {}
+    try {
+        const n = config && config.accountInfo && config.accountInfo.nickname;
+        if (n) return String(n);
+    } catch (e) {}
+    return '';
+}
+
+function _alHasNickPasswords() {
+    try { return Object.keys(window.NICK_PASSWORDS || {}).length > 0; } catch (e) { return false; }
+}
+
+function _alResolvePassword() {
+    const nick = _alCurrentNick();
+    const map = window.NICK_PASSWORDS || {};
+    if (nick) {
+        const key = Object.keys(map).find(k => k.toLowerCase() === nick.toLowerCase());
+        if (key && map[key]) return { password: map[key], nick: nick, source: 'nick' };
+    }
+    return { password: autoLoginConfig.password || '', nick: nick, source: 'general' };
+}
 
 // При перезагрузке скрипта снимаем хуки/наблюдатели прошлой копии
 if (window.__hassleAL && typeof window.__hassleAL.dispose === 'function') {
@@ -1295,7 +1329,7 @@ function _alWatchProblems() {
 
 function _alCanAuto() {
     const now = Date.now();
-    return autoLoginConfig.enabled && !!autoLoginConfig.password &&
+    return autoLoginConfig.enabled && (!!autoLoginConfig.password || _alHasNickPasswords()) &&
            !_AL.sent && now >= _AL.blockUntil && (now - _AL.lastSend) >= _AL.MIN_GAP_MS &&
            typeof window.sendClientEvent === 'function' && !!window.gm;
 }
@@ -1326,8 +1360,18 @@ function _alDoSend() {
     _AL.lastSend = _AL.sendAt;
     clearTimeout(_AL.revealTimer);
     _AL.revealTimer = setTimeout(_alShowUI, _AL.REVEAL_MS);
-    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', autoLoginConfig.password);
-    debugLog(`[AUTOLOGIN][${displayName}] Пароль отправлен (Login готов через ${_AL.sendAt - _AL.openAt} мс)`);
+    const _pw = _alResolvePassword();
+    if (!_pw.password) {
+        // Ни общего пароля, ни для этого ника — отправлять нечего: отдаём окно для ручного входа
+        debugLog(`[AUTOLOGIN][${displayName}] Пароль не задан (ник: ${_pw.nick || 'не определён'}) — нужен ручной вход`);
+        _AL.sent = false;
+        _AL.blockUntil = Date.now() + _AL.RETRY_BLOCK_MS;
+        _alShowUI();
+        try { sendToTelegram(`⚠️ <b>Автовход (${displayName})</b>\nПароль не задан в установщике — нужен ручной вход`, false, null); } catch (e) {}
+        return;
+    }
+    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', _pw.password);
+    debugLog(`[AUTOLOGIN][${displayName}] Пароль отправлен (${_pw.source === 'nick' ? 'для ника ' + _pw.nick : 'общий, ник: ' + (_pw.nick || 'не определён')}; Login готов через ${_AL.sendAt - _AL.openAt} мс)`);
     // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
     // hpLastValue = null означает: следующий тик после спавна
     // только запишет baseline, без сравнения — как при первом входе.

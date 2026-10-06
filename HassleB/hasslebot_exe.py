@@ -724,6 +724,235 @@ class MEmuHudManager:
         refresh()
         self._make_modal(dialog, acc_entry)
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Пароли автовхода: общий + для отдельных ников (хранятся там же, в шифрованном accounts.sec)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _clean_password(text):
+        """Убирает переводы строк и невидимые символы, которые тянутся при копировании."""
+        return re.sub(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff\r\n\t]", "", text or "").strip()
+
+    @staticmethod
+    def _clean_nick(text):
+        """Ник в формате Name_Surname: пробелы -> «_», невидимые символы убираем."""
+        t = re.sub(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff\xa0]", "", text or "").strip()
+        return re.sub(r"\s+", "_", t)
+
+    def get_local_password(self, user):
+        """Общий пароль автовхода для пользователя (или '')."""
+        return self.get_local_user_config(user).get("PASSWORD", "") or ""
+
+    def set_local_password(self, user, password):
+        if not user:
+            return False
+        cfg = self.local_accounts.setdefault("users", {}).setdefault(user, {})
+        password = self._clean_password(password)
+        if password:
+            cfg["PASSWORD"] = password
+        else:
+            cfg.pop("PASSWORD", None)
+        self.save_local_accounts()
+        return True
+
+    def get_nick_passwords(self, user):
+        """{ник: пароль} — пароли для отдельных ников (приоритетнее общего)."""
+        return dict(self.get_local_user_config(user).get("NICK_PASSWORDS", {}) or {})
+
+    def set_nick_password(self, user, nick, password):
+        nick = self._clean_nick(nick)
+        password = self._clean_password(password)
+        if not user or not nick or not password:
+            return False
+        cfg = self.local_accounts.setdefault("users", {}).setdefault(user, {})
+        nicks = cfg.setdefault("NICK_PASSWORDS", {})
+        for k in [k for k in nicks if k.lower() == nick.lower()]:   # ник без учёта регистра
+            del nicks[k]
+        nicks[nick] = password
+        self.save_local_accounts()
+        return True
+
+    def delete_nick_password(self, user, nick):
+        cfg = self.get_local_user_config(user)
+        nicks = cfg.get("NICK_PASSWORDS", {}) if cfg else {}
+        if nick in nicks:
+            del nicks[nick]
+            self.save_local_accounts()
+            return True
+        return False
+
+    def open_password_manager(self, on_close=None):
+        user = self.selected_code_name
+        if not user:
+            self.log("[X] Ошибка: пользователь не выбран")
+            return
+
+        C = self.C
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("Пароли автовхода")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.configure(fg_color=C["bg"])
+        dialog.update_idletasks()
+
+        DW, DH = 600, 600
+        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
+        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
+        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
+        dialog.lift()
+
+        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=44)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        ctk.CTkFrame(hdr, width=4, height=44, corner_radius=0, fg_color=C["accent"]).pack(side="left")
+        ctk.CTkLabel(
+            hdr, text=f"🔑 Пароли автовхода — {user}",
+            font=("Segoe UI", 12, "bold"), text_color=C["text"],
+        ).pack(side="left", padx=12, pady=10)
+
+        # ── Общий пароль ──────────────────────────────────────
+        ctk.CTkLabel(
+            dialog, text="Общий пароль (для всех ников, у которых нет своего)",
+            font=("Segoe UI", 11), text_color=C["subtext"], anchor="w",
+        ).pack(fill="x", padx=14, pady=(12, 4))
+
+        gen_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        gen_row.pack(fill="x", padx=12)
+        gen_row.grid_columnconfigure(0, weight=1)
+        gen_entry = ctk.CTkEntry(
+            gen_row, placeholder_text="Общий пароль", show="•",
+            fg_color=C["card"], border_color=C["border"],
+            text_color=C["text"], placeholder_text_color=C["muted"],
+            height=32, corner_radius=6,
+        )
+        gen_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        cur = self.get_local_password(user)
+        if cur:
+            gen_entry.insert(0, cur)
+
+        def make_eye(parent, entry):
+            def toggle():
+                entry.configure(show="" if entry.cget("show") else "•")
+            return ctk.CTkButton(
+                parent, text="👁", width=34, height=32,
+                fg_color=C["card"], hover_color=C["border"], text_color=C["subtext"],
+                corner_radius=6, border_width=1, border_color=C["border"], command=toggle,
+            )
+
+        make_eye(gen_row, gen_entry).grid(row=0, column=1, padx=(0, 6))
+
+        def save_general():
+            self.set_local_password(user, gen_entry.get())
+            if self.get_local_password(user):
+                messagebox.showinfo("Готово", "Общий пароль сохранён", parent=dialog)
+            else:
+                messagebox.showinfo("Готово", "Общий пароль удалён", parent=dialog)
+
+        ctk.CTkButton(
+            gen_row, text="Сохранить", width=100, height=32,
+            font=("Segoe UI", 11, "bold"),
+            fg_color=C["accent"], hover_color="#E09500", text_color=C["btntext"],
+            corner_radius=6, command=save_general,
+        ).grid(row=0, column=2)
+
+        # ── Пароли для ников ──────────────────────────────────
+        ctk.CTkLabel(
+            dialog, text="Пароли для отдельных ников (приоритетнее общего)",
+            font=("Segoe UI", 11), text_color=C["subtext"], anchor="w",
+        ).pack(fill="x", padx=14, pady=(14, 4))
+
+        list_frame = ctk.CTkScrollableFrame(
+            dialog, fg_color=C["card"], corner_radius=8,
+            scrollbar_button_color=C["border"],
+            scrollbar_button_hover_color=C["accent"],
+        )
+        list_frame.pack(fill="both", expand=True, padx=12, pady=(0, 4))
+
+        def refresh():
+            for w in list_frame.winfo_children():
+                w.destroy()
+            nicks = self.get_nick_passwords(user)
+            if not nicks:
+                ctk.CTkLabel(
+                    list_frame, text="Отдельных паролей нет — для всех ников используется общий",
+                    font=("Segoe UI", 11), text_color=C["subtext"],
+                ).pack(pady=12)
+                return
+            for nick in sorted(nicks, key=str.lower):
+                row = ctk.CTkFrame(list_frame, fg_color=C["surface"], corner_radius=8)
+                row.pack(fill="x", pady=3, padx=4)
+                row.grid_columnconfigure(0, weight=1)
+                ctk.CTkLabel(
+                    row, text=f"{nick}   ••••••",
+                    font=("Consolas", 11), text_color=C["text"], anchor="w",
+                ).grid(row=0, column=0, padx=(10, 6), pady=8, sticky="ew")
+                ctk.CTkButton(
+                    row, text="✕", width=32, height=28, font=("Segoe UI", 11),
+                    fg_color=C["card"], hover_color=C["red"],
+                    text_color=C["subtext"], corner_radius=6,
+                    command=lambda n=nick: (self.delete_nick_password(user, n), refresh()),
+                ).grid(row=0, column=1, padx=(6, 10), pady=8)
+
+        form = ctk.CTkFrame(dialog, fg_color="transparent")
+        form.pack(fill="x", padx=12, pady=(6, 10))
+        form.grid_columnconfigure(0, weight=1)
+        form.grid_columnconfigure(1, weight=1)
+
+        nick_entry = ctk.CTkEntry(
+            form, placeholder_text="Ник, например Ivan_Petrov",
+            fg_color=C["card"], border_color=C["border"],
+            text_color=C["text"], placeholder_text_color=C["muted"],
+            height=32, corner_radius=6,
+        )
+        nick_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=4)
+        pw_entry = ctk.CTkEntry(
+            form, placeholder_text="Пароль этого ника", show="•",
+            fg_color=C["card"], border_color=C["border"],
+            text_color=C["text"], placeholder_text_color=C["muted"],
+            height=32, corner_radius=6,
+        )
+        pw_entry.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=4)
+        make_eye(form, pw_entry).grid(row=0, column=2, pady=4)
+
+        def add_nick_password():
+            nick = self._clean_nick(nick_entry.get())
+            pw = self._clean_password(pw_entry.get())
+            if not nick or not pw:
+                messagebox.showerror("Ошибка", "Укажите и ник, и пароль", parent=dialog)
+                return
+            self.set_nick_password(user, nick, pw)
+            nick_entry.delete(0, "end")
+            pw_entry.delete(0, "end")
+            refresh()
+            nick_entry.focus_set()
+
+        ctk.CTkButton(
+            form, text="＋ Добавить / обновить пароль ника",
+            font=("Segoe UI", 11, "bold"),
+            fg_color=C["accent"], hover_color="#E09500",
+            text_color=C["btntext"], height=34, corner_radius=8,
+            command=add_nick_password,
+        ).grid(row=1, column=0, columnspan=3, pady=(8, 0), sticky="ew")
+
+        def _close():
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+            if on_close:
+                self.root.after(50, on_close)
+
+        ctk.CTkButton(
+            form, text="Готово", font=("Segoe UI", 11),
+            fg_color="transparent", hover_color=C["surface"],
+            text_color=C["muted"], height=30, corner_radius=8,
+            command=_close,
+        ).grid(row=2, column=0, columnspan=3, pady=(6, 0), sticky="ew")
+        dialog.protocol("WM_DELETE_WINDOW", _close)
+
+        refresh()
+        self._make_modal(dialog, gen_entry)
+
     def _section_label(self, parent, text, row=0):
         """Заголовок секции — янтарная полоса + текст."""
         C = self.C
@@ -1089,13 +1318,23 @@ class MEmuHudManager:
 
         ctk.CTkButton(
             acts,
-            text="🔐  Токены аккаунтов",
+            text="🔐  Токены",
             font=("Segoe UI", 11),
             fg_color=C["card"], hover_color=C["border"],
             text_color=C["subtext"], height=36, corner_radius=8,
             border_width=1, border_color=C["border"],
             command=self.open_local_account_manager,
-        ).grid(row=4, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+        ).grid(row=4, column=0, padx=(12, 4), pady=(0, 6), sticky="ew")
+
+        ctk.CTkButton(
+            acts,
+            text="🔑  Пароли",
+            font=("Segoe UI", 11),
+            fg_color=C["card"], hover_color=C["border"],
+            text_color=C["subtext"], height=36, corner_radius=8,
+            border_width=1, border_color=C["border"],
+            command=self.open_password_manager,
+        ).grid(row=4, column=1, padx=(4, 12), pady=(0, 6), sticky="ew")
 
         if self.full_logging:
             ctk.CTkButton(
@@ -2505,6 +2744,21 @@ class MEmuHudManager:
             if acc_token and "const accountToken = '';" not in load_code:
                 self.log("[!] В Load.js не найден «const accountToken = '';» — токен не будет вставлен")
             load_code = load_code.replace("const accountToken = '';", f"const accountToken = '{acc_token}';")
+
+            # Пароли автовхода: общий + для отдельных ников (JSON-литерал — спецсимволы экранируются сами)
+            acc_password = self.get_local_password(user_name)
+            nick_passwords = self.get_nick_passwords(user_name)
+            if acc_password or nick_passwords:
+                if "const accountPassword = '';" not in load_code or "const nickPasswords = {};" not in load_code:
+                    self.log("[!] В Load.js не найдены «accountPassword»/«nickPasswords» — пароли не будут вставлены (обновите Load.js на GitHub)")
+                load_code = load_code.replace("const accountPassword = '';",
+                                              f"const accountPassword = {json.dumps(acc_password, ensure_ascii=False)};")
+                load_code = load_code.replace("const nickPasswords = {};",
+                                              f"const nickPasswords = {json.dumps(nick_passwords, ensure_ascii=False)};")
+                self.log(f"[√] Пароли автовхода: общий {'задан' if acc_password else 'не задан'}, "
+                         f"для ников: {len(nick_passwords)}")
+            else:
+                self.log("[!] Пароль автовхода не задан — добавьте его в «Пароли», иначе автовход не сработает")
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
                 self.log(f"Поиск и удаление старого кода в {self.CODE_FILE} по маркерам...")
