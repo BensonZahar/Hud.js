@@ -664,12 +664,19 @@ function showIdInput() {
     addDialog('[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]', '', 0);
 }
 // ── Диалог 679: выбор типа лицензии ──
-var giveTarget = -1;
-function showTypeDialog(id) {
+var giveTarget = -1, giveNick = '';
+// Ник для показа: «Имя_Фамилия» → «Имя Фамилия» (из подсказки, иначе из списка игроков по ID)
+function nickDisp(id, hint) {
+    var n = hint || nickById(id);
+    return n ? String(n).split('_').join(' ') : '';
+}
+function showTypeDialog(id, nickHint) {
     giveTarget = id;
+    giveNick = nickHint || '';
+    var nk = nickDisp(id, nickHint);
     var list = 'Выберите тип лицензии:<n>';
     LIC_TYPES.forEach(function (t, i) { list += (i + 1) + '. ' + t.name + '  [' + t.price.toLocaleString('ru-RU') + ' ₽]<n>'; });
-    addDialog('[679,4,"Выдача лицензии | ID: ' + id + '","","Выдать","Отмена",0,0]', list, 0);
+    addDialog('[679,4,"Выдача лицензии | ID: ' + id + (nk ? ' | ' + nk : '') + '","","Выдать","Отмена",0,0]', list, 0);
 }
 // ── Диалог 677: меню лицензёра ──
 var menuItems = [];
@@ -684,7 +691,7 @@ function showLicMenu() {
                  { id: 'circle',  name: 'Круговое меню | ' + onOff(STATE.circle) },
                  { id: 'tea',     name: 'Просьба о чае | ' + onOff(STATE.tea) }];
     if (OPTS.AUTO_REISSUE && STATE.last) {
-        menuItems.push({ id: 'reissue', name: 'Авто-перевыдача | {00FF00}' + STATE.last.name + ' [ID: ' + STATE.last.targetId + ']' });
+        menuItems.push({ id: 'reissue', name: 'Авто-перевыдача | {00FF00}' + STATE.last.name + ' [ID: ' + STATE.last.targetId + ']' + ((nickDisp(STATE.last.targetId) || STATE.last.nick) ? ' ' + (nickDisp(STATE.last.targetId) || STATE.last.nick) : '') });
     }
     var list = 'Помощник лицензёра<n>';
     menuItems.forEach(function (it, i) { list += (i + 1) + '. ' + it.name + '<n>'; });
@@ -727,20 +734,22 @@ function onDialogResponse(args) {
     }
     // DLG_TYPE
     if (btn !== 1) setTimeout(updatePanel, 100);
-    else if (li >= 0 && li < LIC_TYPES.length) giveByIndex(giveTarget, li);
-    giveTarget = -1;
+    else if (li >= 0 && li < LIC_TYPES.length) giveByIndex(giveTarget, li, giveNick);
+    giveTarget = -1; giveNick = '';
     return true;
 }
 
 // ══════════════════════════ ВЫДАЧА ЛИЦЕНЗИИ И ПЕРЕВЫДАЧА ══════════════════════════
 // Шлёт /givelic <ID> <тип> <цена>, запоминает данные для перевыдачи и авто-ответов
-function giveByIndex(targetId, idx) {
+function giveByIndex(targetId, idx, nickHint) {
     var c = LIC_TYPES[idx];
     if (!c || targetId === null || targetId === undefined || targetId === '') return false;
     var cmd = '/givelic ' + targetId + ' ' + c.type + ' ' + c.price;
-    log('отправка:', cmd);
+    var nk = nickDisp(targetId, nickHint);
+    log('отправка:', cmd, '| ник:', nk || '—');
+    tr('GIVE/отправка', cmd, 'ID ' + targetId, 'ник: ' + (nk || '—'), 'тип: ' + c.name);
     rawSend(cmd);
-    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, at: Date.now() };
+    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now() };
     setTimeout(updatePanel, 350);
     return true;
 }
@@ -752,7 +761,9 @@ function reissueSend() {
     rawSend('/cancel');
     rawSend(cmd);
     log('перевыдача: /cancel +', cmd);
-    gtAdd('~g~Авто-перевыдача~n~~w~' + d.name + ' → ID: ' + d.targetId + ' | ' + Number(d.price).toLocaleString('ru-RU') + ' ₽', 3000, 3);
+    var rnk = nickDisp(d.targetId) || d.nick || '';
+    tr('GIVE/перевыдача', cmd, 'ID ' + d.targetId, 'ник: ' + (rnk || '—'), 'тип: ' + d.name);
+    gtAdd('~g~Авто-перевыдача~n~~w~' + d.name + ' → ' + (rnk ? rnk + ' ' : '') + 'ID: ' + d.targetId + ' | ' + Number(d.price).toLocaleString('ru-RU') + ' ₽', 3000, 3);
     setTimeout(updatePanel, 550);
 }
 // Из «тишины» уходит мгновенно; если лимит исчерпан — одна отложенная перевыдача в первый допустимый момент
@@ -913,7 +924,7 @@ function circleHandle(nick, params) {
         tr('CIRCLE/выдача', nickInfo(nick), 'ID ' + id);
         var sent = srvSend('MenuInt_OnCloseInterface', 0);   // сам компонент мы не открывали — сообщаем серверу, что меню «закрыто»
         tr('CIRCLE/MenuInt_OnCloseInterface', 'отправлено=' + sent);
-        setTimeout(function () { tr('CIRCLE/showTypeDialog', 'ID ' + id); showTypeDialog(id); }, 80);
+        setTimeout(function () { tr('CIRCLE/showTypeDialog', 'ID ' + id, 'ник ' + nick); showTypeDialog(id, nick); }, 80);
     });
 }
 
@@ -987,8 +998,8 @@ var Radial = (function () {
     }
     function giveLicense(id, idx) {
         tr('RADIAL/giveLicense', 'ID ' + id, 'тип #' + idx + (LIC_TYPES[idx] ? ' ' + LIC_TYPES[idx].name : ''));
-        try { if (giveByIndex(id, idx)) { tr('RADIAL/giveByIndex', 'команда отправлена'); return; } tr('RADIAL/giveByIndex', 'вернул false → запасной диалог'); } catch (er) { warn('выдача из круга:', er); tr('RADIAL/ОШИБКА', 'giveByIndex бросил', er); }
-        showTypeDialog(id);   // запасной путь — диалог выбора
+        try { if (giveByIndex(id, idx, lastNick)) { tr('RADIAL/giveByIndex', 'команда отправлена'); return; } tr('RADIAL/giveByIndex', 'вернул false → запасной диалог'); } catch (er) { warn('выдача из круга:', er); tr('RADIAL/ОШИБКА', 'giveByIndex бросил', er); }
+        showTypeDialog(id, lastNick);   // запасной путь — диалог выбора
     }
 
     // ══════════ НАТИВНЫЙ РЕЖИМ: пункт внутри vm.menu ══════════
@@ -1333,7 +1344,7 @@ var Radial = (function () {
     }
     function openDialog(id) {
         closeMenu();
-        setTimeout(function () { busy = false; showTypeDialog(id); }, 80);
+        setTimeout(function () { busy = false; showTypeDialog(id, lastNick); }, 80);
     }
     function onBtnClick(e) {
         try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
