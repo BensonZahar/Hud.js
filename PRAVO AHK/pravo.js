@@ -1759,7 +1759,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     if (window.__pravoMobLicBtn) return;
     window.__pravoMobLicBtn = true;
 
-    var VERSION = 'native-v5';
+    var VERSION = 'native-v6';
     var PRAVO_MOBLIC_ICON = '';   // ← сюда свою картинку (URL или data:image/png;base64,...)
     var ENTRY_ID = 'pravo_lic';   // id нашего пункта в vm.menu (строка — не пересечётся с числовыми id сервера)
     var MASK_ID = 'pravoLicMask';
@@ -1767,22 +1767,84 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     var HOV_ID = 'pravo-moblic-hover';
     var TITLE = 'Выдача лицензии';
     var SVG_NS = 'http://www.w3.org/2000/svg';
-    var lastNick = '', busy = false, syncTimer = null, mode = '', patchedFor = null, capBox = null, warned = false;
-    var labelsOn = false, watchedFor = null;   // labelsOn — мы сами включили ники (setDrawLabelStatus(true))
+    var lastNick = '', busy = false, capBox = null, warned = false;
+    var labelsOn = false;   // labelsOn — мы сами включили ники (setDrawLabelStatus(true))
 
     function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
 
-    function parseNick(params) {
-        try {
-            var p = (typeof params === 'string') ? JSON.parse(params.replace(/\n/, '\\n')) : params;
-            var raw = Array.isArray(p) ? p[0] : null;
-            return (typeof raw === 'string') ? raw.trim().split(' ').join('_') : '';
-        } catch (e) { return ''; }
-    }
 
     function notify(text) {
         try { if (typeof gtAdd === 'function') gtAdd(text, 3000, 3); } catch (e) {}
     }
+
+    // ══════════ ОПРЕДЕЛЕНИЕ ЦЕЛИ (ник) ══════════
+    // Источник истины — сам компонент PlayerInteraction (исходник игры: PlayerInteraction.js):
+    //   • data.actionName — «Ivan Petrov» (игра делает split('_').join(' ') из params[0] и пишет «Взаимодействие с …»);
+    //     сервер кладёт туда ник цели, а для не-игрока (машина/дом/NPC) — пустую строку;
+    //   • проп openParams — сырые params ПЕРВОГО открытия (при повторном ответе сервера НЕ обновляется — «протухший» источник).
+    // Читаем то, что реально нарисовано на экране, поэтому кнопка всегда относится к тому, чьё меню открыто.
+    // Порядок: actionName → (если в сессии он уже был заполнен, пустой actionName = «не игрок») → openParams только
+    // в первые 1.5с жизни компонента → DOM «.player-interaction__action» → ник из события openInterface/updateParams.
+    var NICK_RE = /^[^\s_]+(?:_[^\s_]+)+$/;   // «Имя_Фамилия» (2+ части через «_»)
+    var Target = (function () {
+        var ev = { nick: '', at: 0, src: '' };
+        function clean(raw) {
+            if (typeof raw !== 'string') return '';
+            var s = raw.replace(/\{[0-9A-Fa-f]{6,8}\}/g, '').replace(/\s+/g, ' ').trim();
+            if (!s || /[{}\[\]"<>]/.test(s)) return '';
+            var parts = s.split(/[ _]+/).filter(Boolean);
+            return parts.length >= 2 ? parts.join('_') : '';
+        }
+        function looseParse(s) {
+            try { return JSON.parse(s); } catch (e1) {}
+            try { return JSON.parse(s.replace(/\r?\n/g, '\\n')); } catch (e2) {}
+            var m = /^\s*\[\s*"((?:[^"\\]|\\.)*)"/.exec(s);
+            if (m) { try { return [JSON.parse('"' + m[1].replace(/\r?\n/g, '\\n') + '"')]; } catch (e3) {} }
+            dbg('target: не удалось разобрать params', String(s).slice(0, 160));
+            return null;
+        }
+        function first(p) {
+            try {
+                if (typeof p === 'string') p = looseParse(p);
+                if (p && typeof p === 'object') return p[0];
+            } catch (e) { dbg('target: ошибка разбора', e); }
+            return undefined;
+        }
+        function nickFromParams(params) { var f = first(params); return typeof f === 'string' ? clean(f) : ''; }
+        // что сейчас показывает компонент: { nick, src, known }; st — состояние сессии (sawAction, at)
+        function read(vm, st) {
+            var r = { nick: '', src: 'нет данных', known: false };
+            st = st || {};
+            try {
+                var an = vm && vm.actionName;
+                if (typeof an === 'string' && an) { st.sawAction = true; r.nick = clean(an); r.src = 'actionName'; r.known = true; return r; }
+                if (typeof an === 'string' && st.sawAction) { r.src = 'actionName пуст (был заполнен) → не игрок'; r.known = true; return r; }
+            } catch (e) {}
+            try {
+                var op = vm && vm.openParams;
+                if (op !== undefined && op !== null) {
+                    var f = first(op);
+                    if (typeof f === 'string') {
+                        var young = !st.at || Date.now() - st.at < 1500;
+                        if (young) { r.nick = clean(f); r.src = 'openParams'; r.known = true; return r; }
+                        r.src = 'actionName пуст, openParams устарел → не игрок'; r.known = true; return r;
+                    }
+                }
+            } catch (e) {}
+            try {
+                var el = document.querySelector('.player-interaction__action');
+                var tx = el && (el.textContent || '');
+                if (tx) { var cn = clean(tx.replace(/^\s*Взаимодействие с\s*/i, '')); if (cn) { r.nick = cn; r.src = 'DOM'; r.known = true; return r; } }
+            } catch (e) {}
+            if (ev.at && ev.nick && Date.now() - ev.at < 5000) { r.nick = ev.nick; r.src = 'событие ' + ev.src; }
+            return r;
+        }
+        function event(params, src) {
+            ev = { nick: nickFromParams(params), at: Date.now(), src: src || '?' };
+            dbg('target: событие', ev.src, 'ник из params=' + JSON.stringify(ev.nick));
+        }
+        return { clean: clean, nickFromParams: nickFromParams, read: read, event: event, last: function () { return ev; } };
+    })();
 
     function findId(nick) {
         try {
@@ -1802,27 +1864,6 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         try { console.log.apply(console, ['[PRAVO][MOBLIC]'].concat([].slice.call(arguments))); } catch (e) {}
     }
 
-    function canShow(nick) {
-        if (window.PRAVO_MOBLIC_BTN_ENABLED === false) { dbg('off: PRAVO_MOBLIC_BTN_ENABLED=false'); return false; }
-        if (typeof window.showGiveLicTypeDialog !== 'function') { dbg('off: нет showGiveLicTypeDialog'); return false; }
-        // Платформа-зависимые условия (скин + Лицензёр + на мобилке помощник) — в одном месте,
-        // ровно так же, как у «Кругового меню». На ПК флаг помощника НЕ нужен.
-        if (typeof window._pravoCircleAllowed !== 'function' || !window._pravoCircleAllowed()) {
-            dbg('off: _pravoCircleAllowed()=false | skin:', window._pravoSkinId, '| rank:', window._pravoRank,
-                '| mobile:', !!(window.App && window.App.isMobile), '| helper:', !!(LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED));
-            return false;
-        }
-        // «Быстрая выдача лицензии» выключена в установщике → пункта в круге нет (и на ПК тоже).
-        // Тот же критерий, что у пункта «Выдача лицензии» в диалоге «ПРАВИТЕЛЬСТВО»: хоткей или флаг помощника.
-        if (typeof window._pravoQuickGiveOn !== 'function' || !window._pravoQuickGiveOn()) {
-            dbg('off: «Быстрая выдача лицензии» выключена в установщике');
-            return false;
-        }
-        // только меню игрока: «Имя_Фамилия» (у машин/гаражей/NPC другой заголовок)
-        var ok = /^[^\s_]+_[^\s_]+$/.test(nick);
-        if (!ok) dbg('off: params[0] не похож на ник игрока:', JSON.stringify(nick));
-        return ok;
-    }
 
     function isOpen() {
         try { return !!window.getInterfaceStatus('PlayerInteraction'); } catch (e) { return false; }
@@ -1853,26 +1894,10 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         var h = document.getElementById(HOV_ID);
         if (h && h.parentNode) h.parentNode.removeChild(h);
     }
-    function stopSync() {
-        if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
-    }
     function removeBtn() {
         hideHover();
         var old = document.getElementById(BTN_ID);
         if (old && old.parentNode) old.parentNode.removeChild(old);
-    }
-    function cleanup() {
-        if (window.__pravoLicPick === true) {
-            window.__pravoLicPick = false;
-            if (typeof window.__pravoChatSync === 'function') window.__pravoChatSync();
-        }
-        window.__pravoLicPick = false;
-        releaseLabels();
-        stopSync();
-        removeBtn();
-        detachCapture();
-        mode = '';
-        patchedFor = null;
     }
 
     // Закрываем как компонент: closeInterface + событие серверу
@@ -1882,24 +1907,6 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     }
 
     // Определяем ID цели по нику; список игроков обновляется редко — просим движок обновить и ждём до ~1с
-    function withTargetId(cb) {
-        var nick = lastNick;
-        if (!nick) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
-        var id = findId(nick);
-        if (id !== null) return cb(id);
-        try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (er) {}
-        var tries = 0;
-        var t = setInterval(function () {
-            if (!isOpen()) { clearInterval(t); busy = false; return; }
-            var f = findId(nick);
-            if (f !== null) { clearInterval(t); return cb(f); }
-            if (++tries >= 4) {
-                clearInterval(t);
-                busy = false;
-                notify('~r~Выдача лицензии~n~~w~Не удалось определить ID игрока');
-            }
-        }, 250);
-    }
 
     // Выдача по индексу типа лицензии (Права / Проф. права / …); запасной путь — старый диалог
     function giveLicense(id, idx) {
@@ -2106,7 +2113,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
     // Подменяем методы компонента — на случай, если игра вызовет их сама (клик в центре круга и т.п.)
     function patchVm(vm) {
-        if (patchedFor === vm) return true;
+        if (patchedVms && patchedVms.has(vm)) return true;
         var oSel = vm.selectOption, oLay = vm.selectLayerOption, oTS = vm.onTouchStart, oTE = vm.onTouchEnd;
         if (typeof oSel !== 'function' || typeof oLay !== 'function') return false;
         vm.selectOption = function (e, t) {
@@ -2194,17 +2201,16 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             return oMM.apply(this, arguments);
         };
         // Ники: следим за selectedOption — «Назад»/ESC, выбор другой категории и т.п. меняют его не через наши методы
-        if (watchedFor !== vm) {
+        {
             try {
                 if (typeof vm.$watch === 'function') {
                     try { vm.$watch('selectedOption', function () { syncLabels(vm); }, { flush: 'sync' }); }
                     catch (er0) { vm.$watch('selectedOption', function () { syncLabels(vm); }); }
-                    watchedFor = vm;
                 }
             } catch (er) { dbg('watch selectedOption:', er); }
         }
         var ok = vm.selectOption !== oSel && vm.selectLayerOption !== oLay;
-        if (ok) patchedFor = vm;
+        if (ok && patchedVms) patchedVms.add(vm);
         return ok;
     }
 
@@ -2302,41 +2308,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         try { paintIcon(svg); dbg('иконка дорисована'); } catch (er) { dbg('иконка: ошибка дорисовки', er); }
     }
 
-    function syncNative() {
-        var v = getVm();
-        if (!isOpen() || !v) { cleanup(); return; }
-        try {
-            if (!hasEntry(v) && Array.isArray(v.menu) && v.k != null && v.innerRadius != null && canShow(lastNick)) {
-                patchVm(v);
-                addEntry(v);                                   // сервер пересобрал меню — возвращаем пункт
-            }
-            syncLabels(v);                                     // страховка: если $watch недоступен или ники сбросил кто-то ещё
-            decorate(v);
-        } catch (er) { dbg('sync:', er); }
-    }
 
-    function tryNative(vm, box) {
-        if (window.PRAVO_MOBLIC_NATIVE === false) { dbg('native: выключено PRAVO_MOBLIC_NATIVE=false'); return false; }
-        try {
-            if (!Array.isArray(vm.menu) || typeof vm.onSelectOption !== 'function' || typeof vm.setOptionsPositions !== 'function') {
-                dbg('native: у компонента нет нужных данных/методов'); return false;
-            }
-            if (!patchVm(vm)) { dbg('native: не удалось подменить методы компонента'); return false; }
-            if (!hasEntry(vm) && !addEntry(vm)) { dbg('native: нет свободного сектора или пустой список лицензий'); return false; }
-            stopSync();
-            removeBtn();
-            attachCapture(box);
-            mode = 'native';
-            syncTimer = setInterval(syncNative, 200);
-            setTimeout(syncNative, 30);
-            dbg('режим: native | слот:', ownIndex(vm), '| ник:', lastNick, '| mobile:', !!(window.App && window.App.isMobile));
-            return true;
-        } catch (er) {
-            dbg('native: ошибка', er);
-            try { removeEntry(vm); } catch (e2) {}
-            return false;
-        }
-    }
 
     // ══════════════ ЗАПАСНОЙ РЕЖИМ: отдельная кнопка-DOM поверх круга ══════════════
 
@@ -2380,7 +2352,6 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     }
 
     function injectDom(vm, box) {
-        stopSync();
         removeBtn();
         var slot = pickSlot(vm);
         if (slot < 0) { console.warn('[PRAVO] Нет свободного сектора в PlayerInteraction для кнопки лицензии'); return; }
@@ -2439,33 +2410,196 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             b.addEventListener('mouseup', function () { b.style.filter = ''; });
         }
         box.appendChild(b);
-        mode = 'dom';
+        S.mode = 'dom';
         if (!warned) { warned = true; console.warn('[PRAVO][MOBLIC] пункт в круге не встроился — включена запасная кнопка (включите PRAVO_MOBLIC_DEBUG для причин)'); }
         dbg('режим: dom | слот:', slot, '| ник:', lastNick, '| mobile:', !!(window.App && window.App.isMobile));
 
-        // как у остальных кнопок: когда открыта подкатегория — приглушаем (opacity .6)
-        syncTimer = setInterval(function () {
-            var el = document.getElementById(BTN_ID), v = getVm();
-            if (!el || !isOpen()) { cleanup(); return; }
-            if (v) el.style.opacity = (v.selectedOption !== null && v.selectedOption !== undefined) ? '0.6' : '1';
-        }, 200);
     }
 
-    // Компонент строит секторы асинхронно (после mounted + ответа сервера) — ждём готовности
-    function inject(tries) {
-        if (!isOpen()) return;
-        var box = document.querySelector('.player-interaction__container');
-        var vm = getVm();
-        var ready = box && vm && vm.k != null && vm.innerRadius != null && vm.menu && vm.menu.length
-            && typeof vm.menu[vm.menu.length - 1].x === 'number';
-        if (!ready) {
-            if (tries < 40) setTimeout(function () { inject(tries + 1); }, 100);
+
+
+    // ══════════ ДВИЖОК: состояние + опрос раз в 100 мс ══════════
+    // Не зависит от того, увидели мы событие открытия или нет: каждый тик сравниваем то, что ДОЛЖНО быть в круге
+    // (пункт «Выдача лицензии», если цель — игрок и условия выполнены), с тем, что ЕСТЬ, и чиним расхождение.
+    // Новый экземпляр компонента = новая сессия (игра создаёт PlayerInteraction заново при каждом открытии;
+    // повторный openInterface при открытом меню игра игнорирует, а новые данные приходят в тот же компонент).
+    var patchedVms = (typeof WeakSet === 'function') ? new WeakSet() : null;
+    function emptyS() { return { vm: null, nick: '', src: '', mode: '', sig: '', stall: 0, decision: '', nativeFailedSig: null, at: 0, sawAction: false }; }
+    var S = emptyS();
+
+    function piBox() { return document.querySelector('.player-interaction__container'); }
+    function isReady(vm, box) {
+        try {
+            var last = vm && Array.isArray(vm.menu) && vm.menu.length ? vm.menu[vm.menu.length - 1] : null;
+            return !!(box && vm && vm.k != null && vm.innerRadius != null && last && typeof last.x === 'number');
+        } catch (e) { return false; }
+    }
+    function menuSig(vm) {
+        try { return vm.menu.length + ':' + vm.menu.map(function (m) { return m ? String(m.id) + '/' + (m.title || '') : '-'; }).join('|'); } catch (e) { return '?'; }
+    }
+    // '' — можно показывать; иначе причина, почему нет
+    function whyNot(nick) {
+        if (window.PRAVO_MOBLIC_BTN_ENABLED === false) return 'PRAVO_MOBLIC_BTN_ENABLED=false';
+        if (typeof window.showGiveLicTypeDialog !== 'function') return 'нет showGiveLicTypeDialog';
+        // Платформа-зависимые условия (скин + Лицензёр + на мобилке помощник) — в одном месте, как у «Кругового меню»
+        if (typeof window._pravoCircleAllowed !== 'function' || !window._pravoCircleAllowed()) {
+            return '_pravoCircleAllowed()=false | skin: ' + window._pravoSkinId + ' | rank: ' + window._pravoRank +
+                ' | mobile: ' + !!(window.App && window.App.isMobile) + ' | helper: ' + !!(LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED);
+        }
+        // «Быстрая выдача лицензии» выключена в установщике → пункта в круге нет (и на ПК тоже)
+        if (typeof window._pravoQuickGiveOn !== 'function' || !window._pravoQuickGiveOn()) return '«Быстрая выдача лицензии» выключена в установщике';
+        if (!nick) return 'ник цели не определён (меню не игрока или компонент ещё не заполнен)';
+        if (!NICK_RE.test(nick)) return 'ник не похож на ник игрока: ' + JSON.stringify(nick);
+        return '';
+    }
+    function setDecision(d) {
+        if (S.decision === d) return;
+        S.decision = d;
+        dbg('решение:', d, '| ник=' + JSON.stringify(S.nick) + ' (' + S.src + ')');
+    }
+    function release(why) {
+        if (S.vm || S.mode || S.nick) dbg('release:', why, '| режим=' + (S.mode || '—'), '| ник=' + JSON.stringify(S.nick));
+        if (window.__pravoLicPick === true) {
+            window.__pravoLicPick = false;
+            if (typeof window.__pravoChatSync === 'function') window.__pravoChatSync();
+        }
+        window.__pravoLicPick = false;
+        releaseLabels();
+        removeBtn();
+        detachCapture();
+        S = emptyS();
+        busy = false;
+    }
+
+    function begin(vm) {
+        if (S.vm) release('компонент заменён новым');
+        S = emptyS();
+        S.vm = vm; S.at = Date.now();
+        busy = false;
+        dbg('новая сессия: создан PlayerInteraction | пунктов=' + ((vm.menu && vm.menu.length) || 0) +
+            ' | actionName=' + JSON.stringify(vm.actionName) + ' | openParams=' + (vm.openParams === undefined ? 'нет' : JSON.stringify(vm.openParams).slice(0, 120)));
+    }
+    function onTarget(vm, t) {
+        var prev = S.nick;
+        S.nick = t.nick; S.src = t.src; lastNick = t.nick;
+        dbg('цель:', JSON.stringify(t.nick), '| источник=' + t.src, '| known=' + t.known);
+        if (prev && t.nick !== prev) {   // в уже открытом меню цель поменялась — старый пункт снимаем, соберём заново
+            dbg('СМЕНА ЦЕЛИ:', prev + ' → ' + (t.nick || '—'));
+            try { removeEntry(vm); } catch (e) {}
+            S.mode = ''; S.nativeFailedSig = null; busy = false; S.decision = '';
+        }
+        var ev = Target.last();
+        if (ev.nick && t.nick && ev.nick !== t.nick && Date.now() - ev.at < 5000)
+            dbg('РАСХОЖДЕНИЕ: сервер открывал меню для ' + ev.nick + ', а на экране ' + t.nick + ' — берём то, что на экране');
+    }
+
+    function tryNative(vm, box) {
+        if (window.PRAVO_MOBLIC_NATIVE === false) { dbg('native: выключено PRAVO_MOBLIC_NATIVE=false'); return false; }
+        try {
+            if (!Array.isArray(vm.menu) || typeof vm.onSelectOption !== 'function' || typeof vm.setOptionsPositions !== 'function') {
+                dbg('native: у компонента нет нужных данных/методов'); return false;
+            }
+            if (!patchVm(vm)) { dbg('native: не удалось подменить методы компонента'); return false; }
+            if (!hasEntry(vm) && !addEntry(vm)) { dbg('native: нет свободного сектора или пустой список лицензий | пунктов=' + vm.menu.length); return false; }
+            removeBtn();
+            attachCapture(box);
+            S.mode = 'native'; S.sig = menuSig(vm);
+            dbg('режим: native | слот:', ownIndex(vm), '| ник:', S.nick, '| mobile:', !!(window.App && window.App.isMobile));
+            return true;
+        } catch (er) {
+            dbg('native: ошибка', er);
+            try { removeEntry(vm); } catch (e2) {}
+            return false;
+        }
+    }
+    function ensureEntry(vm, box) {
+        if (S.mode === 'native') {
+            if (hasEntry(vm)) { attachCapture(box); return; }
+            dbg('пункт пропал — меню пересобрано, возвращаем', menuSig(vm));
+            S.mode = '';
+        }
+        if (S.mode === 'dom') {
+            if (document.getElementById(BTN_ID)) return;
+            S.mode = '';
+        }
+        var sig = menuSig(vm);
+        if (S.nativeFailedSig !== sig) {
+            if (tryNative(vm, box)) return;
+            S.nativeFailedSig = sig;
+        }
+        if (!document.getElementById(BTN_ID)) injectDom(vm, box);
+    }
+    function tick() {
+        var open = isOpen(), vm = open ? getVm() : null;
+        if (!open || !vm) { if (S.vm || S.mode || S.nick) release(open ? 'компонента нет' : 'меню закрыто'); return; }
+        if (vm !== S.vm) begin(vm);
+        var t = Target.read(vm, S);
+        if (t.nick !== S.nick || t.src !== S.src) onTarget(vm, t);
+        var box = piBox();
+        if (!isReady(vm, box)) {
+            S.stall++;
+            if (S.stall === 1) dbg('ждём компонент:', JSON.stringify({ box: !!box, k: vm.k != null, innerRadius: vm.innerRadius != null, menuLen: (vm.menu && vm.menu.length) || 0 }));
+            if (S.stall === 40) dbg('компонент не готов 4с (продолжаем ждать) | ник=' + JSON.stringify(S.nick));
             return;
         }
-        if (!canShow(lastNick)) { removeEntry(vm); cleanup(); return; }
-        if (tryNative(vm, box)) return;
-        injectDom(vm, box);
+        if (S.stall) { dbg('компонент готов, ждали тиков: ' + S.stall); S.stall = 0; }
+        var why = whyNot(S.nick);
+        if (why) {
+            setDecision('НЕ показываем: ' + why);
+            if (hasEntry(vm)) { try { removeEntry(vm); } catch (e) {} }
+            if (S.mode) { removeBtn(); detachCapture(); S.mode = ''; }
+            return;
+        }
+        setDecision('показываем «Выдача лицензии»');
+        try {
+            ensureEntry(vm, box);
+            syncLabels(vm);                                // страховка: если $watch недоступен или ники сбросил кто-то ещё
+            if (S.mode === 'native') decorate(vm);
+            else if (S.mode === 'dom') {
+                var el = document.getElementById(BTN_ID);  // как у остальных кнопок: открыта подкатегория — приглушаем
+                if (el) el.style.opacity = (vm.selectedOption !== null && vm.selectedOption !== undefined) ? '0.6' : '1';
+            }
+        } catch (er) { dbg('ОШИБКА в tick:', er); }
     }
+
+    // ID цели по нику — ник перечитываем с экрана в момент нажатия; список игроков обновляется редко —
+    // просим движок обновить и ждём до ~1с
+    function withTargetId(cb) {
+        var vm = getVm();
+        var t = vm ? Target.read(vm, S) : { nick: '', src: 'нет компонента' };
+        var nick = t.nick || S.nick || '';
+        dbg('withTargetId: на экране=' + JSON.stringify(t.nick) + ' (' + t.src + ') | S.nick=' + JSON.stringify(S.nick) + ' | режим=' + (S.mode || '—'));
+        if (!nick) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
+        var id = findId(nick);
+        if (id !== null) return cb(id);
+        try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (er) {}
+        var tries = 0;
+        var timer = setInterval(function () {
+            if (!isOpen()) { clearInterval(timer); busy = false; return; }
+            var v2 = getVm(), t2 = v2 ? Target.read(v2, S) : null;
+            if (t2 && t2.nick && t2.nick !== nick) {
+                clearInterval(timer); busy = false;
+                dbg('ЦЕЛЬ СМЕНИЛАСЬ', nick + ' → ' + t2.nick, 'пока искали ID');
+                notify('~r~Выдача лицензии~n~~w~Цель изменилась, повторите');
+                return;
+            }
+            var f = findId(nick);
+            if (f !== null) { clearInterval(timer); return cb(f); }
+            if (++tries >= 4) {
+                clearInterval(timer);
+                busy = false;
+                notify('~r~Выдача лицензии~n~~w~Не удалось определить ID игрока');
+            }
+        }, 250);
+    }
+
+    // события открытия/обновления только «подталкивают» движок — решает он сам по состоянию компонента
+    function onOpen(params, was) { Target.event(params, was ? 'open (меню уже было открыто)' : 'open'); if (!was) busy = false; setTimeout(tick, 0); }
+    function onUpdate(params) { Target.event(params, 'update'); setTimeout(tick, 30); }
+    setInterval(tick, 100);
+    window.__pravoMobLicState = function () {
+        return { nick: S.nick, src: S.src, mode: S.mode, decision: S.decision, stall: S.stall, open: isOpen(), busy: busy, sessionAgeMs: S.at ? Date.now() - S.at : null, event: Target.last() };
+    };
 
     // openInterface('PlayerInteraction', params)
     var _oi = window.openInterface;
@@ -2473,13 +2607,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         var was = false;
         if (name === 'PlayerInteraction') { try { was = isOpen(); } catch (e) {} }
         var r = _oi.apply(this, arguments);
-        if (name === 'PlayerInteraction' && !was) {
-            try {
-                lastNick = parseNick(params);
-                busy = false;
-                setTimeout(function () { inject(0); }, 0);
-            } catch (e) {}
-        }
+        if (name === 'PlayerInteraction') { try { onOpen(params, was); } catch (e) { dbg('openInterface hook:', e); } }
         return r;
     };
 
@@ -2488,13 +2616,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     if (typeof _up === 'function') {
         window.updateParams = function (name, params) {
             var r = _up.apply(this, arguments);
-            if (name === 'PlayerInteraction') {
-                try {
-                    var n = parseNick(params);
-                    if (n) lastNick = n;
-                    setTimeout(function () { inject(0); }, 250);
-                } catch (e) {}
-            }
+            if (name === 'PlayerInteraction') { try { onUpdate(params); } catch (e) { dbg('updateParams hook:', e); } }
             return r;
         };
     }
