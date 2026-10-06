@@ -374,7 +374,7 @@ function noteResolve(nick, id, how) {
     _lastFail = { at: failAt, nick: nick, why: why, list: plistInfo(), names: allNames(8000), state: stateInfo(), trace: _trBuf.slice(-60) };
     trFail('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ ID', 'ник: ' + nickInfo(nick) + '\nПРИЧИНА: ' + why + '\nвесь список: ' + allNames(8000));
 }
-var FRESH_MS = 600;       // список моложе этого возраста считаем свежим
+var FRESH_MS = 5000;      // ник найден в списке моложе этого возраста — берём ID сразу, без ожидания ответа движка (пока меню открыто, список обновляется раз в секунду; цель стоит рядом, её ID за секунды не меняется)
 var STALE_OK_MS = 10000;  // если движок вообще не отвечает — старый список не старше этого ещё годится
 function resolveId(nick, cb) {
     var attempt = 0, t0 = Date.now();
@@ -382,7 +382,11 @@ function resolveId(nick, cb) {
     if (_listAt && Date.now() - _listAt <= FRESH_MS) {
         var quick = idByNick(nick);
         tr('ID/быстрый путь', 'список свежий (' + (Date.now() - _listAt) + 'мс)', quick !== null ? 'ник найден → ID ' + quick : 'ника в свежем списке нет → идём к движку');
-        if (quick !== null) { noteResolve(nick, quick, 'свежий список'); return cb(quick); }
+        if (quick !== null) {
+            noteResolve(nick, quick, 'свежий список');
+            if (Date.now() - _listAt > 600) refreshPlayers();   // список обновим фоном — клик не ждёт
+            return cb(quick);
+        }
     } else {
         tr('ID/быстрый путь', 'пропущен: ' + (_listAt ? 'список старый (' + (Date.now() - _listAt) + 'мс > ' + FRESH_MS + 'мс)' : 'список ни разу не приходил'));
     }
