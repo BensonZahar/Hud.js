@@ -29,7 +29,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.2';
+var VERSION = 'code3 v1.3';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -258,6 +258,16 @@ function resolveId(nick, cb, o) {
 // Сервер (menu_interaction.pwn → GetPlayerNameEx) пишет в заголовок меню НАСТОЯЩИЙ ник игрока, а список игроков и чат
 // содержат ник, который сейчас виден в SA-MP: у игрока в маске (/mask, только ПК) это «Mask_<id аккаунта>», у админа с /gh — временный ник.
 // Поэтому ник из меню в списке не находится вообще — это не сбой, а подмена; ID тут можно только ввести вручную (ники над головами видны).
+// Как в pravo.js (_pravoInteractionTargetLog): при каждом открытии меню игрока пишем в консоль, кого сервер назвал целью
+// и нашёлся ли он в списке. По этой строке сразу видно причину сбоя: ника нет в списке (маска / новый игрок) или список старый.
+function logTarget(nick, src) {
+    if (!nick) return;
+    var id = idByNick(nick), l = plist();
+    window.__code3LastTarget = { nick: nick, id: id, src: src, time: Date.now() };
+    log('🎯 PlayerInteraction (' + src + '): цель "' + nick + '" | ID: ' + (id !== null ? id : 'не найден в списке игроков') +
+        ' | список: ' + (l && Array.isArray(l.players) ? l.players.length + ' игр.' : '—') +
+        ', возраст: ' + (listAt() ? ((Date.now() - listAt()) / 1000).toFixed(1) + ' с' : '—'));
+}
 function isMaskNick(n) { return /^mask_\d+$/i.test(String(n || '')); }
 function askIdManually(nick) {
     log('ник', nick, 'не найден в свежем списке игроков — вероятно, маска или подмена ника; просим ввести ID вручную');
@@ -2045,6 +2055,7 @@ function ensureChatAddHook() {
                 var was = isOpen('PlayerInteraction');
                 if (!was) {
                     var nick = parseNick(params);
+                    try { logTarget(nick, 'open'); } catch (e) {}
                     if (circle.pending) {
                         // то же открытие повторилось — уже обрабатываем; а вот другой игрок = новый запрос, старый отменяем
                         // (раньше второй игрок молча отбрасывался, и выдача уходила первому)
