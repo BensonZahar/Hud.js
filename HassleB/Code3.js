@@ -2425,8 +2425,10 @@ log(VERSION + ' загружен. Помощник лицензёра актив
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: LICENSOR (Telegram)                             ║
 // ║  Описание: вкладка «🪪 Лицензёр» в «Функции»:            ║
-// ║   • «Все сообщения игроков» — пересылка в Telegram всех  ║
-// ║     сообщений игроков из чата (а не только фракции);     ║
+// ║   • «Сообщения игроков рядом» — пересылка в Telegram     ║
+// ║     сообщений игроков из чата, сказанных РЯДОМ (радиус   ║
+// ║     CLOSE), а не только фракции; config.licNearOnly=false ║
+// ║     вернёт пересылку всех радиусов;                      ║
 // ║   • «Выдача лицензий» — выбор лицензии → ID игрока →     ║
 // ║     /givelic через Code3.js (window.__code3);            ║
 // ║   • под сообщением игрока — те же кнопки, что у сообщений ║
@@ -2452,6 +2454,7 @@ try { (function () {
         return;
     }
     if (typeof config.licAllMessages !== 'boolean') config.licAllMessages = false;
+    if (typeof config.licNearOnly !== 'boolean') config.licNearOnly = true;   // true — «Все сообщения игроков» пересылает только те, что сказаны рядом (радиус CLOSE); false — как раньше, все радиусы
     if (typeof config.licFilter !== 'boolean') config.licFilter = false;  // false — пересылаются все сообщения; true — только про лицензии (радиус «рядом»)
 
     const PFX = 'lic|';   // callback_data: lic|<действие>|<арг...>|<uid>
@@ -2479,7 +2482,7 @@ try { (function () {
         const last = (api() && api().last && api().last()) || null;
         const rows = [
             [btn('Помощник: ' + (ready() ? '🟢 активен' : '🔴 недоступен'), PFX + 'menu|' + uid)],
-            [btn('💬 Все сообщения игроков ' + (config.licAllMessages ? '🟢' : '🔴'), PFX + 'toggle|' + uid, config.licAllMessages ? 'success' : 'danger')],
+            [btn('💬 Сообщения игроков рядом ' + (config.licAllMessages ? '🟢' : '🔴'), PFX + 'toggle|' + uid, config.licAllMessages ? 'success' : 'danger')],
             [btn('🎯 Только про лицензии ' + (config.licFilter ? '🟢' : '🔴'), PFX + 'filter|' + uid, config.licFilter ? 'success' : 'danger')],
             [btn('🪪 Выдача лицензий', PFX + 'types|' + uid, 'primary')]
         ];
@@ -2830,6 +2833,7 @@ try { (function () {
         if (!config.licAllMessages) return;
         const radius = getChatRadius(colorArg);
         if (radius === CHAT_RADIUS.RADIO) return;                       // рацию обрабатывает свой модуль
+        if (config.licNearOnly && radius !== CHAT_RADIUS.CLOSE) return; // только сообщения «рядом» (средний/дальний радиус не пересылаем)
         const text = m[1].replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim(), nick = m[2], id = m[3];
         if (!text) return;
         const gs = _govSent[id];   // это сообщение сотрудника фракции уже ушло из Code.js (там же и кнопка лицензии) — второй раз не шлём
