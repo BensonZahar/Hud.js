@@ -450,6 +450,50 @@ class MEmuHudManager:
         tokens = self.get_local_user_config(user).get("BOT_TOKENS", {})
         return sorted((str(k) for k in tokens if str(k).isdigit()), key=int)
 
+    # ── Пароли автовхода: общий + персональные по нику (хранятся там же, в accounts.sec) ──
+    @staticmethod
+    def _norm_nick(nick):
+        return re.sub(r"\s+", "_", (nick or "").strip())
+
+    def get_local_password(self, user):
+        """Общий пароль автовхода для игрока."""
+        return self.get_local_user_config(user).get("PASSWORD", "") or ""
+
+    def set_local_password(self, user, password):
+        if not user:
+            return False
+        user_cfg = self.local_accounts.setdefault("users", {}).setdefault(user, {})
+        if password:
+            user_cfg["PASSWORD"] = password
+        else:
+            user_cfg.pop("PASSWORD", None)
+        self.save_local_accounts()
+        return True
+
+    def get_local_nick_passwords(self, user):
+        """{ник: пароль} — пароли для отдельных ников (приоритетнее общего)."""
+        return dict(self.get_local_user_config(user).get("NICK_PASSWORDS", {}) or {})
+
+    def set_local_nick_password(self, user, nick, password):
+        nick = self._norm_nick(nick)
+        if not user or not nick or not password:
+            return False
+        user_cfg = self.local_accounts.setdefault("users", {}).setdefault(user, {})
+        mp = user_cfg.setdefault("NICK_PASSWORDS", {})
+        for k in [k for k in mp if k.lower() == nick.lower()]:  # ник без учёта регистра
+            del mp[k]
+        mp[nick] = password
+        self.save_local_accounts()
+        return True
+
+    def delete_local_nick_password(self, user, nick):
+        mp = self.get_local_user_config(user).get("NICK_PASSWORDS", {})
+        if nick in mp:
+            del mp[nick]
+            self.save_local_accounts()
+            return True
+        return False
+
     TOKEN_RE = r"\d{8,10}:[A-Za-z0-9_-]{30,70}"
 
     def import_accounts_from_text(self, user, text):
@@ -1064,6 +1108,120 @@ class MEmuHudManager:
         except Exception:
             pass
 
+    def open_password_manager(self):
+        """Пароли автовхода: один общий + при необходимости отдельный пароль для конкретного ника."""
+        user = self.selected_code_name
+        if not user:
+            self.log("[X] Ошибка: пользователь не выбран")
+            return
+
+        C = self.C
+        dialog, body = self._dialog("Пароли входа", 640, 640, sub=f"игрок: {user}")
+
+        # ── Общий пароль ───────────────────────────────────────
+        ctk.CTkLabel(
+            body, text="ОБЩИЙ ПАРОЛЬ  (для всех ников без своего пароля)",
+            font=self.F("cond", 13), text_color=C["muted"], anchor="w",
+        ).pack(fill="x", padx=16, pady=(14, 4))
+
+        common_row = ctk.CTkFrame(body, fg_color="transparent")
+        common_row.pack(fill="x", padx=16)
+        common_row.grid_columnconfigure(0, weight=1)
+        common_entry = self._entry(common_row, "Пароль от игровых аккаунтов", height=34, show="•")
+        common_entry.grid(row=0, column=0, sticky="ew", pady=2)
+        cur = self.get_local_password(user)
+        if cur:
+            common_entry.insert(0, cur)
+
+        def toggle_common():
+            common_entry.configure(show="" if common_entry.cget("show") else "•")
+
+        def save_common():
+            pwd = common_entry.get()
+            self.set_local_password(user, pwd)
+            self._msgbox("info", "Готово",
+                         "Общий пароль сохранён." if pwd else "Общий пароль удалён.")
+
+        self._btn_ghost(common_row, "ПОКАЗАТЬ", toggle_common, height=34, width=96).grid(
+            row=0, column=1, padx=(6, 0))
+        self._btn_primary(common_row, "СОХРАНИТЬ", save_common, height=34, width=120, size=14).grid(
+            row=0, column=2, padx=(6, 0))
+
+        # ── Пароли для отдельных ников ─────────────────────────
+        ctk.CTkLabel(
+            body, text="ПАРОЛИ ДЛЯ ОТДЕЛЬНЫХ НИКОВ  (приоритетнее общего)",
+            font=self.F("cond", 13), text_color=C["muted"], anchor="w",
+        ).pack(fill="x", padx=16, pady=(16, 4))
+
+        list_frame = ctk.CTkScrollableFrame(
+            body, fg_color=C["card"], corner_radius=10,
+            border_width=1, border_color=C["border"],
+            scrollbar_button_color=C["border2"],
+            scrollbar_button_hover_color=C["accent"],
+        )
+        list_frame.pack(fill="both", expand=True, padx=16, pady=(0, 6))
+
+        def refresh():
+            for w in list_frame.winfo_children():
+                w.destroy()
+            mp = self.get_local_nick_passwords(user)
+            if not mp:
+                ctk.CTkLabel(
+                    list_frame, text="ПЕРСОНАЛЬНЫХ ПАРОЛЕЙ НЕТ — ДЛЯ ВСЕХ ОБЩИЙ",
+                    font=self.F("cond", 14), text_color=C["muted"],
+                ).pack(pady=18)
+                return
+            for nick in sorted(mp.keys(), key=str.lower):
+                row = ctk.CTkFrame(list_frame, fg_color=C["card2"], corner_radius=8,
+                                   border_width=1, border_color=C["border"])
+                row.pack(fill="x", pady=3, padx=2)
+                row.grid_columnconfigure(0, weight=1)
+                ctk.CTkLabel(
+                    row, text=f"{nick}   ·   {'•' * 8}", font=self.F("mono", 12),
+                    text_color=C["text"], anchor="w",
+                ).grid(row=0, column=0, padx=(12, 6), pady=8, sticky="ew")
+                ctk.CTkButton(
+                    row, text="✕", width=32, height=28, font=self.F("body", 11),
+                    fg_color="transparent", hover_color=C["red"],
+                    text_color=C["subtext"], corner_radius=6,
+                    command=lambda n=nick: (self.delete_local_nick_password(user, n), refresh()),
+                ).grid(row=0, column=1, padx=(6, 10), pady=8)
+
+        form = ctk.CTkFrame(body, fg_color="transparent")
+        form.pack(fill="x", padx=16, pady=(6, 6))
+        form.grid_columnconfigure(0, weight=1)
+        form.grid_columnconfigure(1, weight=1)
+        nick_entry = self._entry(form, "Ник, например Ivan_Petrov", height=34)
+        nick_entry.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=4)
+        nick_pass_entry = self._entry(form, "Пароль для этого ника", height=34, show="•")
+        nick_pass_entry.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=4)
+
+        def add_nick():
+            nick = self._norm_nick(nick_entry.get())
+            pwd = nick_pass_entry.get()
+            if not re.fullmatch(r"[A-Za-z0-9_.\[\]()$@=-]{3,32}", nick):
+                self._msgbox("error", "Ошибка", "Укажите ник как в игре, например Ivan_Petrov")
+                return
+            if not pwd:
+                self._msgbox("error", "Ошибка", "Введите пароль для этого ника")
+                return
+            self.set_local_nick_password(user, nick, pwd)
+            nick_entry.delete(0, "end")
+            nick_pass_entry.delete(0, "end")
+            refresh()
+
+        self._btn_primary(form, "ДОБАВИТЬ ПАРОЛЬ ДЛЯ НИКА", add_nick, height=41, size=15).grid(
+            row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
+        ctk.CTkLabel(
+            body,
+            text="Пароли хранятся только на этом ПК (зашифрованно). Чтобы изменения заработали, "
+                 "переустановите код (Установить код / Автовставка).",
+            font=self.F("body", 10), text_color=C["muted"], wraplength=590, justify="left", anchor="w",
+        ).pack(fill="x", padx=16, pady=(4, 12))
+
+        refresh()
+
     def open_local_account_manager(self):
         user = self.selected_code_name
         if not user:
@@ -1450,6 +1608,7 @@ class MEmuHudManager:
         self._nav_item(self.nav, "Убрать код", lambda: self.execute_action("2"))
         self._nav_item(self.nav, "Проверить файлы", lambda: self.execute_action("3"))
         self._nav_item(self.nav, "Токены аккаунтов", self.open_local_account_manager)
+        self._nav_item(self.nav, "Пароли входа", self.open_password_manager)
         if self.full_logging:
             self._nav_item(self.nav, "Скачать Hud.js", lambda: self.execute_action("4"))
             self._nav_item(self.nav, "Скачать .js файлы", self.open_js_downloader)
@@ -2664,6 +2823,19 @@ class MEmuHudManager:
             else:
                 self.log(f"[!] Локальный токен для аккаунта #{acc_num} не найден — добавьте его в «Токены аккаунтов»")
             load_code = load_code.replace("const accountToken = '';", f"const accountToken = '{acc_token}';")
+            # Пароли автовхода: общий + персональные по нику. json.dumps даёт корректный JS-литерал
+            # (экранирует кавычки, слэши и не-ASCII), поэтому любой пароль безопасен.
+            acc_password = self.get_local_password(user_name)
+            nick_passwords = self.get_local_nick_passwords(user_name)
+            load_code = load_code.replace("const accountPassword = '';",
+                                          f"const accountPassword = {json.dumps(acc_password)};")
+            load_code = load_code.replace("const nickPasswords = {};",
+                                          f"const nickPasswords = {json.dumps(nick_passwords)};")
+            if acc_password or nick_passwords:
+                self.log(f"[√] Пароли входа взяты из локального хранилища "
+                         f"(общий: {'да' if acc_password else 'нет'}, по нику: {len(nick_passwords)})")
+            else:
+                self.log("[!] Пароль автовхода не задан — добавьте его в «Пароли входа», иначе вход будет ручной")
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
                 self.log("Поиск и удаление старого кода по маркерам...")
