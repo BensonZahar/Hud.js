@@ -4,8 +4,6 @@ const repo = 'Hud.js';
 const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
 const accountNumber = ''; // НОМЕР АККАУНТА — устанавливается установщиком автоматически
 const accountToken = '';  // ТОКЕН БОТА — берётся установщиком из локального хранилища на ПК (не хранится в List.js)
-const accountPassword = '';  // ОБЩИЙ ПАРОЛЬ автовхода — задаётся в установщике (кнопка «Пароли»), в List.js не хранится
-const nickPasswords = {};    // ПАРОЛИ ДЛЯ ОТДЕЛЬНЫХ НИКОВ { 'Nick_Name': 'пароль' } — тоже из установщика
 
 // ============================================================
 // Автоматический поиск чат-компонента — два метода:
@@ -210,8 +208,7 @@ function applyUserConfig() {
 
     window.CHAT_IDS = userConfig.CHAT_IDS;
     window.DEFAULT_TOKEN = null;
-    window.PASSWORD = accountPassword || '';          // общий пароль (из установщика)
-    window.NICK_PASSWORDS = nickPasswords || {};      // пароли для конкретных ников (из установщика)
+    window.PASSWORD = userConfig.PASSWORD;
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
 
     window.ACCOUNT_NUMBER = accountNumber;
@@ -227,14 +224,9 @@ function applyUserConfig() {
         console.warn(`⚠️ Токен для аккаунта #${accountNumber} у "${currentUser}" не найден — добавьте его в лончере («Токены аккаунтов») и переустановите код`);
     }
 
-    if (!window.PASSWORD && Object.keys(window.NICK_PASSWORDS).length === 0) {
-        console.warn('⚠️ Пароль автовхода не задан — задайте его в установщике («Пароли») и переустановите код');
-    }
-
     console.log(`✅ Конфигурация для "${currentUser}" применена:`, {
         chatIds: userConfig.CHAT_IDS,
-        password: accountPassword ? 'общий задан' : 'общий НЕ задан',
-        nickPasswords: Object.keys(window.NICK_PASSWORDS).length,
+        password: '***' + userConfig.PASSWORD.slice(-4),
         reconnect: userConfig.RECONNECT_ENABLED_DEFAULT
     });
 
