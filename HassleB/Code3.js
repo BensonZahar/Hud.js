@@ -196,14 +196,14 @@ function freshPlayers(cb, maxMs) {
     function fin(ok) {
         if (done) return;
         done = true;
-        clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
+        clearTimeout(t1); if (t2) clearTimeout(t2); clearTimeout(t3);
         var i = _listWaiters.indexOf(fin); if (i !== -1) _listWaiters.splice(i, 1);
         if (!_dead) { try { cb(!!ok); } catch (e) { warn('freshPlayers:', e); } }
     }
     _listWaiters.push(fin);
     refreshPlayers();
-    t1 = setTimeout(function () { if (!done && !_dead) refreshPlayers(); }, 200);   // ответ потерялся — повторный запрос
-    t2 = setTimeout(function () { if (!done && !_dead) refreshPlayers(); }, 450);
+    t1 = setTimeout(function () { if (!done && !_dead) refreshPlayers(); }, 450);   // ответ потерялся — один повторный запрос (не заваливаем движок)
+    t2 = null;
     t3 = setTimeout(function () { fin(false); }, maxMs || 700);
 }
 // Определяет ID по нику. Список игроков живёт в движке и сам по себе обновляется редко, поэтому:
@@ -222,7 +222,9 @@ function resolveId(nick, cb) {
         if (_dead) return;
         freshPlayers(function (ok) {
             var id = idByNick(nick);
-            if (id !== null && (ok || (_listAt && Date.now() - _listAt <= STALE_OK_MS))) return cb(id);
+            // Как в pravo.js: ник найден в уже имеющемся списке — берём его, даже если движок не ответил свежим
+            // списком (раньше при молчании движка список старше 10 с отбрасывался → «не удалось определить ID»)
+            if (id !== null) return cb(id);
             if (++attempt >= 3) return cb(null);
             setTimeout(go, 150);
         }, 700);
