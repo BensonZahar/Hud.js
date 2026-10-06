@@ -1138,7 +1138,7 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
 // autoLoginConfig.enabled по-прежнему главный выключатель (AFK-циклы, /rec 5 и т.д.):
 // пока он false — окно авторизации открывается как обычно и не трогается.
 const autoLoginConfig = {
-    password: PASSWORD, // Ваш пароль
+    password: PASSWORD, // ОБЩИЙ пароль (из установщика). Персональный по нику — см. _alResolvePassword()
     enabled: true       // Флаг активации автовхода
 };
 
@@ -1293,9 +1293,44 @@ function _alWatchProblems() {
     _AL.errObs.observe(document.body || document.documentElement, { childList: true, subtree: true });
 }
 
+// ── Пароль автовхода: персональный для ника (window.NICK_PASSWORDS) или общий ──
+// Оба задаются в установщике («Пароли входа») и подставляются в Load.js при установке кода.
+function _alNormNick(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, '_'); }
+
+// Ник на экране входа / в игре (тот же store, что использует trackNicknameAndServer)
+function _alGetNick() {
+    try {
+        const st = _getVuexStore();
+        if (!st) return '';
+        const bad = ['Имя_Фамилия', 'Name_Surname'];
+        let n = '';
+        try { n = st.getters['menu/nickName']; } catch (e) {}
+        if (!n || bad.indexOf(n) !== -1) { try { n = st.getters['player/nickName']; } catch (e) {} }
+        if (!n || bad.indexOf(n) !== -1) return '';
+        return String(n);
+    } catch (e) { return ''; }
+}
+
+function _alNickPasswords() {
+    const m = window.NICK_PASSWORDS;
+    return (m && typeof m === 'object') ? m : {};
+}
+function _alHasNickPasswords() { return Object.keys(_alNickPasswords()).length > 0; }
+
+function _alResolvePassword() {
+    const nick = _alNormNick(_alGetNick());
+    if (nick) {
+        const map = _alNickPasswords();
+        for (const k in map) {
+            if (map[k] && _alNormNick(k) === nick) return String(map[k]);
+        }
+    }
+    return autoLoginConfig.password || '';
+}
+
 function _alCanAuto() {
     const now = Date.now();
-    return autoLoginConfig.enabled && !!autoLoginConfig.password &&
+    return autoLoginConfig.enabled && (!!autoLoginConfig.password || _alHasNickPasswords()) &&
            !_AL.sent && now >= _AL.blockUntil && (now - _AL.lastSend) >= _AL.MIN_GAP_MS &&
            typeof window.sendClientEvent === 'function' && !!window.gm;
 }
@@ -1322,11 +1357,16 @@ function _alFireFail(err) {
 }
 
 function _alDoSend() {
+    const _pwd = _alResolvePassword();
+    if (!_pwd) {
+        // Есть только пароли для других ников, а для этого ника и общего пароля нет
+        throw new Error('Не задан пароль для ника ' + (_alGetNick() || '—') + ' (и нет общего пароля) — задайте его в установщике');
+    }
     _AL.sendAt = Date.now();
     _AL.lastSend = _AL.sendAt;
     clearTimeout(_AL.revealTimer);
     _AL.revealTimer = setTimeout(_alShowUI, _AL.REVEAL_MS);
-    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', autoLoginConfig.password);
+    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', _pwd);
     debugLog(`[AUTOLOGIN][${displayName}] Пароль отправлен (Login готов через ${_AL.sendAt - _AL.openAt} мс)`);
     // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
     // hpLastValue = null означает: следующий тик после спавна
@@ -1373,7 +1413,9 @@ function _alFire() {
         (function waitReady() {
             if (_AL.dead || !_AL.sent || token !== _AL.fireToken) return; // окно уже закрыто/перезапущено
             _alTryPatch();
-            if (_alLoginReady() || Date.now() - _AL.openAt >= _AL.LOGIN_READY_MAX_MS) {
+            // Если есть пароли по нику — заодно ждём, пока store отдаст ник (но не дольше LOGIN_READY_MAX_MS)
+            const _ready = _alLoginReady() && (!_alHasNickPasswords() || !!_alGetNick());
+            if (_ready || Date.now() - _AL.openAt >= _AL.LOGIN_READY_MAX_MS) {
                 try { _alDoSend(); } catch (err) { _alFireFail(err); }
                 return;
             }
