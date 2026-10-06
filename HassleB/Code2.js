@@ -587,7 +587,6 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
                 ] }
             );
-            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
         }
         if (_dlgAllText.includes('авторизац') || _dlgAllText.includes('отключены от сервера')) {
             window.__afterAuthDialog = true;
@@ -3026,9 +3025,6 @@ if (document.readyState === 'loading') {
         try { if (typeof addSessionLog === 'function') addSessionLog(s); } catch (e) {}
     }
     function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-    function sound() {
-        try { window.playSound('https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3', false, 1.0); } catch (e) {}
-    }
     const _recent = {};
     function once(key) {
         const now = Date.now();
@@ -3137,7 +3133,6 @@ if (document.readyState === 'loading') {
         c.lastLine = rec;
         c.lines.push(rec);
         sessionLog('💬 [Тел] ' + sender + ': ' + text.slice(0, 40));
-        sound();
     }
     function isCallMessage(c, chatId, messageId) {
         if (!c) return false;
@@ -3185,7 +3180,6 @@ if (document.readyState === 'loading') {
                 { inline_keyboard: [[btn('📞 Ответить (/p)', 'phn_p_' + uniqueId), btn('📵 Сбросить (/h)', 'phn_h_' + uniqueId)]].concat(baseRows()) },
                 false
             );
-            sound();
             return;
         }
 
@@ -3235,7 +3229,6 @@ if (document.readyState === 'loading') {
                     sendWithButtons(html,
                         { inline_keyboard: [[btn('✉️ Ответить SMS', 'phn_sms_' + phone + '_' + uniqueId)]].concat(baseRows()) },
                         false);
-                    sound();
                 }
                 return;
             }
@@ -3278,7 +3271,6 @@ if (document.readyState === 'loading') {
         }, false);
         pendingOffer = cur;
         sessionLog('🤝 Предложение: ' + text.slice(0, 60));
-        sound();
         cur.timer = setTimeout(function () {
             if (pendingOffer === cur) closeOffer('⌛ <i>Время на решение истекло</i>');
         }, offerTimeoutMs(text) + 500);

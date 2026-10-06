@@ -6185,15 +6185,6 @@ function initializeChatMonitor() {
         sendToTelegram(errorMsg, false, null);
         return false;
     }
-    if (typeof window.playSound === 'undefined') {
-        debugLog('Функция playSound не найдена, создаем свою');
-        window.playSound = function(url, loop, volume) {
-            const audio = new Audio(url);
-            audio.loop = loop || false;
-            audio.volume = volume || 1.0;
-            audio.play().catch(e => debugLog('Ошибка воспроизведения звука:', e));
-        };
-    };
     window.OnChatAddMessage = function(e, i, t) {
         if (config.debug) {
             const _baseHex = normalizeColor(i).replace('0x', '').toUpperCase();
@@ -6263,7 +6254,6 @@ function initializeChatMonitor() {
             debugLog(`Обнаружен респавн для ${displayName}!`);
             const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`🔄 <b>Вас зареспавнили!! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
         }
         // Анти-чит: «Вы были кикнуты по подозрению в читерстве [Код #N]» (anticheat.pwn). Цвет: -1 (0xFFFFFFFF) при server_id == 0, иначе через FixKick — 0xFF6600FF.
         // Старые версии и фермы (farms.pwn, miami_pilot.pwn) шлют без кода и «за подозрение в читерстве».
@@ -6275,7 +6265,6 @@ function initializeChatMonitor() {
             window.__kickNotifiedAt = Date.now();
             const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>${acKickMatch[1] ? '\nКод: #' + acKickMatch[1] : ''}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             setTimeout(() => {
                 performReconnect(1 * 60 * 1000);
             }, 30);
@@ -6314,7 +6303,6 @@ function initializeChatMonitor() {
                             [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
                         ] }
                     );
-                    window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
                 }
             }
         }
@@ -6330,7 +6318,6 @@ function initializeChatMonitor() {
             debugLog(`Обнаружена посадка в тюрьму для ${displayName} на ${prisonMinutes} мин!`);
             const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`🚨 <b>Посадили в ${jailPlace}! (${displayName})</b>\nАдмин: ${adminName}\nВремя: ${prisonMinutes} мин\nПричина: ${reason}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             globalState.isPrison = true; // Флаг для игнора /rec при кике
             setTimeout(() => { globalState.isPrison = false; }, 10000); // Сбрасываем через 10 сек
             // Запускаем режим тюрьмы — первый /time + периодический поллинг каждые ~30 мин
@@ -6409,7 +6396,6 @@ function initializeChatMonitor() {
                         createButton('🚪 Выйти с игры', `prison_quit_${uniqueId}`, 'danger')
                     ]] }
                 );
-                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
             }
         }
         // Цвет у ника — цвет сотрудника в рабочей форме (P_COLOR = T_COLOR фракции). Берём основной + запасные цвета.
@@ -6471,7 +6457,6 @@ function initializeChatMonitor() {
                     debugLog('Обнаружен подброс!');
                     const replyMarkup = getNotificationReplyMarkup();
                     sendToTelegram(`🚨 <b>Обнаружен подброс! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-                    window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
                 }
                 if (currentTime - config.lastPodbrosTime > config.podbrosCooldown) {
                     config.podbrosCounter = 0;
@@ -6481,7 +6466,6 @@ function initializeChatMonitor() {
                 debugLog('Обнаружен администратор!');
                 const replyMarkup = getNotificationReplyMarkup();
                 sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
                 // 9 пингов каждые 2 сек — каждый удаляет предыдущий, последний остаётся
                 sendAdminSpamAlert(msg);
             }
@@ -6508,7 +6492,6 @@ function initializeChatMonitor() {
 				const onlyStroyMessage = messageText === "строй";
 				
 				debugLog('Обнаружен сбор/строй!');
-				window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
 				
 				if (!onlyStroyMessage) {
 					performStroiReconnect(msg); // одно сообщение с msg внутри
@@ -6533,7 +6516,6 @@ function initializeChatMonitor() {
             window.__kickNotifiedAt = Date.now();
             const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             if (!globalState.isPrison) {
                 performReconnect(2 * 60 * 1000);
             } else {
@@ -6577,7 +6559,6 @@ function initializeChatMonitor() {
             if (warningMatch) {
                 debugLog(`Обнаружен выговор от ${warningMatch[2]}!`);
                 sendToTelegram(`⚠️ <b>Получен выговор (${displayName}) от ${warningMatch[1]} ${warningMatch[2]} [ID: ${warningMatch[3]}]:</b>\nВыговор ${warningMatch[4]}/${warningMatch[5]}\nПричина: ${warningMatch[6]}\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
             }
         }
         // Увольнение из организации. Все четыре варианта сервер шлёт цветом 0xFF6600FF (new.pwn: 41380, 54082, 71285, 75022).
@@ -6601,7 +6582,6 @@ function initializeChatMonitor() {
                     `${fireInfo.reason}\n<code>${msg.replace(/</g, '&lt;')}</code>`,
                     false, getNotificationReplyMarkup()
                 );
-                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
             }
         }
         // Новые проверки сообщений в чате
@@ -6633,7 +6613,6 @@ function initializeChatMonitor() {
                     debugLog('Обнаружена блокировка по IP (You are banned)');
                     window.__kickDisconnectSkipAt = Date.now(); // следующее «Вы были отключены» — следствие блокировки
                     sendToTelegram(`⛔ <b>Отказано в доступе — IP-адрес заблокирован (${displayName})</b>\n<code>${_connPlain.replace(/</g, '&lt;').slice(0, 300)}</code>`, false, _connMarkup);
-                    window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
                 }
             } else if (/Недоступный/.test(_connPlain)) {
                 if (_connOnce('badnick')) {
@@ -6710,7 +6689,6 @@ function initializeChatMonitor() {
                 `⏰ Время: ${new Date().toLocaleTimeString('ru-RU')}`,
                 false, replyMarkup
             );
-            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
         }
     };
     debugLog('Мониторинг успешно активирован');
