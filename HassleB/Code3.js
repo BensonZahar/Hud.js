@@ -29,7 +29,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.3';
+var VERSION = 'code3 v1.4';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -426,6 +426,7 @@ function pullRank(cb) {
         f(function (p) {
             if (_dead) return;
             var r = (p && p.rank) ? String(p.rank) : '';
+            if (!r && _rank) { tr('RANK/пустой ответ профиля — оставляем прежнее звание', JSON.stringify(_rank)); if (cb) cb(true); return; }
             if (r !== _rank) {
                 _rank = r;
                 log('звание:', r || '—', licensorReady() ? '→ помощник лицензёра активен' : '');
@@ -882,15 +883,79 @@ function onInteractionsClick(tp) {
 
 // ══════════════════════════ КРУГОВОЕ МЕНЮ (PlayerInteraction → сразу выбор лицензии) ══════════════════════════
 var openPrev = null;   // предыдущее звено цепочки openInterface (ставится в installHooks)
-var NICK_RE = /^[^\s_]+_[^\s_]+$/;   // «Имя_Фамилия» — меню игрока (у машин/домов/NPC другой заголовок)
-function parseNick(params) {
-    try {
-        var p = (typeof params === 'string') ? JSON.parse(params.replace(/\n/, '\\n')) : params;
-        var raw = Array.isArray(p) ? p[0] : null;
-        if (typeof raw !== 'string') tr('parseNick', 'params[0] не строка → ник пуст', 'тип=' + typeof raw, 'params=' + tstr(params).slice(0, 160));
-        return (typeof raw === 'string') ? raw.trim().split(' ').join('_') : '';
-    } catch (e) { tr('parseNick/ОШИБКА', 'не удалось разобрать params → ник пуст', e, 'params=' + tstr(params).slice(0, 200)); return ''; }
-}
+var NICK_RE = /^[^\s_]+(?:_[^\s_]+)+$/;   // «Имя_Фамилия» (2+ части через «_») — ник игрока
+// ══════════════════════════ ОПРЕДЕЛЕНИЕ ЦЕЛИ (ник) — с нуля ══════════════════════════
+// Источник истины — сам компонент PlayerInteraction (исходник: PlayerInteraction.js игры):
+//   • data.actionName — «Ivan Petrov» (игра делает split('_').join(' ') из params[0] и пишет «Взаимодействие с …»);
+//     сервер кладёт туда ник цели (GetPlayerNameEx), а для не-игрока (машина/дом/NPC) — пустую строку;
+//   • проп openParams — сырые params ПЕРВОГО открытия (при повторном ответе сервера НЕ обновляется — это «протухший» источник).
+// Читаем то, что реально нарисовано на экране, поэтому кнопка всегда относится к тому, чьё меню открыто.
+// Порядок: actionName → (если в сессии он уже был заполнен, пустой actionName = «не игрок») → openParams только
+// в первые 1.5с жизни компонента → DOM «.player-interaction__action» → ник из события openInterface/updateParams.
+var Target = (function () {
+    var ev = { nick: '', at: 0, src: '' };
+    function clean(raw) {
+        if (typeof raw !== 'string') return '';
+        var s = raw.replace(/\{[0-9A-Fa-f]{6,8}\}/g, '').replace(/\s+/g, ' ').trim();
+        if (!s || /[{}\[\]"<>]/.test(s)) return '';
+        var parts = s.split(/[ _]+/).filter(Boolean);
+        return parts.length >= 2 ? parts.join('_') : '';
+    }
+    function looseParse(s) {
+        try { return JSON.parse(s); } catch (e1) {}
+        try { return JSON.parse(s.replace(/\r?\n/g, '\\n')); } catch (e2) {}
+        var m = /^\s*\[\s*"((?:[^"\\]|\\.)*)"/.exec(s);
+        if (m) { try { return [JSON.parse('"' + m[1].replace(/\r?\n/g, '\\n') + '"')]; } catch (e3) {} }
+        tr('TARGET/parse', 'не удалось разобрать params', String(s).slice(0, 160));
+        return null;
+    }
+    function first(p) {
+        try {
+            if (typeof p === 'string') p = looseParse(p);
+            if (p && typeof p === 'object') return p[0];
+        } catch (e) { tr('TARGET/parse ОШИБКА', e); }
+        return undefined;
+    }
+    function nickFromParams(params) { var f = first(params); return typeof f === 'string' ? clean(f) : ''; }
+    // что сейчас показывает компонент: { nick, src, known }; st — состояние сессии (sawAction, at)
+    function read(vm, st) {
+        var r = { nick: '', src: 'нет данных', known: false };
+        st = st || {};
+        try {
+            var an = vm && vm.actionName;
+            if (typeof an === 'string' && an) { st.sawAction = true; r.nick = clean(an); r.src = 'actionName'; r.known = true; return r; }
+            if (typeof an === 'string' && st.sawAction) { r.src = 'actionName пуст (был заполнен) → не игрок'; r.known = true; return r; }
+        } catch (e) {}
+        try {
+            var op = vm && vm.openParams;
+            if (op !== undefined && op !== null) {
+                var f = first(op);
+                if (typeof f === 'string') {
+                    var young = !st.at || Date.now() - st.at < 1500;
+                    if (young) { r.nick = clean(f); r.src = 'openParams'; r.known = true; return r; }
+                    r.src = 'actionName пуст, openParams устарел → не игрок'; r.known = true; return r;
+                }
+            }
+        } catch (e) {}
+        try {
+            var el = document.querySelector('.player-interaction__action');
+            var tx = el && (el.textContent || '');
+            if (tx) { var cn = clean(tx.replace(/^\s*Взаимодействие с\s*/i, '')); if (cn) { r.nick = cn; r.src = 'DOM'; r.known = true; return r; } }
+        } catch (e) {}
+        if (ev.at && ev.nick && Date.now() - ev.at < 5000) { r.nick = ev.nick; r.src = 'событие ' + ev.src; }
+        return r;
+    }
+    function event(params, src) {
+        ev = { nick: nickFromParams(params), at: Date.now(), src: src || '?' };
+        tr('TARGET/событие', ev.src, 'ник из params=' + nickInfo(ev.nick));
+    }
+    return {
+        clean: clean, nickFromParams: nickFromParams, read: read, event: event,
+        setNick: function (n, src) { ev = { nick: clean(String(n || '')), at: Date.now(), src: src || 'setNick' }; },
+        last: function () { return ev; }
+    };
+})();
+function parseNick(params) { return Target.nickFromParams(params); }
 var circle = { pending: false, timer: null };
 function circleDone(why) {
     if (circle.pending || circle.timer) tr('CIRCLE/конец', why || '');
@@ -906,8 +971,7 @@ function circleShowNormal(params, nick, why) {
     tr('CIRCLE/обычное меню', 'причина: ' + (why || '?'), nickInfo(nick));
     circleDone('showNormal');
     try { openPrev.call(window, 'PlayerInteraction', params); } catch (e) { tr('CIRCLE/ОШИБКА', 'openPrev бросил', e); }
-    Radial.setNick(nick);
-    setTimeout(function () { Radial.inject(0); }, 0);
+    Radial.onOpen(params, false);
 }
 function circleHandle(nick, params) {
     circle.pending = true;
@@ -938,20 +1002,13 @@ var Radial = (function () {
     var ENTRY_ID = 'code3_lic', MASK_ID = 'code3LicMask', BTN_ID = 'code3-moblic-btn';
     var TITLE = 'Выдача лицензии';
     var SVG_NS = 'http://www.w3.org/2000/svg';
-    var lastNick = '', busy = false, syncTimer = null, mode = '', patchedFor = null, capBox = null, warned = false;
-    var labelsOn = false, watchedFor = null, shiftOn = false;
+    var lastNick = '', busy = false, capBox = null, warned = false;
+    var labelsOn = false, shiftOn = false;
 
     function notify(text) { gtAdd(text, 3000, 3); }
     function piOpen() { return isOpen('PlayerInteraction'); }
     function getVm() { return iface('PlayerInteraction'); }
 
-    function canShow(nick) {
-        if (!OPTS.RADIAL_BTN) { dbg('off: RADIAL_BTN=false'); return false; }
-        if (!licensorReady()) { dbg('off: нет скина/звания | скин:', _skin, '| звание:', _rank); return false; }
-        var ok = NICK_RE.test(nick);
-        if (!ok) dbg('off: params[0] не похож на ник игрока:', JSON.stringify(nick));
-        return ok;
-    }
 
     // Координаты сектора i (0 — верх, по часовой) — те же, что игра считает для кнопок категорий
     function coordsFor(vm, slot) {
@@ -964,19 +1021,7 @@ var Radial = (function () {
         } catch (e) {}
         return 'data-v-96e76c6f';
     }
-    function stopSync() { if (syncTimer) { clearInterval(syncTimer); syncTimer = null; } }
     function removeBtn() { var old = document.getElementById(BTN_ID); if (old && old.parentNode) old.parentNode.removeChild(old); }
-    function cleanup() {
-        if (mode || pickOn || syncTimer) tr('RADIAL/cleanup', 'режим был: ' + (mode || '—'), 'pickOn=' + pickOn, 'ник=' + nickInfo(lastNick));
-        if (pickOn) { pickOn = false; Chat.sync(); }
-        pickOn = false;
-        releaseLabels();
-        stopSync();
-        removeBtn();
-        detachCapture();
-        mode = '';
-        patchedFor = null;
-    }
     // Закрываем как компонент: closeInterface + событие серверу
     function closeMenu() {
         tr('RADIAL/closeMenu', 'closeInterface + MenuInt_OnCloseInterface');
@@ -985,22 +1030,6 @@ var Radial = (function () {
         tr('RADIAL/MenuInt_OnCloseInterface', 'отправлено=' + sent);
     }
     // ID цели по нику — всегда из свежего списка (см. resolveId)
-    function withTargetId(cb) {
-        var nick = lastNick;
-        tr('RADIAL/withTargetId', 'lastNick=' + nickInfo(nick), 'piOpen=' + piOpen(), 'режим=' + (mode || '—'));
-        if (!nick) { busy = false; tr('RADIAL/ОШИБКА', 'lastNick пуст → «Не удалось определить игрока»'); trFail('РАДИАЛЬНОЕ МЕНЮ: lastNick пуст'); notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
-        resolveId(nick, function (id) {
-            if (_dead || !piOpen()) { busy = false; tr('RADIAL/ответ resolveId ПРОИГНОРИРОВАН', '_dead=' + _dead, 'piOpen=' + piOpen(), 'id=' + id, '(меню уже закрыто, пока искали ID)'); return; }
-            if (id === null) { busy = false; tr('RADIAL/уведомление', 'показано «Не удалось определить ID»', nickInfo(nick)); notify('~r~Выдача лицензии~n~~w~Не удалось определить ID (маска/фейк-ник?)'); return; }
-            tr('RADIAL/ID получен', nickInfo(nick), 'ID ' + id);
-            cb(id);
-        });
-    }
-    function giveLicense(id, idx) {
-        tr('RADIAL/giveLicense', 'ID ' + id, 'тип #' + idx + (LIC_TYPES[idx] ? ' ' + LIC_TYPES[idx].name : ''));
-        try { if (giveByIndex(id, idx, lastNick)) { tr('RADIAL/giveByIndex', 'команда отправлена'); return; } tr('RADIAL/giveByIndex', 'вернул false → запасной диалог'); } catch (er) { warn('выдача из круга:', er); tr('RADIAL/ОШИБКА', 'giveByIndex бросил', er); }
-        showTypeDialog(id, lastNick);   // запасной путь — диалог выбора
-    }
 
     // ══════════ НАТИВНЫЙ РЕЖИМ: пункт внутри vm.menu ══════════
     function hasEntry(vm) { try { return vm.menu.some(function (m) { return m && m._code3Lic; }); } catch (e) { return false; } }
@@ -1127,22 +1156,9 @@ var Radial = (function () {
         vm.onSelectOption(m.id);   // как ответ сервера для обычной категории — выбираем локально
         syncLabels(vm);
     }
-    function pickType(vm, i) {
-        var m = vm.menu[vm.selectedOption];
-        var o = m && m.options && m.options[i];
-        if (!o || !o.title || busy) { tr('RADIAL/pickType ОТКЛОНЁН', 'i=' + i, 'пункт=' + (o ? JSON.stringify(o.title) : 'нет'), 'busy=' + busy); return; }
-        var typeIdx = (typeof o._code3LicIdx === 'number') ? o._code3LicIdx : i;
-        tr('RADIAL/pickType', 'нажат подпункт i=' + i, 'тип #' + typeIdx + (LIC_TYPES[typeIdx] ? ' ' + LIC_TYPES[typeIdx].name : ''), 'ник=' + nickInfo(lastNick));
-        busy = true;
-        try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
-        withTargetId(function (id) {
-            closeMenu();
-            setTimeout(function () { busy = false; giveLicense(id, typeIdx); }, 80);
-        });
-    }
     // Подменяем методы компонента — на случай, если игра вызовет их сама
     function patchVm(vm) {
-        if (patchedFor === vm) return true;
+        if (patchedVms && patchedVms.has(vm)) return true;
         var oSel = vm.selectOption, oLay = vm.selectLayerOption, oTS = vm.onTouchStart, oTE = vm.onTouchEnd;
         if (typeof oSel !== 'function' || typeof oLay !== 'function') return false;
         vm.selectOption = function (e, t) {
@@ -1200,17 +1216,16 @@ var Radial = (function () {
             return r;
         };
         // Следим за selectedOption: «Назад»/выбор другой категории меняют его не через наши методы
-        if (watchedFor !== vm) {
+        {
             try {
                 if (typeof vm.$watch === 'function') {
                     try { vm.$watch('selectedOption', function () { syncLabels(vm); }, { flush: 'sync' }); }
                     catch (er0) { vm.$watch('selectedOption', function () { syncLabels(vm); }); }
-                    watchedFor = vm;
                 }
             } catch (er) { dbg('watch selectedOption:', er); }
         }
         var ok = vm.selectOption !== oSel && vm.selectLayerOption !== oLay;
-        if (ok) patchedFor = vm;
+        if (ok && patchedVms) patchedVms.add(vm);
         return ok;
     }
     // Перехват кликов на контейнере (capture) — независимо от того, как шаблон вызывает методы
@@ -1298,37 +1313,177 @@ var Radial = (function () {
         svg.setAttribute('data-code3-lic', '1');
         try { paintIcon(svg); } catch (er) { dbg('иконка:', er); }
     }
-    function syncNative() {
-        var v = getVm();
-        if (_dead || !piOpen() || !v) { cleanup(); return; }
-        try {
-            if (!hasEntry(v) && Array.isArray(v.menu) && v.k != null && v.innerRadius != null && canShow(lastNick)) {
-                patchVm(v);
-                addEntry(v);   // сервер пересобрал меню — возвращаем пункт
-            }
-            syncLabels(v);
-            decorate(v);
-        } catch (er) { dbg('sync:', er); }
+
+    // ══════════ ЗАПАСНОЙ РЕЖИМ: отдельная кнопка-DOM поверх круга ══════════
+    var LIC_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="#e0bf3e"><defs><mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32"><rect width="32" height="32" fill="#fff"/><rect x="13.4" y="15.6" width="20" height="17" rx="4" fill="#000"/></mask></defs><g mask="url(#m)"><path d="M24 8C24 12.4183 20.4183 16 16 16C11.5817 16 8 12.4183 8 8C8 3.58172 11.5817 0 16 0C20.4183 0 24 3.58172 24 8Z"/><path d="M26.0113 32H32C32 27.7565 30.3143 23.6869 27.3137 20.6863C24.3131 17.6857 20.2435 16 16 16C11.7565 16 7.68688 17.6857 4.68629 20.6863C1.68571 23.6869 0 27.7565 0 32H6.65881C7.17634 28.7259 8.34695 25.3575 10.3003 23.1111C9.45815 24.9955 8.58027 28.4528 9.12668 32L23.5435 32C24.0899 28.4528 23.212 24.9955 22.3698 23.1111C24.3232 25.3575 25.4938 28.7259 26.0113 32Z"/></g><path fill-rule="evenodd" d="' + CARD_D + '"/></svg>';
+    var LIC_ICON_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(LIC_ICON_SVG);
+    function buildIcon(sa) {
+        return '<img ' + sa + ' class="player-interaction__icon-lic" draggable="false" alt="" src="' + LIC_ICON_URI + '"' +
+            ' style="display:block;width:2.96vh;height:2.96vh;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none">';
     }
-    function tryNative(vm, box) {
-        if (OPTS.RADIAL_NATIVE === false) { dbg('native выключен'); return false; }
+    // Компонент строит секторы асинхронно (mounted + ответ сервера) — ждём готовности
+
+    // ═══════════ НОВЫЙ ДВИЖОК: состояние + опрос раз в 100 мс ═══════════
+    // Не зависит от того, увидели мы событие открытия или нет: каждый тик сравниваем то, что ДОЛЖНО быть в круге
+    // (пункт «Выдача лицензии», если цель — игрок и мы лицензёр), с тем, что ЕСТЬ, и чиним расхождение.
+    // Новый экземпляр компонента = новая сессия (игра создаёт PlayerInteraction заново при каждом открытии).
+    var patchedVms = (typeof WeakSet === 'function') ? new WeakSet() : null;
+    function emptyS() { return { vm: null, nick: '', src: '', mode: '', sig: '', stall: 0, decision: '', nativeFailedSig: null, at: 0, sawAction: false }; }
+    var S = emptyS();
+
+    function piBox() { return document.querySelector('.player-interaction__container'); }
+    function isReady(vm, box) {
         try {
-            if (!Array.isArray(vm.menu) || typeof vm.onSelectOption !== 'function' || typeof vm.setOptionsPositions !== 'function') { dbg('native: нет нужных методов'); return false; }
-            if (!patchVm(vm)) { dbg('native: не удалось подменить методы'); return false; }
-            if (!hasEntry(vm) && !addEntry(vm)) { dbg('native: нет свободного сектора'); return false; }
-            stopSync();
+            var last = vm && Array.isArray(vm.menu) && vm.menu.length ? vm.menu[vm.menu.length - 1] : null;
+            return !!(box && vm && vm.k != null && vm.innerRadius != null && last && typeof last.x === 'number');
+        } catch (e) { return false; }
+    }
+    function menuSig(vm) {
+        try { return vm.menu.length + ':' + vm.menu.map(function (m) { return m ? String(m.id) + '/' + (m.title || '') : '-'; }).join('|'); } catch (e) { return '?'; }
+    }
+    function whyNot(nick) {
+        if (!OPTS.RADIAL_BTN) return 'RADIAL_BTN=false';
+        if (!licensorReady()) return 'не лицензёр: скин=' + _skin + ' gov=' + isGovSkin() + ' звание=' + JSON.stringify(_rank);
+        if (!nick) return 'ник цели не определён (меню не игрока или компонент ещё не заполнен)';
+        if (!NICK_RE.test(nick)) return 'ник не похож на ник игрока: ' + JSON.stringify(nick);
+        return '';
+    }
+    function setDecision(d) {
+        if (S.decision === d) return;
+        S.decision = d;
+        tr('RADIAL/решение', d, 'ник=' + nickInfo(S.nick) + ' (' + S.src + ')');
+    }
+    function release(why) {
+        if (S.vm || S.mode || S.nick || pickOn) tr('RADIAL/release', why, 'режим=' + (S.mode || '—'), 'ник=' + nickInfo(S.nick));
+        if (pickOn) { pickOn = false; Chat.sync(); }
+        releaseLabels();
+        removeBtn();
+        detachCapture();
+        S = emptyS();
+        busy = false;
+    }
+    function cleanup() { release('cleanup'); }
+
+    function begin(vm) {
+        if (S.vm) release('компонент заменён новым');
+        S = emptyS();
+        S.vm = vm; S.at = Date.now();
+        busy = false;
+        if (!_rmT0 || Date.now() - _rmT0 > 4000) rmBegin('(событие open не видели — сессия начата по появлению компонента)', '');
+        tr('RADIAL/новая сессия', 'создан PlayerInteraction', 'пунктов=' + ((vm.menu && vm.menu.length) || 0), 'actionName=' + JSON.stringify(vm.actionName), 'openParams=' + (vm.openParams === undefined ? 'нет' : tstr(vm.openParams).slice(0, 120)));
+    }
+    function onTarget(vm, t) {
+        var prev = S.nick;
+        S.nick = t.nick; S.src = t.src; lastNick = t.nick;
+        tr('TARGET/цель', nickInfo(t.nick), 'источник=' + t.src, 'known=' + t.known);
+        if (prev && t.nick !== prev) {   // в уже открытом меню цель поменялась — старый пункт снимаем, соберём заново
+            tr('TARGET/СМЕНА ЦЕЛИ', prev + ' → ' + (t.nick || '—'));
+            try { removeEntry(vm); } catch (e) {}
+            S.mode = ''; S.nativeFailedSig = null; busy = false; S.decision = '';
+        }
+        var ev = Target.last();
+        if (ev.nick && t.nick && ev.nick !== t.nick && Date.now() - ev.at < 5000)
+            tr('TARGET/РАСХОЖДЕНИЕ', 'сервер открывал меню для ' + ev.nick + ', а на экране ' + t.nick + ' — берём то, что на экране');
+    }
+
+    function tryNative(vm, box) {
+        if (OPTS.RADIAL_NATIVE === false) { tr('RADIAL/native', 'выключен опцией RADIAL_NATIVE=false'); return false; }
+        try {
+            if (!Array.isArray(vm.menu) || typeof vm.onSelectOption !== 'function' || typeof vm.setOptionsPositions !== 'function') { tr('RADIAL/native', 'у компонента нет нужных методов'); return false; }
+            if (!patchVm(vm)) { tr('RADIAL/native', 'не удалось подменить методы компонента'); return false; }
+            if (!hasEntry(vm) && !addEntry(vm)) { tr('RADIAL/native', 'нет свободного сектора', 'пунктов=' + vm.menu.length, 'секторов=' + (vm.DEFAULT_MENU_COUNT || 8)); return false; }
             removeBtn();
             attachCapture(box);
-            mode = 'native';
-            syncTimer = setInterval(syncNative, 200);
-            setTimeout(syncNative, 30);
-            dbg('режим: native | слот:', ownIndex(vm), '| ник:', lastNick);
+            S.mode = 'native'; S.sig = menuSig(vm);
+            tr('RADIAL/режим', 'native: пункт встроен в круг', 'слот=' + ownIndex(vm), 'ник=' + nickInfo(S.nick));
             return true;
         } catch (er) {
             tr('RADIAL/native', 'ОШИБКА при встраивании', er);
             try { removeEntry(vm); } catch (e2) {}
             return false;
         }
+    }
+    function ensureEntry(vm, box) {
+        if (S.mode === 'native') {
+            if (hasEntry(vm)) { attachCapture(box); return; }
+            tr('RADIAL/пункт пропал', 'меню пересобрано — возвращаем', menuSig(vm));
+            S.mode = '';
+        }
+        if (S.mode === 'dom') {
+            if (document.getElementById(BTN_ID)) return;
+            S.mode = '';
+        }
+        var sig = menuSig(vm);
+        if (S.nativeFailedSig !== sig) {
+            if (tryNative(vm, box)) return;
+            S.nativeFailedSig = sig;
+        }
+        if (!document.getElementById(BTN_ID)) injectDom(vm, box);
+    }
+    function tick() {
+        if (_dead) return;
+        var open = piOpen(), vm = open ? getVm() : null;
+        if (!open || !vm) { if (S.vm || S.mode || S.nick) release(open ? 'компонента нет' : 'меню закрыто'); return; }
+        if (vm !== S.vm) begin(vm);
+        var t = Target.read(vm, S);
+        if (t.nick !== S.nick || t.src !== S.src) onTarget(vm, t);
+        var box = piBox();
+        if (!isReady(vm, box)) {
+            S.stall++;
+            if (S.stall === 1) tr('RADIAL/ждём компонент', { box: !!box, k: vm.k != null, innerRadius: vm.innerRadius != null, menuLen: (vm.menu && vm.menu.length) || 0 });
+            if (S.stall === 40) { tr('RADIAL/компонент не готов 4с (продолжаем ждать)'); trFail('РАДИАЛЬНОЕ МЕНЮ: компонент не готов 4с', 'ник: ' + nickInfo(S.nick)); }
+            return;
+        }
+        if (S.stall) { tr('RADIAL/компонент готов', 'ждали тиков: ' + S.stall); S.stall = 0; }
+        var why = whyNot(S.nick);
+        if (why) {
+            setDecision('НЕ показываем: ' + why);
+            if (hasEntry(vm)) { try { removeEntry(vm); } catch (e) {} }
+            if (S.mode) { removeBtn(); detachCapture(); S.mode = ''; }
+            return;
+        }
+        setDecision('показываем «Выдача лицензии»');
+        try {
+            ensureEntry(vm, box);
+            syncLabels(vm);
+            if (S.mode === 'native') decorate(vm);
+            else if (S.mode === 'dom') { var el = document.getElementById(BTN_ID); if (el) el.style.opacity = (vm.selectedOption !== null && vm.selectedOption !== undefined) ? '0.6' : '1'; }
+        } catch (er) { tr('RADIAL/ОШИБКА в tick', er); }
+    }
+
+    // ID цели по нику — ник перечитываем с экрана в момент нажатия; ID всегда из свежего списка (см. resolveId)
+    function withTargetId(cb) {
+        var vm = getVm();
+        var t = vm ? Target.read(vm, S) : { nick: '', src: 'нет компонента' };
+        var nick = t.nick || S.nick || '';
+        tr('RADIAL/withTargetId', 'на экране=' + nickInfo(t.nick) + ' (' + t.src + ')', 'S.nick=' + nickInfo(S.nick), 'режим=' + (S.mode || '—'));
+        if (!nick) { busy = false; tr('RADIAL/ОШИБКА', 'ник пуст → «Не удалось определить игрока»'); trFail('РАДИАЛЬНОЕ МЕНЮ: ник цели пуст'); notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
+        resolveId(nick, function (id) {
+            if (_dead || !piOpen()) { busy = false; tr('RADIAL/ответ resolveId ПРОИГНОРИРОВАН', '_dead=' + _dead, 'piOpen=' + piOpen(), 'id=' + id, '(меню закрыли, пока искали ID)'); return; }
+            var v2 = getVm(), t2 = v2 ? Target.read(v2, S) : null;
+            if (t2 && t2.nick && t2.nick !== nick) { busy = false; tr('RADIAL/ЦЕЛЬ СМЕНИЛАСЬ', nick + ' → ' + t2.nick, 'пока искали ID'); notify('~r~Выдача лицензии~n~~w~Цель изменилась, повторите'); return; }
+            if (id === null) { busy = false; tr('RADIAL/уведомление', 'показано «Не удалось определить ID»', nickInfo(nick)); notify('~r~Выдача лицензии~n~~w~Не удалось определить ID (маска/фейк-ник?)'); return; }
+            tr('RADIAL/ID получен', nickInfo(nick), 'ID ' + id);
+            cb(id, nick);
+        });
+    }
+    function giveLicense(id, idx, nick) {
+        tr('RADIAL/giveLicense', 'ID ' + id, 'ник ' + nickInfo(nick), 'тип #' + idx + (LIC_TYPES[idx] ? ' ' + LIC_TYPES[idx].name : ''));
+        try { if (giveByIndex(id, idx, nick)) { tr('RADIAL/giveByIndex', 'команда отправлена'); return; } tr('RADIAL/giveByIndex', 'вернул false → запасной диалог'); } catch (er) { warn('выдача из круга:', er); tr('RADIAL/ОШИБКА', 'giveByIndex бросил', er); }
+        showTypeDialog(id, nick);   // запасной путь — диалог выбора
+    }
+    function pickType(vm, i) {
+        var m = vm.menu[vm.selectedOption];
+        var o = m && m.options && m.options[i];
+        if (!o || !o.title || busy) { tr('RADIAL/pickType ОТКЛОНЁН', 'i=' + i, 'пункт=' + (o ? JSON.stringify(o.title) : 'нет'), 'busy=' + busy); return; }
+        var typeIdx = (typeof o._code3LicIdx === 'number') ? o._code3LicIdx : i;
+        tr('RADIAL/pickType', 'нажат подпункт i=' + i, 'тип #' + typeIdx + (LIC_TYPES[typeIdx] ? ' ' + LIC_TYPES[typeIdx].name : ''), 'ник=' + nickInfo(S.nick));
+        busy = true;
+        try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
+        withTargetId(function (id, nick) {
+            closeMenu();
+            setTimeout(function () { busy = false; giveLicense(id, typeIdx, nick); }, 80);
+        });
     }
 
     // ══════════ ЗАПАСНОЙ РЕЖИМ: отдельная кнопка-DOM поверх круга ══════════
@@ -1342,31 +1497,24 @@ var Radial = (function () {
         for (var i = vm.menu.length; i < total; i++) { var c = coordsFor(vm, i); if (c && c.x < bestX) { bestX = c.x; best = i; } }
         return best;
     }
-    function openDialog(id) {
+    function openDialog(id, nick) {
         closeMenu();
-        setTimeout(function () { busy = false; showTypeDialog(id, lastNick); }, 80);
+        setTimeout(function () { busy = false; showTypeDialog(id, nick); }, 80);
     }
     function onBtnClick(e) {
         try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
         if (busy) return;
         try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
-        tr('RADIAL/onBtnClick', 'нажата запасная DOM-кнопка', 'ник=' + nickInfo(lastNick));
+        tr('RADIAL/onBtnClick', 'нажата запасная DOM-кнопка', 'ник=' + nickInfo(S.nick));
         busy = true;
         withTargetId(openDialog);
     }
-    var LIC_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="#e0bf3e"><defs><mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32"><rect width="32" height="32" fill="#fff"/><rect x="13.4" y="15.6" width="20" height="17" rx="4" fill="#000"/></mask></defs><g mask="url(#m)"><path d="M24 8C24 12.4183 20.4183 16 16 16C11.5817 16 8 12.4183 8 8C8 3.58172 11.5817 0 16 0C20.4183 0 24 3.58172 24 8Z"/><path d="M26.0113 32H32C32 27.7565 30.3143 23.6869 27.3137 20.6863C24.3131 17.6857 20.2435 16 16 16C11.7565 16 7.68688 17.6857 4.68629 20.6863C1.68571 23.6869 0 27.7565 0 32H6.65881C7.17634 28.7259 8.34695 25.3575 10.3003 23.1111C9.45815 24.9955 8.58027 28.4528 9.12668 32L23.5435 32C24.0899 28.4528 23.212 24.9955 22.3698 23.1111C24.3232 25.3575 25.4938 28.7259 26.0113 32Z"/></g><path fill-rule="evenodd" d="' + CARD_D + '"/></svg>';
-    var LIC_ICON_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(LIC_ICON_SVG);
-    function buildIcon(sa) {
-        return '<img ' + sa + ' class="player-interaction__icon-lic" draggable="false" alt="" src="' + LIC_ICON_URI + '"' +
-            ' style="display:block;width:2.96vh;height:2.96vh;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none">';
-    }
     function injectDom(vm, box) {
-        stopSync();
         removeBtn();
         var slot = pickSlot(vm);
-        if (slot < 0) { warn('нет свободного сектора в PlayerInteraction для кнопки лицензии'); return; }
+        if (slot < 0) { warn('нет свободного сектора в PlayerInteraction для кнопки лицензии'); tr('RADIAL/dom', 'нет свободного сектора — кнопку поставить некуда', menuSig(vm)); return; }
         var c = coordsFor(vm, slot);
-        if (!c) return;
+        if (!c) { tr('RADIAL/dom', 'не удалось посчитать координаты сектора', slot); return; }
         var sa = scopeAttr(box);
         var b = document.createElement('div');
         b.id = BTN_ID;
@@ -1384,47 +1532,22 @@ var Radial = (function () {
         b.addEventListener('touchend', function () { b.style.filter = ''; }, { passive: true });
         b.addEventListener('touchcancel', function () { b.style.filter = ''; }, { passive: true });
         box.appendChild(b);
-        mode = 'dom';
-        if (!warned) { warned = true; warn('пункт в круге не встроился — включена запасная кнопка (DEBUG=true покажет причины)'); }
-        dbg('режим: dom | слот:', slot, '| ник:', lastNick);
-        // как у остальных кнопок: когда открыта подкатегория — приглушаем
-        syncTimer = setInterval(function () {
-            var el = document.getElementById(BTN_ID), v = getVm();
-            if (_dead || !el || !piOpen()) { cleanup(); return; }
-            if (v) el.style.opacity = (v.selectedOption !== null && v.selectedOption !== undefined) ? '0.6' : '1';
-        }, 200);
+        S.mode = 'dom';
+        if (!warned) { warned = true; warn('пункт в круге не встроился — включена запасная кнопка'); }
+        tr('RADIAL/режим', 'dom: запасная кнопка', 'слот=' + slot, 'ник=' + nickInfo(S.nick));
     }
-    // Компонент строит секторы асинхронно (mounted + ответ сервера) — ждём готовности
-    function inject(tries) {
-        if (_dead) return;
-        if (!piOpen()) { if (tries === 0 || tries % 10 === 0) tr('RADIAL/inject', 'меню не открыто (piOpen=false), попытка ' + tries + ' — выходим'); return; }
-        var box = document.querySelector('.player-interaction__container');
-        var vm = getVm();
-        var ready = box && vm && vm.k != null && vm.innerRadius != null && vm.menu && vm.menu.length &&
-            typeof vm.menu[vm.menu.length - 1].x === 'number';
-        if (!ready) {
-            if (tries === 0 || tries % 10 === 0 || tries >= 40) {
-                var fl = { box: !!box, vm: !!vm, k: !!(vm && vm.k != null), innerRadius: !!(vm && vm.innerRadius != null), menuLen: (vm && vm.menu) ? vm.menu.length : 0 };
-                tr('RADIAL/inject', tries >= 40 ? 'СДАЛСЯ: компонент не готов за 4с' : 'компонент ещё не готов, попытка ' + tries + '/40', fl);
-                if (tries >= 40) trFail('РАДИАЛЬНОЕ МЕНЮ: компонент не готов за 4с', 'ник: ' + nickInfo(lastNick));
-            }
-            if (tries < 40) setTimeout(function () { inject(tries + 1); }, 100);
-            return;
-        }
-        tr('RADIAL/inject', 'компонент готов, попытка ' + tries, 'ник=' + nickInfo(lastNick), 'пунктов=' + vm.menu.length, 'секторов=' + (vm.DEFAULT_MENU_COUNT || 8));
-        if (!canShow(lastNick)) { tr('RADIAL/inject', 'canShow=false → пункт НЕ добавляем', 'ник=' + nickInfo(lastNick), stateInfo()); removeEntry(vm); cleanup(); return; }
-        var nat = tryNative(vm, box);
-        tr('RADIAL/режим', nat ? 'native (пункт встроен в круг)' : 'запасная DOM-кнопка', 'слот=' + (nat ? ownIndex(vm) : '—'));
-        if (nat) return;
-        injectDom(vm, box);
-    }
+    every(tick, 100);
     onUndo(function () { try { cleanup(); } catch (e) {} });
     return {
-        // как в pravo.js: пустой ник (меню машины/дома/NPC) обязан СБРОСИТЬ прошлого игрока, иначе «Выдача лицензии» уйдёт ему
-        setNick: function (n) { tr('RADIAL/setNick', nickInfo(n), 'было ' + nickInfo(lastNick)); lastNick = n || ''; },
+        // события открытия/обновления только «подталкивают» движок — решает он сам по состоянию компонента
+        onOpen: function (params, was) { Target.event(params, was ? 'open(меню уже было открыто)' : 'open'); if (!was) busy = false; setTimeout(tick, 0); },
+        onUpdate: function (params) { Target.event(params, 'update'); setTimeout(tick, 30); },
+        setNick: function (n) { Target.setNick(n, 'setNick'); },
         resetBusy: function () { if (busy) tr('RADIAL/resetBusy', 'busy сброшен (было true)'); busy = false; },
-        inject: inject,
-        cleanup: cleanup
+        inject: function () { setTimeout(tick, 0); },
+        cleanup: cleanup,
+        tick: tick,
+        state: function () { return { nick: S.nick, src: S.src, mode: S.mode, decision: S.decision, stall: S.stall, open: piOpen(), busy: busy, sessionAgeMs: S.at ? Date.now() - S.at : null }; }
     };
 })();
 
@@ -2198,8 +2321,8 @@ function ensureChatAddHook() {
                 var r = prev.apply(this, arguments);
                 if (!was) {
                     tr('OPEN/штатное меню открыто', 'piOpen=' + isOpen('PlayerInteraction'), 'дальше inject пункта «Выдача лицензии»');
-                    try { Radial.setNick(parseNick(params)); Radial.resetBusy(); setTimeout(function () { Radial.inject(0); }, 0); Chat.kick(); } catch (e) { tr('OPEN/ОШИБКА', 'после открытия', e); }
                 }
+                try { Radial.onOpen(params, was); Chat.kick(); } catch (e) { tr('OPEN/ОШИБКА', 'после открытия', e); }
                 return r;
             }
             return prev.apply(this, arguments);
@@ -2232,7 +2355,7 @@ function ensureChatAddHook() {
         return function (name, params) {
             var r = prev.apply(this, arguments);
             if (!_dead && name === 'PlayerInteraction') {
-                try { var n = parseNick(params); tr('UPDATE/updateParams', 'PlayerInteraction', 'ник=' + nickInfo(n), 'params=' + tstr(params).slice(0, 200)); if (n) Radial.setNick(n); setTimeout(function () { Radial.inject(0); }, 250); } catch (e) { tr('UPDATE/ОШИБКА', e); }
+                try { tr('UPDATE/updateParams', 'PlayerInteraction', 'params=' + tstr(params).slice(0, 200)); Radial.onUpdate(params); } catch (e) { tr('UPDATE/ОШИБКА', e); }
             }
             return r;
         };
@@ -2292,7 +2415,7 @@ window.__code3 = {
         } catch (e) { return 'не удалось скопировать: ' + tstr(e); }
     },
     lastFail: function () { return _lastFail; },   // снимок последнего «не удалось определить ID»: ник, причина, весь список, 60 строк трассы
-    diag: function () { return { version: VERSION, state: stateInfo(), list: plistInfo(), lastResolve: _lastResolve, session: _rmSid, circle: { pending: circle.pending } }; }
+    diag: function () { return { version: VERSION, state: stateInfo(), list: plistInfo(), lastResolve: _lastResolve, session: _rmSid, circle: { pending: circle.pending }, radial: Radial.state(), target: Target.last() }; }
 };
 tr('INIT', VERSION + ' загружен', stateInfo(), plistInfo());
 log(VERSION + ' загружен. Помощник лицензёра активен только в правительственном скине со званием «Лицензёр». /dahk — меню.');
