@@ -210,13 +210,29 @@ function freshPlayers(cb, maxMs) {
 //  • если список пришёл совсем недавно (при открытии меню / пока оно открыто мы опрашиваем движок каждую секунду) — берём сразу;
 //  • иначе просим движок и ждём его ответ событием (без таймера «через 250 мс»), ID всегда из свежего списка;
 //  • игрока нет даже в свежем списке (только что вошёл) — до 3 попыток подряд; null только если его правда нет.
+var _lastResolve = null;   // что и как определили в последний раз (смотреть: __code3.players().last)
+function noteResolve(nick, id, how) {
+    var age = _listAt ? Date.now() - _listAt : null;
+    _lastResolve = { nick: nick, id: id, how: how, ageMs: age, at: Date.now() };
+    if (id !== null) { log('ID цели:', nick, '→', id, '|', how, '| возраст списка, мс:', age); return; }
+    var l = plist(), similar = [], total = 0;
+    try {
+        var key = norm(nick).split('_').pop();
+        if (l && Array.isArray(l.players)) {
+            total = l.players.length;
+            l.players.forEach(function (p) { if (norm(p.name).indexOf(key) !== -1) similar.push(p.name + '[' + p.id + ']'); });
+        }
+    } catch (e) {}
+    warn('ID не найден:', nick, '| игроков в списке:', total, '| возраст списка, мс:', age, '| похожие ники:', similar.join(', ') || 'нет',
+         '(если цель в маске/с фейк-ником — меню показывает настоящий ник, а список игроков маску)');
+}
 var FRESH_MS = 600;       // список моложе этого возраста считаем свежим
 var STALE_OK_MS = 10000;  // если движок вообще не отвечает — старый список не старше этого ещё годится
 function resolveId(nick, cb) {
     var attempt = 0;
     if (_listAt && Date.now() - _listAt <= FRESH_MS) {
         var quick = idByNick(nick);
-        if (quick !== null) return cb(quick);
+        if (quick !== null) { noteResolve(nick, quick, 'свежий список'); return cb(quick); }
     }
     (function go() {
         if (_dead) return;
@@ -224,8 +240,8 @@ function resolveId(nick, cb) {
             var id = idByNick(nick);
             // Как в pravo.js: ник найден в уже имеющемся списке — берём его, даже если движок не ответил свежим
             // списком (раньше при молчании движка список старше 10 с отбрасывался → «не удалось определить ID»)
-            if (id !== null) return cb(id);
-            if (++attempt >= 3) return cb(null);
+            if (id !== null) { noteResolve(nick, id, ok ? 'ответ движка' : 'кэш (движок не ответил)'); return cb(id); }
+            if (++attempt >= 3) { noteResolve(nick, null, ''); return cb(null); }
             setTimeout(go, 150);
         }, 700);
     })();
@@ -727,7 +743,7 @@ function circleHandle(nick, params) {
     circle.timer = setTimeout(function () { if (circle.pending && !_dead) circleShowNormal(params, nick); }, 3000);   // страховка
     resolveId(nick, function (id) {
         if (!circle.pending || _dead) return;
-        if (id === null) { circleShowNormal(params, nick); gtAdd('~r~Круговое меню~n~~w~Не удалось определить ID игрока', 3000, 3); return; }
+        if (id === null) { circleShowNormal(params, nick); gtAdd('~r~Круговое меню~n~~w~Не удалось определить ID (маска/фейк-ник?)', 3000, 3); return; }
         circleDone();
         log('круговое меню: выдача лицензии →', nick, '| ID:', id);
         srvSend('MenuInt_OnCloseInterface', 0);   // сам компонент мы не открывали — сообщаем серверу, что меню «закрыто»
@@ -794,7 +810,7 @@ var Radial = (function () {
         if (!nick) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
         resolveId(nick, function (id) {
             if (_dead || !piOpen()) { busy = false; return; }
-            if (id === null) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить ID игрока'); return; }
+            if (id === null) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить ID (маска/фейк-ник?)'); return; }
             cb(id);
         });
     }
@@ -1371,6 +1387,10 @@ function onChat(message) {
 
     var clean = msg.replace(/\{[0-9a-fA-F]{6}\}/g, '');
     var last = STATE.last;
+    // Меню игрока открывается с 8 м (MIU: IsPlayerInRangeOfPlayer 8.0), а /givelic требует не дальше 6 м
+    if (last && last.at && Date.now() - last.at < 20000 && clean.indexOf('Игрок находится слишком далеко') !== -1 && cooled('far', 3000)) {
+        gtAdd('~y~Игрок далеко~n~~w~/givelic работает до 6 м, меню открывается с 8 м', 3500, 3);
+    }
 
     if (OPTS.AUTO_REPLIES && last && licensorReady()) {
         // Неоплаченные штрафы у покупателя
@@ -2046,7 +2066,7 @@ window.__code3 = {
     menu: showLicMenu,
     panel: updatePanel,
     refreshRank: ensureRank,
-    players: function () { var l = plist(); return { hooked: !!(window.onUpdatePlayersList && window.onUpdatePlayersList.__code3 === RUN), ageMs: _listAt ? Date.now() - _listAt : null, count: l && Array.isArray(l.players) ? l.players.length : 0, local: l && l.local ? l.local : null, list: l }; },
+    players: function () { var l = plist(); return { hooked: !!(window.onUpdatePlayersList && window.onUpdatePlayersList.__code3 === RUN), ageMs: _listAt ? Date.now() - _listAt : null, count: l && Array.isArray(l.players) ? l.players.length : 0, local: l && l.local ? l.local : null, last: _lastResolve, list: l }; },
     // API для Telegram-вкладки «Лицензёр» (Code2.js)
     types: LIC_TYPES,
     ready: licensorReady,
