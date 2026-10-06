@@ -29,7 +29,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.2';
+var VERSION = 'code3 v1.3';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -64,6 +64,7 @@ var OPTS = (function () {
         SMS_BTN: true,           // кнопка «Ответ» у входящих SMS → «Место» / «Ценовая политика» (как в pravo.js)
         SMS_TEXT: '',            // свой текст пункта «Место» (пусто = «Здравствуйте, нахожусь в правительстве [/gps - Правительство]»)
         SMS_TEXT_PRICE: '',      // свой текст «Ценовой политики» (пусто = собирается из цен лицензий)
+        TRACE: true,             // полное логирование радиального меню / поиска ID (консоль + буфер: __code3.trace())
         DEBUG: false
     };
     try { var g = window.CODE3_OPTS; if (g) for (var k in g) o[k] = g[k]; } catch (e) {}
@@ -74,7 +75,128 @@ var OPTS = (function () {
     } catch (e) {}
     return o;
 })();
-function dbg() { if (!OPTS.DEBUG) return; try { console.log.apply(console, ['[CODE3][dbg]'].concat([].slice.call(arguments))); } catch (e) {} }
+function dbg() {
+    var a = [].slice.call(arguments);
+    if (OPTS.TRACE !== false) { try { tr.apply(null, ['dbg'].concat(a)); } catch (e) {} return; }   // dbg теперь пишется в трассировку всегда
+    if (!OPTS.DEBUG) return;
+    try { console.log.apply(console, ['[CODE3][dbg]'].concat(a)); } catch (e) {}
+}
+
+// ══════════════════════════ ТРАССИРОВКА (полное логирование радиального меню) ══════════════════════════
+// Каждая строка уходит в консоль «[CODE3][RM] …» и в кольцевой буфер (последние 600 событий, переживает перезагрузку скрипта).
+// «м12 +340мс» = номер открытия меню и миллисекунды с момента открытия. Одинаковые строки подряд (<1.5 с) схлопываются.
+// Смотреть из консоли:  __code3.trace(80)  ·  __code3.traceText(150)  ·  __code3.traceCopy()  ·  __code3.lastFail()  ·  __code3.diag()
+// Выключить: CODE3_OPTS = { TRACE: false }
+var TRACE_MAX = 600;
+var _trBuf = window.__code3Trace || (window.__code3Trace = []);
+var _trSeq = window.__code3TraceSeq || 0;
+var _rmSid = 0, _rmT0 = 0, _trPrev = '', _trPrevAt = 0, _trSkipped = 0, _trOnceKeys = {}, _lastFail = null;
+function tstr(v) {
+    try {
+        if (v === undefined) return 'undefined';
+        if (v === null) return 'null';
+        if (typeof v === 'string') return v;
+        if (typeof v === 'function') return 'fn';
+        if (v instanceof Error) return (v.name || 'Error') + ': ' + v.message;
+        return JSON.stringify(v);
+    } catch (e) { return String(v); }
+}
+function tpad(n, w) { n = String(n); while (n.length < w) n = '0' + n; return n; }
+function tstamp(t) { var d = new Date(t); return tpad(d.getHours(), 2) + ':' + tpad(d.getMinutes(), 2) + ':' + tpad(d.getSeconds(), 2) + '.' + tpad(d.getMilliseconds(), 3); }
+function trEmit(body) {
+    var now = Date.now();
+    var line = '#' + (++_trSeq) + ' ' + tstamp(now) + (_rmSid ? ' м' + _rmSid + ' +' + (now - _rmT0) + 'мс' : '') + ' ' + body;
+    window.__code3TraceSeq = _trSeq;
+    _trBuf.push(line);
+    if (_trBuf.length > TRACE_MAX) _trBuf.splice(0, _trBuf.length - TRACE_MAX);
+    try { console.log('[CODE3][RM] ' + line); } catch (e) {}
+}
+function tr(tag) {
+    if (OPTS.TRACE === false) return;
+    try {
+        var parts = [];
+        for (var i = 1; i < arguments.length; i++) parts.push(tstr(arguments[i]));
+        var body = tag + (parts.length ? ' | ' + parts.join(' | ') : '');
+        var now = Date.now();
+        if (body === _trPrev && now - _trPrevAt < 1500) { _trSkipped++; _trPrevAt = now; return; }
+        if (_trSkipped) { trEmit('… предыдущая запись повторилась ещё ' + _trSkipped + ' раз(а)'); _trSkipped = 0; }
+        _trPrev = body; _trPrevAt = now;
+        trEmit(body);
+    } catch (e) {}
+}
+function trOnce(key) {   // не чаще одного раза за одно открытие меню
+    var k = _rmSid + ':' + key;
+    if (_trOnceKeys[k]) return;
+    _trOnceKeys[k] = 1;
+    tr.apply(null, [].slice.call(arguments, 1));
+}
+function nickInfo(n) {
+    if (n === undefined || n === null) return String(n);
+    var s = String(n), out = JSON.stringify(s) + ' (длина ' + s.length + ')';
+    if (/[^A-Za-z0-9_]/.test(s)) { var codes = []; for (var i = 0; i < s.length && i < 40; i++) codes.push(s.charCodeAt(i)); out += ' коды=[' + codes.join(',') + ']'; }
+    return out;
+}
+function stateInfo() {
+    var ready = false, gov = false, lic = false;
+    try { ready = licensorReady(); gov = isGovSkin(); lic = isLicensor(); } catch (e) {}
+    return 'скин=' + _skin + ' gov=' + gov + ' звание=' + JSON.stringify(_rank) + ' лицензёр=' + lic + ' ready=' + ready +
+        ' | круговое(STATE.circle)=' + STATE.circle + ' RADIAL_BTN=' + OPTS.RADIAL_BTN + ' NATIVE=' + OPTS.RADIAL_NATIVE + ' | мобайл=' + isMobile();
+}
+function plistInfo() {
+    var l = null, hooked = false, cnt = 0, loc = '—';
+    try { l = plist(); hooked = !!(window.onUpdatePlayersList && window.onUpdatePlayersList.__code3 === RUN); } catch (e) {}
+    try { cnt = (l && Array.isArray(l.players)) ? l.players.length : 0; loc = (l && l.local) ? (l.local.name + '[' + l.local.id + ']') : '—'; } catch (e) {}
+    return 'хук=' + hooked + ' список=' + (l ? 'есть' : 'НЕТ') + ' игроков=' + cnt + ' local=' + loc +
+        ' возраст=' + (_listAt ? (Date.now() - _listAt) + 'мс' : 'ни разу не приходил') +
+        ' последний запрос=' + (_reqAt ? (Date.now() - _reqAt) + 'мс назад' : '—') +
+        ' ждущих=' + _listWaiters.length + ' updatePlayerList=' + (typeof window.updatePlayerList === 'function' ? 'fn' : 'НЕТ');
+}
+function allNames(max) {
+    try {
+        var l = plist(); if (!l || !Array.isArray(l.players)) return '—';
+        var s = l.players.map(function (p) { return p.id + ':' + p.name; }).join(', ');
+        return s.length > (max || 4000) ? s.slice(0, max || 4000) + '…' : s;
+    } catch (e) { return '—'; }
+}
+// Почему ник не нашёлся — человеческим языком
+function diagnose(nick) {
+    try {
+        var l = plist();
+        if (!l) return 'списка игроков нет вообще (движок не присылал onUpdatePlayersList или хук затёрт)';
+        if (!Array.isArray(l.players) || !l.players.length) return 'в списке 0 игроков (движок прислал пустой список)';
+        var n = norm(nick), parts = n.split('_'), key = parts[parts.length - 1], first = parts[0], like = [];
+        l.players.forEach(function (p) {
+            var pn = norm(p.name);
+            if ((key && pn.indexOf(key) !== -1) || (first && pn.indexOf(first) !== -1)) like.push(p.name + '[' + p.id + ']');
+        });
+        var age = _listAt ? Date.now() - _listAt : null;
+        var s = like.length
+            ? 'точного ника нет, но есть похожие: ' + like.join(', ') + ' → вероятно маска/фейк-ник/другая запись ника'
+            : 'похожих ников нет → игрока нет в списке (только что вошёл / вне зоны / маска без совпадений)';
+        if (age !== null && age > STALE_OK_MS) s += ' | список СТАРЫЙ (' + age + 'мс)';
+        return s;
+    } catch (e) { return 'ошибка диагностики: ' + tstr(e); }
+}
+function rmActive() { return !!_rmT0 && (Date.now() - _rmT0 < 20000 || isOpen('PlayerInteraction')); }
+// Полный дамп в консоль сразу при провале (без ручных команд): причина, состояние, список игроков, последние 60 событий
+function trFail(title, extra) {
+    if (OPTS.TRACE === false) return;
+    try {
+        var txt = '═══ ' + title + ' ═══\n' + (extra ? extra + '\n' : '') + stateInfo() + '\n' + plistInfo() + '\n--- последние события ---\n' + _trBuf.slice(-60).join('\n');
+        console.error('[CODE3][RM] ' + txt);
+    } catch (e) {}
+}
+// Начало нового открытия меню игрока: новая «сессия» трассировки + полный снимок состояния
+function rmBegin(params, nick) {
+    _rmSid++; _rmT0 = Date.now(); _trOnceKeys = {};
+    var raw = '';
+    try { raw = (typeof params === 'string') ? params : JSON.stringify(params); } catch (e) { raw = String(params); }
+    tr('═══ ОТКРЫТИЕ МЕНЮ ИГРОКА ═══', 'версия ' + VERSION);
+    tr('OPEN/params', raw.length > 400 ? raw.slice(0, 400) + '…(' + raw.length + ')' : raw);
+    tr('OPEN/ник', nickInfo(nick), 'NICK_RE=' + NICK_RE.test(nick));
+    tr('OPEN/состояние', stateInfo());
+    tr('OPEN/список игроков', plistInfo());
+}
 
 // Состояние, которое переживает перезагрузку скрипта
 var STATE = window.__code3State || (window.__code3State = { tea: !!OPTS.TEA_ASK, circle: !!OPTS.CIRCLE_LIC, last: null });
@@ -153,7 +275,8 @@ function idByNick(nick) {
 // Хук на window.onUpdatePlayersList. Code.js/движок могут переприсвоить эту функцию уже после нас — тогда наша
 // обёртка пропадает, список остаётся пустым и получается «не удалось определить ID» / «Жетон N».
 // Поэтому перед каждым запросом списка проверяем, что обёртка на месте, и ставим её заново.
-var RUN = {};   // метка именно этого запуска (после перезагрузки скрипта старая обёртка не считается нашей)
+var RUN = {};
+var _hookInstalls = 0;   // метка именно этого запуска (после перезагрузки скрипта старая обёртка не считается нашей)
 var _listAt = 0;        // когда движок прислал последний список (мс); после перезагрузки скрипта = 0 → старый список считается устаревшим
 var _reqAt = 0;         // когда мы в последний раз просили движок обновить список
 var _listWaiters = [];  // кто ждёт СВЕЖИЙ ответ движка — просыпаются сразу, как только он пришёл (без опроса по таймеру)
@@ -163,13 +286,18 @@ function flushListWaiters() {
 }
 function capturePlayers(e) {
     try {
-        if (typeof e === 'string') { try { e = JSON.parse(e); } catch (er) { return; } }
+        var rawE = e;
+        if (typeof e === 'string') { try { e = JSON.parse(e); } catch (er) { tr('LIST/ОШИБКА', 'onUpdatePlayersList: строка не парсится', String(rawE).slice(0, 120)); return; } }
         if (e && (e.local || Array.isArray(e.players))) {
             window.__code3PlayerList = e;
             _listAt = Date.now();
+            if (rmActive()) tr('LIST/получен', 'игроков=' + (Array.isArray(e.players) ? e.players.length : 'нет массива') + ' local=' + (e.local ? e.local.name + '[' + e.local.id + ']' : '—'),
+                'ответ на запрос через ' + (_reqAt ? (_listAt - _reqAt) + 'мс' : '?'), 'ждущих=' + _listWaiters.length);
             flushListWaiters();
+        } else {
+            tr('LIST/ОШИБКА', 'onUpdatePlayersList прислал данные неизвестной формы', tstr(e).slice(0, 160));
         }
-    } catch (er) {}
+    } catch (er) { tr('LIST/ИСКЛЮЧЕНИЕ', er); }
 }
 function ensurePlayersHook() {
     if (_dead) return;
@@ -181,28 +309,34 @@ function ensurePlayersHook() {
     };
     w.__code3 = RUN;
     window.onUpdatePlayersList = w;
-    dbg('хук onUpdatePlayersList (пере)установлен');
+    _hookInstalls++;
+    tr('HOOK/onUpdatePlayersList', _hookInstalls === 1 ? 'установлен' : 'ПЕРЕустановлен №' + _hookInstalls + ' (кто-то перезаписал window.onUpdatePlayersList)',
+       'prev=' + typeof prev + (prev && prev.__code3 ? ' (обёртка прошлого запуска)' : ''));
     onUndo(function () { if (window.onUpdatePlayersList === w) window.onUpdatePlayersList = prev; });
 }
 function refreshPlayers() {
     ensurePlayersHook();
     _reqAt = Date.now();
-    try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (e) {}
+    var has = (typeof window.updatePlayerList === 'function');
+    if (!has) tr('LIST/запрос', 'window.updatePlayerList НЕ функция — запросить список нечем!');
+    else if (rmActive()) tr('LIST/запрос', 'updatePlayerList() вызван', 'возраст прошлого списка=' + (_listAt ? (_reqAt - _listAt) + 'мс' : '—'));
+    try { if (has) window.updatePlayerList(); } catch (e) { tr('LIST/ИСКЛЮЧЕНИЕ', 'updatePlayerList бросил', e); }
 }
 // Просит у движка СВЕЖИЙ список и вызывает cb(ok) в ту же миллисекунду, как список пришёл (ok=true).
 // Если движок промолчал — повторяем запрос и через maxMs отдаём cb(false): тогда решает вызывающий.
 function freshPlayers(cb, maxMs) {
-    var done = false, t1, t2, t3;
+    var done = false, t1, t2, t3, tf0 = Date.now();
     function fin(ok) {
         if (done) return;
         done = true;
+        tr('LIST/fresh', ok ? 'ответ движка получен за ' + (Date.now() - tf0) + 'мс' : 'ТАЙМАУТ: движок молчит ' + (Date.now() - tf0) + 'мс', 'ждущих осталось=' + Math.max(0, _listWaiters.length - 1));
         clearTimeout(t1); if (t2) clearTimeout(t2); clearTimeout(t3);
         var i = _listWaiters.indexOf(fin); if (i !== -1) _listWaiters.splice(i, 1);
         if (!_dead) { try { cb(!!ok); } catch (e) { warn('freshPlayers:', e); } }
     }
     _listWaiters.push(fin);
     refreshPlayers();
-    t1 = setTimeout(function () { if (!done && !_dead) refreshPlayers(); }, 450);   // ответ потерялся — один повторный запрос (не заваливаем движок)
+    t1 = setTimeout(function () { if (!done && !_dead) { tr('LIST/fresh', 'нет ответа за 450мс — повторный запрос'); refreshPlayers(); } }, 450);   // ответ потерялся — один повторный запрос (не заваливаем движок)
     t2 = null;
     t3 = setTimeout(function () { fin(false); }, maxMs || 700);
 }
@@ -214,7 +348,11 @@ var _lastResolve = null;   // что и как определили в посл�
 function noteResolve(nick, id, how) {
     var age = _listAt ? Date.now() - _listAt : null;
     _lastResolve = { nick: nick, id: id, how: how, ageMs: age, at: Date.now() };
-    if (id !== null) { log('ID цели:', nick, '→', id, '|', how, '| возраст списка, мс:', age); return; }
+    if (id !== null) {
+        log('ID цели:', nick, '→', id, '|', how, '| возраст списка, мс:', age);
+        tr('ID/НАЙДЕН', nickInfo(nick), '→ ID ' + id, 'как: ' + how, 'возраст списка ' + age + 'мс');
+        return;
+    }
     var l = plist(), similar = [], total = 0;
     try {
         var key = norm(nick).split('_').pop();
@@ -225,23 +363,37 @@ function noteResolve(nick, id, how) {
     } catch (e) {}
     warn('ID не найден:', nick, '| игроков в списке:', total, '| возраст списка, мс:', age, '| похожие ники:', similar.join(', ') || 'нет',
          '(если цель в маске/с фейк-ником — меню показывает настоящий ник, а список игроков маску)');
+    var why = diagnose(nick);
+    tr('ID/НЕ НАЙДЕН', nickInfo(nick), 'нормализованный=' + JSON.stringify(norm(nick)), 'ПРИЧИНА: ' + why);
+    tr('ID/состояние при провале', plistInfo());
+    tr('ID/весь список', allNames());
+    var failAt = new Date().toISOString();
+    _lastFail = { at: failAt, nick: nick, why: why, list: plistInfo(), names: allNames(8000), state: stateInfo(), trace: _trBuf.slice(-60) };
+    trFail('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ ID', 'ник: ' + nickInfo(nick) + '\nПРИЧИНА: ' + why + '\nвесь список: ' + allNames(8000));
 }
 var FRESH_MS = 600;       // список моложе этого возраста считаем свежим
 var STALE_OK_MS = 10000;  // если движок вообще не отвечает — старый список не старше этого ещё годится
 function resolveId(nick, cb) {
-    var attempt = 0;
+    var attempt = 0, t0 = Date.now();
+    tr('ID/старт', nickInfo(nick), plistInfo());
     if (_listAt && Date.now() - _listAt <= FRESH_MS) {
         var quick = idByNick(nick);
+        tr('ID/быстрый путь', 'список свежий (' + (Date.now() - _listAt) + 'мс)', quick !== null ? 'ник найден → ID ' + quick : 'ника в свежем списке нет → идём к движку');
         if (quick !== null) { noteResolve(nick, quick, 'свежий список'); return cb(quick); }
+    } else {
+        tr('ID/быстрый путь', 'пропущен: ' + (_listAt ? 'список старый (' + (Date.now() - _listAt) + 'мс > ' + FRESH_MS + 'мс)' : 'список ни разу не приходил'));
     }
     (function go() {
-        if (_dead) return;
+        if (_dead) { tr('ID/отмена', 'скрипт перезагружен (_dead)'); return; }
+        var n = attempt + 1;
+        tr('ID/попытка ' + n + '/3', 'просим у движка свежий список');
         freshPlayers(function (ok) {
             var id = idByNick(nick);
+            tr('ID/попытка ' + n + '/3 итог', ok ? 'движок ответил' : 'движок НЕ ответил', 'ник в списке: ' + (id !== null ? 'да, ID ' + id : 'нет'), 'всего прошло ' + (Date.now() - t0) + 'мс');
             // Как в pravo.js: ник найден в уже имеющемся списке — берём его, даже если движок не ответил свежим
             // списком (раньше при молчании движка список старше 10 с отбрасывался → «не удалось определить ID»)
             if (id !== null) { noteResolve(nick, id, ok ? 'ответ движка' : 'кэш (движок не ответил)'); return cb(id); }
-            if (++attempt >= 3) { noteResolve(nick, null, ''); return cb(null); }
+            if (++attempt >= 3) { noteResolve(nick, null, ''); tr('ID/итог', 'null после 3 попыток, ' + (Date.now() - t0) + 'мс'); return cb(null); }
             setTimeout(go, 150);
         }, 700);
     })();
@@ -724,30 +876,44 @@ function parseNick(params) {
     try {
         var p = (typeof params === 'string') ? JSON.parse(params.replace(/\n/, '\\n')) : params;
         var raw = Array.isArray(p) ? p[0] : null;
+        if (typeof raw !== 'string') tr('parseNick', 'params[0] не строка → ник пуст', 'тип=' + typeof raw, 'params=' + tstr(params).slice(0, 160));
         return (typeof raw === 'string') ? raw.trim().split(' ').join('_') : '';
-    } catch (e) { return ''; }
+    } catch (e) { tr('parseNick/ОШИБКА', 'не удалось разобрать params → ник пуст', e, 'params=' + tstr(params).slice(0, 200)); return ''; }
 }
 var circle = { pending: false, timer: null };
-function circleDone() { circle.pending = false; if (circle.timer) { clearTimeout(circle.timer); circle.timer = null; } }
-function circleCanIntercept(nick) { return STATE.circle && licensorReady() && NICK_RE.test(nick); }
+function circleDone(why) {
+    if (circle.pending || circle.timer) tr('CIRCLE/конец', why || '');
+    circle.pending = false; if (circle.timer) { clearTimeout(circle.timer); circle.timer = null; }
+}
+function circleCanIntercept(nick) {
+    var re = NICK_RE.test(nick), lr = licensorReady(), r = !!(STATE.circle && lr && re);
+    tr('CIRCLE/перехват?', r ? 'ДА — сразу выбор лицензии' : 'нет — откроется обычное меню', 'STATE.circle=' + STATE.circle, 'licensorReady=' + lr, 'NICK_RE=' + re);
+    return r;
+}
 // Не смогли определить цель — открываем обычное круговое меню
-function circleShowNormal(params, nick) {
-    circleDone();
-    try { openPrev.call(window, 'PlayerInteraction', params); } catch (e) {}
+function circleShowNormal(params, nick, why) {
+    tr('CIRCLE/обычное меню', 'причина: ' + (why || '?'), nickInfo(nick));
+    circleDone('showNormal');
+    try { openPrev.call(window, 'PlayerInteraction', params); } catch (e) { tr('CIRCLE/ОШИБКА', 'openPrev бросил', e); }
     Radial.setNick(nick);
     setTimeout(function () { Radial.inject(0); }, 0);
 }
 function circleHandle(nick, params) {
     circle.pending = true;
+    tr('CIRCLE/старт', nickInfo(nick), 'страховочный таймер 3000мс');
     if (circle.timer) clearTimeout(circle.timer);
-    circle.timer = setTimeout(function () { if (circle.pending && !_dead) circleShowNormal(params, nick); }, 3000);   // страховка
+    circle.timer = setTimeout(function () {
+        if (circle.pending && !_dead) { tr('CIRCLE/ТАЙМЕР 3с', 'resolveId не ответил вовремя'); trFail('КРУГОВОЕ МЕНЮ: сработала страховка 3с', 'ник: ' + nickInfo(nick)); circleShowNormal(params, nick, 'сработала страховка 3с'); }
+    }, 3000);   // страховка
     resolveId(nick, function (id) {
-        if (!circle.pending || _dead) return;
-        if (id === null) { circleShowNormal(params, nick); gtAdd('~r~Круговое меню~n~~w~Не удалось определить ID (маска/фейк-ник?)', 3000, 3); return; }
-        circleDone();
+        if (!circle.pending || _dead) { tr('CIRCLE/ответ resolveId ПРОИГНОРИРОВАН', 'pending=' + circle.pending, '_dead=' + _dead, 'id=' + id); return; }
+        if (id === null) { circleShowNormal(params, nick, 'ID не определён'); gtAdd('~r~Круговое меню~n~~w~Не удалось определить ID (маска/фейк-ник?)', 3000, 3); tr('CIRCLE/уведомление', 'показано «Не удалось определить ID»'); return; }
+        circleDone('ID получен');
         log('круговое меню: выдача лицензии →', nick, '| ID:', id);
-        srvSend('MenuInt_OnCloseInterface', 0);   // сам компонент мы не открывали — сообщаем серверу, что меню «закрыто»
-        setTimeout(function () { showTypeDialog(id); }, 80);
+        tr('CIRCLE/выдача', nickInfo(nick), 'ID ' + id);
+        var sent = srvSend('MenuInt_OnCloseInterface', 0);   // сам компонент мы не открывали — сообщаем серверу, что меню «закрыто»
+        tr('CIRCLE/MenuInt_OnCloseInterface', 'отправлено=' + sent);
+        setTimeout(function () { tr('CIRCLE/showTypeDialog', 'ID ' + id); showTypeDialog(id); }, 80);
     });
 }
 
@@ -790,6 +956,7 @@ var Radial = (function () {
     function stopSync() { if (syncTimer) { clearInterval(syncTimer); syncTimer = null; } }
     function removeBtn() { var old = document.getElementById(BTN_ID); if (old && old.parentNode) old.parentNode.removeChild(old); }
     function cleanup() {
+        if (mode || pickOn || syncTimer) tr('RADIAL/cleanup', 'режим был: ' + (mode || '—'), 'pickOn=' + pickOn, 'ник=' + nickInfo(lastNick));
         if (pickOn) { pickOn = false; Chat.sync(); }
         pickOn = false;
         releaseLabels();
@@ -801,21 +968,26 @@ var Radial = (function () {
     }
     // Закрываем как компонент: closeInterface + событие серверу
     function closeMenu() {
-        try { window.closeInterface('PlayerInteraction'); } catch (e) {}
-        srvSend('MenuInt_OnCloseInterface', 0);
+        tr('RADIAL/closeMenu', 'closeInterface + MenuInt_OnCloseInterface');
+        try { window.closeInterface('PlayerInteraction'); } catch (e) { tr('RADIAL/ОШИБКА', 'closeInterface бросил', e); }
+        var sent = srvSend('MenuInt_OnCloseInterface', 0);
+        tr('RADIAL/MenuInt_OnCloseInterface', 'отправлено=' + sent);
     }
     // ID цели по нику — всегда из свежего списка (см. resolveId)
     function withTargetId(cb) {
         var nick = lastNick;
-        if (!nick) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
+        tr('RADIAL/withTargetId', 'lastNick=' + nickInfo(nick), 'piOpen=' + piOpen(), 'режим=' + (mode || '—'));
+        if (!nick) { busy = false; tr('RADIAL/ОШИБКА', 'lastNick пуст → «Не удалось определить игрока»'); trFail('РАДИАЛЬНОЕ МЕНЮ: lastNick пуст'); notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
         resolveId(nick, function (id) {
-            if (_dead || !piOpen()) { busy = false; return; }
-            if (id === null) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить ID (маска/фейк-ник?)'); return; }
+            if (_dead || !piOpen()) { busy = false; tr('RADIAL/ответ resolveId ПРОИГНОРИРОВАН', '_dead=' + _dead, 'piOpen=' + piOpen(), 'id=' + id, '(меню уже закрыто, пока искали ID)'); return; }
+            if (id === null) { busy = false; tr('RADIAL/уведомление', 'показано «Не удалось определить ID»', nickInfo(nick)); notify('~r~Выдача лицензии~n~~w~Не удалось определить ID (маска/фейк-ник?)'); return; }
+            tr('RADIAL/ID получен', nickInfo(nick), 'ID ' + id);
             cb(id);
         });
     }
     function giveLicense(id, idx) {
-        try { if (giveByIndex(id, idx)) return; } catch (er) { warn('выдача из круга:', er); }
+        tr('RADIAL/giveLicense', 'ID ' + id, 'тип #' + idx + (LIC_TYPES[idx] ? ' ' + LIC_TYPES[idx].name : ''));
+        try { if (giveByIndex(id, idx)) { tr('RADIAL/giveByIndex', 'команда отправлена'); return; } tr('RADIAL/giveByIndex', 'вернул false → запасной диалог'); } catch (er) { warn('выдача из круга:', er); tr('RADIAL/ОШИБКА', 'giveByIndex бросил', er); }
         showTypeDialog(id);   // запасной путь — диалог выбора
     }
 
@@ -939,6 +1111,7 @@ var Radial = (function () {
     }
     function openOwn(vm, t) {
         var m = vm.menu[t];
+        tr('RADIAL/openOwn', 'раскрыт пункт «Выдача лицензии»', 'сектор=' + t, 'ник=' + nickInfo(lastNick));
         if (!m) return;
         vm.onSelectOption(m.id);   // как ответ сервера для обычной категории — выбираем локально
         syncLabels(vm);
@@ -946,8 +1119,9 @@ var Radial = (function () {
     function pickType(vm, i) {
         var m = vm.menu[vm.selectedOption];
         var o = m && m.options && m.options[i];
-        if (!o || !o.title || busy) return;
+        if (!o || !o.title || busy) { tr('RADIAL/pickType ОТКЛОНЁН', 'i=' + i, 'пункт=' + (o ? JSON.stringify(o.title) : 'нет'), 'busy=' + busy); return; }
         var typeIdx = (typeof o._code3LicIdx === 'number') ? o._code3LicIdx : i;
+        tr('RADIAL/pickType', 'нажат подпункт i=' + i, 'тип #' + typeIdx + (LIC_TYPES[typeIdx] ? ' ' + LIC_TYPES[typeIdx].name : ''), 'ник=' + nickInfo(lastNick));
         busy = true;
         try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
         withTargetId(function (id) {
@@ -1140,7 +1314,7 @@ var Radial = (function () {
             dbg('режим: native | слот:', ownIndex(vm), '| ник:', lastNick);
             return true;
         } catch (er) {
-            dbg('native: ошибка', er);
+            tr('RADIAL/native', 'ОШИБКА при встраивании', er);
             try { removeEntry(vm); } catch (e2) {}
             return false;
         }
@@ -1165,6 +1339,7 @@ var Radial = (function () {
         try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
         if (busy) return;
         try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
+        tr('RADIAL/onBtnClick', 'нажата запасная DOM-кнопка', 'ник=' + nickInfo(lastNick));
         busy = true;
         withTargetId(openDialog);
     }
@@ -1210,21 +1385,33 @@ var Radial = (function () {
     }
     // Компонент строит секторы асинхронно (mounted + ответ сервера) — ждём готовности
     function inject(tries) {
-        if (_dead || !piOpen()) return;
+        if (_dead) return;
+        if (!piOpen()) { if (tries === 0 || tries % 10 === 0) tr('RADIAL/inject', 'меню не открыто (piOpen=false), попытка ' + tries + ' — выходим'); return; }
         var box = document.querySelector('.player-interaction__container');
         var vm = getVm();
         var ready = box && vm && vm.k != null && vm.innerRadius != null && vm.menu && vm.menu.length &&
             typeof vm.menu[vm.menu.length - 1].x === 'number';
-        if (!ready) { if (tries < 40) setTimeout(function () { inject(tries + 1); }, 100); return; }
-        if (!canShow(lastNick)) { removeEntry(vm); cleanup(); return; }
-        if (tryNative(vm, box)) return;
+        if (!ready) {
+            if (tries === 0 || tries % 10 === 0 || tries >= 40) {
+                var fl = { box: !!box, vm: !!vm, k: !!(vm && vm.k != null), innerRadius: !!(vm && vm.innerRadius != null), menuLen: (vm && vm.menu) ? vm.menu.length : 0 };
+                tr('RADIAL/inject', tries >= 40 ? 'СДАЛСЯ: компонент не готов за 4с' : 'компонент ещё не готов, попытка ' + tries + '/40', fl);
+                if (tries >= 40) trFail('РАДИАЛЬНОЕ МЕНЮ: компонент не готов за 4с', 'ник: ' + nickInfo(lastNick));
+            }
+            if (tries < 40) setTimeout(function () { inject(tries + 1); }, 100);
+            return;
+        }
+        tr('RADIAL/inject', 'компонент готов, попытка ' + tries, 'ник=' + nickInfo(lastNick), 'пунктов=' + vm.menu.length, 'секторов=' + (vm.DEFAULT_MENU_COUNT || 8));
+        if (!canShow(lastNick)) { tr('RADIAL/inject', 'canShow=false → пункт НЕ добавляем', 'ник=' + nickInfo(lastNick), stateInfo()); removeEntry(vm); cleanup(); return; }
+        var nat = tryNative(vm, box);
+        tr('RADIAL/режим', nat ? 'native (пункт встроен в круг)' : 'запасная DOM-кнопка', 'слот=' + (nat ? ownIndex(vm) : '—'));
+        if (nat) return;
         injectDom(vm, box);
     }
     onUndo(function () { try { cleanup(); } catch (e) {} });
     return {
         // как в pravo.js: пустой ник (меню машины/дома/NPC) обязан СБРОСИТЬ прошлого игрока, иначе «Выдача лицензии» уйдёт ему
-        setNick: function (n) { lastNick = n || ''; },
-        resetBusy: function () { busy = false; },
+        setNick: function (n) { tr('RADIAL/setNick', nickInfo(n), 'было ' + nickInfo(lastNick)); lastNick = n || ''; },
+        resetBusy: function () { if (busy) tr('RADIAL/resetBusy', 'busy сброшен (было true)'); busy = false; },
         inject: inject,
         cleanup: cleanup
     };
@@ -1983,19 +2170,24 @@ function ensureChatAddHook() {
             if (name === 'PlayerInteraction') {
                 var was = isOpen('PlayerInteraction');
                 if (!was) {
-                    if (circle.pending) return Promise.resolve();   // это открытие уже обрабатываем
+                    if (circle.pending) { tr('OPEN/ПРОПУСК', 'повторный openInterface, пока идёт определение ID (circle.pending)'); return Promise.resolve(); }   // это открытие уже обрабатываем
                     var nick = parseNick(params);
-                    try { if (nick && NICK_RE.test(nick) && licensorReady()) refreshPlayers(); } catch (e) {}   // список готов ещё до нажатия
+                    rmBegin(params, nick);
+                    try { if (nick && NICK_RE.test(nick) && licensorReady()) refreshPlayers(); } catch (e) { tr('OPEN/ОШИБКА', 'refreshPlayers', e); }   // список готов ещё до нажатия
                     var intercept = false;
-                    try { intercept = !!nick && circleCanIntercept(nick); } catch (e) {}
+                    try { intercept = !!nick && circleCanIntercept(nick); } catch (e) { tr('OPEN/ОШИБКА', 'circleCanIntercept', e); }
+                    if (!nick) tr('OPEN/ник пуст', 'не меню игрока (машина/дом/NPC) или params не разобрались — перехвата не будет');
                     if (intercept) {
-                        try { circleHandle(nick, params); } catch (e) { circleShowNormal(params, nick); }
+                        try { circleHandle(nick, params); } catch (e) { tr('OPEN/ОШИБКА', 'circleHandle бросил', e); circleShowNormal(params, nick, 'исключение в circleHandle'); }
                         return Promise.resolve();
                     }
+                } else {
+                    tr('OPEN/уже открыто', 'openInterface(PlayerInteraction) при открытом меню', 'params=' + tstr(params).slice(0, 200));
                 }
                 var r = prev.apply(this, arguments);
                 if (!was) {
-                    try { Radial.setNick(parseNick(params)); Radial.resetBusy(); setTimeout(function () { Radial.inject(0); }, 0); Chat.kick(); } catch (e) {}
+                    tr('OPEN/штатное меню открыто', 'piOpen=' + isOpen('PlayerInteraction'), 'дальше inject пункта «Выдача лицензии»');
+                    try { Radial.setNick(parseNick(params)); Radial.resetBusy(); setTimeout(function () { Radial.inject(0); }, 0); Chat.kick(); } catch (e) { tr('OPEN/ОШИБКА', 'после открытия', e); }
                 }
                 return r;
             }
@@ -2018,7 +2210,7 @@ function ensureChatAddHook() {
                 intOpen = false;   // нам панель больше не положена — закрываем по-настоящему
             }
             var r = prev.apply(this, arguments);
-            if (!_dead && name === 'PlayerInteraction') { try { Chat.teardown(); } catch (e) {} }
+            if (!_dead && name === 'PlayerInteraction') { tr('CLOSE/closeInterface', 'PlayerInteraction закрыт', 'circle.pending=' + circle.pending); try { Chat.teardown(); } catch (e) {} }
             return r;
         };
     });
@@ -2029,7 +2221,7 @@ function ensureChatAddHook() {
         return function (name, params) {
             var r = prev.apply(this, arguments);
             if (!_dead && name === 'PlayerInteraction') {
-                try { var n = parseNick(params); if (n) Radial.setNick(n); setTimeout(function () { Radial.inject(0); }, 250); } catch (e) {}
+                try { var n = parseNick(params); tr('UPDATE/updateParams', 'PlayerInteraction', 'ник=' + nickInfo(n), 'params=' + tstr(params).slice(0, 200)); if (n) Radial.setNick(n); setTimeout(function () { Radial.inject(0); }, 250); } catch (e) { tr('UPDATE/ОШИБКА', e); }
             }
             return r;
         };
@@ -2072,8 +2264,26 @@ window.__code3 = {
     ready: licensorReady,
     give: function (id, idx) { return licensorReady() && giveByIndex(String(id), idx); },
     reissue: function () { if (!licensorReady() || !STATE.last) return false; reissueLic(); return true; },
-    last: function () { return STATE.last; }
+    last: function () { return STATE.last; },
+    // Логирование: __code3.trace(80) — последние 80 строк (массив) · traceText(150) — текстом · traceCopy() — в буфер обмена
+    trace: function (n) { return n ? _trBuf.slice(-n) : _trBuf.slice(); },
+    traceText: function (n) { return (n ? _trBuf.slice(-n) : _trBuf).join('\n'); },
+    traceClear: function () { _trBuf.length = 0; return true; },
+    traceCopy: function (n) {
+        var txt = (n ? _trBuf.slice(-n) : _trBuf).join('\n');
+        try {
+            var ta = document.createElement('textarea');
+            ta.value = txt; ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+            document.body.appendChild(ta); ta.select();
+            var ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return ok ? 'скопировано строк: ' + (n ? Math.min(n, _trBuf.length) : _trBuf.length) : 'не удалось скопировать — используйте __code3.traceText()';
+        } catch (e) { return 'не удалось скопировать: ' + tstr(e); }
+    },
+    lastFail: function () { return _lastFail; },   // снимок последнего «не удалось определить ID»: ник, причина, весь список, 60 строк трассы
+    diag: function () { return { version: VERSION, state: stateInfo(), list: plistInfo(), lastResolve: _lastResolve, session: _rmSid, circle: { pending: circle.pending } }; }
 };
+tr('INIT', VERSION + ' загружен', stateInfo(), plistInfo());
 log(VERSION + ' загружен. Помощник лицензёра активен только в правительственном скине со званием «Лицензёр». /dahk — меню.');
 
 })(); } catch (e) { try { console.error('[CODE3] ошибка загрузки помощника лицензёра:', e); } catch (e2) {} }
