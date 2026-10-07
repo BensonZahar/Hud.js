@@ -2,7 +2,7 @@
 
 const USER_CONFIGS = {
     'Zahar': {
-        HWID: '27CD4831A665E671',   // 16-символьный HWID из HassleBot
+        HWID: 'B9E241E023591FBA',   // 16-символьный HWID из HassleBot
         DEBUG: true,                   // true = полная отладка + владелец
         CHAT_IDS: ['-1003040555627'],
         PASSWORD: '',                  // пароль больше не хранится здесь — его задаёт установщик (пусто = берём из установщика)
