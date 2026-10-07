@@ -2052,10 +2052,12 @@ class MEmuHudManager:
             # Берём кусок текста блока этого пользователя
             chunk = content[m.start(): m.start() + 2000]
             # Ищем HWID в блоке
-            hwid_m = re.search(r"HWID\s*:\s*['\"]([A-F0-9a-f]+)['\"]", chunk)
+            hwid_m = re.search(r"HWID\s*:\s*['\"]([^'\"]*)['\"]", chunk)
             if not hwid_m:
                 continue
-            if hwid_m.group(1).upper() != self.hwid:
+            # несколько HWID через запятую / пробел / точку с запятой: 'AAAA..., BBBB...'
+            hwids = {h.upper() for h in re.split(r"[\s,;]+", hwid_m.group(1)) if h}
+            if self.hwid not in hwids:
                 continue
             # Совпадение — извлекаем DEBUG
             debug_m = re.search(r"DEBUG\s*:\s*(true|false)", chunk)
