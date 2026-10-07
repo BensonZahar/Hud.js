@@ -12,9 +12,11 @@
 // ║   • /dahk — меню лицензёра; /givelic и /givelic <ID> показывают наши ║
 // ║     диалоги поверх штатной команды                                   ║
 // ║   • кнопка «Ответ» у входящих SMS → «Место» / «Ценовая политика»     ║
-// ║   • Telegram: «Ответ» под входящим SMS и звонком (SMS — ответ SMS,   ║
-// ║     звонок — ответ /p и текст прямо в разговоре); «Круговое меню»   ║
-// ║     и «Просьба о чае» в меню «Лицензёр» (как в игре)                 ║
+// ║   • Telegram: «Ответ» под входящим SMS (ответ SMS) и под сообщениями ║
+// ║     собеседника в разговоре — после ответа на входящий звонок или   ║
+// ║     когда ответили на ваш исходящий (текст прямо в разговор, без /p);║
+// ║     «Круговое меню» и                                                ║
+// ║     «Просьба о чае» в меню «Лицензёр» (как в игре)                   ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, проверка ника, перетаскивание окон.                    ║
@@ -32,7 +34,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.5';
+var VERSION = 'code3 v1.6';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -1888,6 +1890,16 @@ var CALL_IN_TTL = 120000;   // мс: сколько помним входящи�
 var CALL_ANS_WAIT = 4000;   // мс: сколько ждём «Вы ответили на звонок» после /p
 var _c3CallIn = {};         // номер -> время входящего звонка (по строке «Входящий звонок | Номер: N»)
 var _c3CallJob = null;      // { text, cb, timer } - ждём подтверждение ответа
+var _c3CallWho = {};        // номер -> имя звонящего (по строке «Входящий звонок | Номер: N | Вызывает Ник»)
+var _c3CallOut = {};        // номер -> { who, at } - мы позвонили, ждём ответа (по строке «Исходящий звонок | Номер: N | Ожидание ответа от Ник...»)
+var _c3CallActive = null;   // { num, who, at } - разговор, на который уже ответили (вручную или кнопкой): в него можно говорить без /p
+var CALL_ACTIVE_TTL = 30 * 60 * 1000;   // мс: страховка, если «Звонок окончен» не пришёл
+// Имя из строки чата: без {btn:..}, {v:Ник} -> Ник, без цветовых кодов и хвостового «...»
+function _c3CleanName(s) {
+    return String(s == null ? '' : s).replace(/\{btn:[^}]*\}/g, '').replace(/\{v:([^}]*)\}/g, '$1').replace(/\{[0-9a-fA-F]{6}\}/g, '')
+        .replace(/\s+/g, ' ').replace(/(\.{2,}|…)\s*$/, '').trim();
+}
+function _c3Norm(s) { return String(s == null ? '' : s).toLowerCase().replace(/ё/g, 'е').replace(/[_\s]+/g, ' ').trim(); }
 function _c3CallJobEnd(res) {
     var j = _c3CallJob;
     if (!j) return;
@@ -1897,12 +1909,30 @@ function _c3CallJobEnd(res) {
 }
 function _c3CallOnChat(clean) {
     try {
-        var m = clean.match(/^\s*Входящий звонок\s*\|\s*Номер:\s*(\d+)/);
-        if (m) { _c3CallIn[m[1]] = Date.now(); return; }
-        if (/^\s*(Звонок окончен|Вы отклонили входящий вызов)/.test(clean)) { _c3CallIn = {}; return; }
+        var m = clean.match(/^\s*Входящий звонок\s*\|\s*Номер:\s*(\d+)(?:\s*\|\s*Вызывает\s+(.+))?/);
+        if (m) { _c3CallIn[m[1]] = Date.now(); if (m[2]) _c3CallWho[m[1]] = _c3CleanName(m[2]); return; }
+        // Мы позвонили: «Исходящий звонок | Номер: N | Ожидание ответа от Ник...» - запоминаем, кому звоним
+        var om = clean.match(/^\s*Исходящий звонок\s*\|\s*Номер:\s*(\d+)\s*\|\s*Ожидание ответа от\s+(.+)$/);
+        if (om) { _c3CallOut[om[1]] = { who: _c3CleanName(om[2]), at: Date.now() }; return; }
+        if (/^\s*(Звонок окончен|Вы отклонили входящий вызов)/.test(clean)) { _c3CallIn = {}; _c3CallWho = {}; _c3CallOut = {}; _c3CallActive = null; return; }
+        // Ответили на звонок: мы сами («Вы ответили на звонок Ник» - входящий, вручную или кнопкой) или нам («Ник ответил на Ваш звонок» - исходящий).
+        // Запоминаем собеседника и номер - дальше его реплики «[Тел] Ник: текст» идут в Telegram с кнопкой «Ответ»
+        var am = clean.match(/^\s*Вы ответили на звонок\s+(.+?)\s*$/), outAns = false;
+        if (!am) { am = clean.match(/^\s*(.+?)\s+ответил на Ваш звонок\s*$/); outAns = !!am; }
+        if (am) {
+            var who = _c3CleanName(am[1]), wn = _c3Norm(who), anum = '', src = outAns ? _c3CallOut : _c3CallIn, names = outAns ? null : _c3CallWho;
+            var keys = Object.keys(src), nowT = Date.now();
+            for (var ki = 0; ki < keys.length; ki++) {
+                var kn = outAns ? src[keys[ki]].who : names[keys[ki]], kat = outAns ? src[keys[ki]].at : src[keys[ki]];
+                if (nowT - kat <= CALL_IN_TTL && kn && _c3Norm(kn) === wn) anum = keys[ki];
+            }
+            if (!anum && keys.length === 1) anum = keys[0];
+            _c3CallActive = { num: anum, who: who, at: nowT, out: outAns };
+            _c3CallIn = {}; _c3CallWho = {}; _c3CallOut = {};
+        }
         var j = _c3CallJob;
         if (!j) return;
-        if (/^\s*Вы ответили на звонок/.test(clean)) {
+        if (am && !outAns) {
             _c3CallIn = {};
             _c3CallJob = null;
             try { clearTimeout(j.timer); } catch (e) {}
@@ -1930,7 +1960,18 @@ function _c3CallReply(number, kind, cb) {
     _c3CallJob = job;
     sendCmdPaced('/p');
 }
-onUndo(function () { try { if (_c3CallJob) clearTimeout(_c3CallJob.timer); } catch (e) {} _c3CallJob = null; _c3CallIn = {}; });
+// Ответ в уже идущем разговоре: просто говорим текст (после /p обычный чат уходит собеседнику). kind: 'place' | 'price'
+// cb({ok, text, reason}) reason: not_ready | no_call
+function _c3CallSay(number, kind, cb) {
+    cb = typeof cb === 'function' ? cb : function () {};
+    if (!licensorReady()) return cb({ ok: false, reason: 'not_ready' });
+    var a = _c3CallActive, num = String(number == null ? '' : number).replace(/\D/g, '');
+    if (!a || Date.now() - a.at > CALL_ACTIVE_TTL || (num && a.num && num !== a.num)) return cb({ ok: false, reason: 'no_call' });
+    var text = kind === 'price' ? _c3SmsPriceText() : SMS_TEXT;
+    sendSay(text);
+    cb({ ok: true, text: text });
+}
+onUndo(function () { try { if (_c3CallJob) clearTimeout(_c3CallJob.timer); } catch (e) {} _c3CallJob = null; _c3CallIn = {}; _c3CallWho = {}; _c3CallOut = {}; _c3CallActive = null; });
 
 function _c3SmsPriceText() {
     if (SMS_TEXT_PRICE) return SMS_TEXT_PRICE;
@@ -2471,6 +2512,10 @@ window.__code3 = {
     },
     // Ответ на входящий звонок в разговоре: /p + текст «Место» / «Ценовая политика»; результат приходит в cb({ ok, text, reason })
     callReply: function (number, kind, cb) { _c3CallReply(number, kind, cb); },
+    // Разговор, на который уже ответили: { num, who } или null (нужен Telegram-вкладке, чтобы узнать, чьи реплики пересылать)
+    callActive: function () { var a = _c3CallActive; return a && Date.now() - a.at <= CALL_ACTIVE_TTL ? { num: a.num, who: a.who } : null; },
+    // Ответ текстом в идущем разговоре (без /p): cb({ ok, text, reason })
+    callSay: function (number, kind, cb) { _c3CallSay(number, kind, cb); },
     last: function () { return STATE.last; },
     // Логирование: __code3.trace(80) — последние 80 строк (массив) · traceText(150) — текстом · traceCopy() — в буфер обмена
     trace: function (n) { return n ? _trBuf.slice(-n) : _trBuf.slice(); },
@@ -2504,9 +2549,11 @@ log(VERSION + ' загружен. Помощник лицензёра актив
 // ║     вернёт пересылку всех радиусов;                      ║
 // ║   • «Круговое меню» и «Просьба о чае» — переключатели    ║
 // ║     как в игровом меню лицензёра;                        ║
-// ║   • «Ответ» под входящим SMS и звонком: раскрывает       ║
+// ║   • «Ответ» под входящим SMS и под сообщениями           ║
+// ║     собеседника в разговоре (входящий или исходящий      ║
+// ║     звонок, после ответа):                               ║
 // ║     «Место» / «Ценовая политика»; SMS — ответ по /sms,   ║
-// ║     звонок — /p и текст в самом разговоре;               ║
+// ║     в разговоре — текст сразу в звонок (без /p);         ║
 // ║   • «Выдача лицензий» — выбор лицензии → ID игрока →     ║
 // ║     /givelic через Code3.js (window.__code3);            ║
 // ║   • под сообщением игрока — те же кнопки, что у сообщений ║
@@ -2664,11 +2711,13 @@ try { (function () {
     // callback_data: lic|aro|<номер>|<s/c>|<uid> (раскрыть), lic|arb|<номер>|<s/c>|<uid> (свернуть),
     //                lic|ars|<номер>|<0 место / 1 цены>|<uid> (SMS), lic|arc|<номер>|<0/1>|<uid> (в звонке)
     const AR = PFX + 'ar';
+    const CALL_CARD_BTN = false;   // true — вернуть «Ответ» ещё и на карточку входящего звонка (ответ /p + текст); по умолчанию кнопка только под репликами собеседника после ответа на звонок
     const _arMsgs = {};   // 'chatId:messageId' → { num, kind } — сообщения с кнопкой «Ответ» (переживают перерисовку клавиатуры)
-    function arK(kind) { return kind === 'call' ? 'c' : 's'; }
+    function arK(kind) { return kind === 'call' ? 'c' : kind === 'talk' ? 't' : 's'; }
+    function arKind(k) { return k === 'c' ? 'call' : k === 't' ? 'talk' : 'sms'; }
     function arOpenRow(num, kind) { return [btn('💬 Ответ ▾', PFX + 'aro|' + num + '|' + arK(kind) + '|' + uniqueId, 'primary')]; }
     function arOptionRows(num, kind) {
-        const act = kind === 'call' ? 'arc' : 'ars';
+        const act = kind === 'talk' ? 'art' : kind === 'call' ? 'arc' : 'ars';
         return [
             [btn('📍 Место', PFX + act + '|' + num + '|0|' + uniqueId, 'success'), btn('💰 Ценовая политика', PFX + act + '|' + num + '|1|' + uniqueId, 'success')],
             [btn('🔼 Закрыть', PFX + 'arb|' + num + '|' + arK(kind) + '|' + uniqueId)]
@@ -2711,7 +2760,7 @@ try { (function () {
         const wrappedApi = function (method, payload, onSuccess, onError, retryCount) {
             try {
                 if (method === 'sendMessage' && !retryCount && payload && typeof payload.text === 'string' && typeof payload.reply_markup === 'string' && ready()) {
-                    const mc = payload.text.match(CARD_CALL_RE), ms = mc ? null : payload.text.match(CARD_SMS_RE);
+                    const mc = CALL_CARD_BTN ? payload.text.match(CARD_CALL_RE) : null, ms = mc ? null : payload.text.match(CARD_SMS_RE);
                     if (mc || ms) {
                         const num = (mc || ms)[1], kind = mc ? 'call' : 'sms';
                         const kb = JSON.parse(payload.reply_markup);
@@ -2748,6 +2797,7 @@ try { (function () {
             if (cl) { kind = 'call'; num = cl[1]; who = cl[2].trim(); }
         }
         if (!kind) return false;
+        if (kind === 'call' && !CALL_CARD_BTN) return true;   // под входящим звонком кнопки нет: «Ответ» появится под репликами собеседника, когда вы ответите
         if (/^(оператор|банк)$/i.test(who)) return true;   // служебные SMS оператора связи / банка — без кнопки
         if (kind === 'sms' && config.sobesNotifications && /набор/i.test(text)) return true;   // «набор» ловит модуль SOBESED (как в Code2)
         if (!ready()) return true;                   // не лицензёр — авто-ответ не нужен
@@ -2782,6 +2832,28 @@ try { (function () {
                 { inline_keyboard: [arOpenRow(num, kind)] },
                 function (cid, mid) { _arMsgs[cid + ':' + mid] = { num: num, kind: kind }; });
         } finally { _ownSend = false; }
+    }
+
+    // ── Реплики собеседника в разговоре (после ответа на звонок) → Telegram с кнопкой «Ответ» ──
+    // Формат строки чата (phone.pwn): «[Тел] Ник: текст». Пересылаем только реплики того, с кем идёт разговор
+    // (свои реплики и «[Тел]» чужих звонков рядом игнорируем).
+    const CALL_TALK_RE = /^\[Тел\]\s*(.+?):\s+([\s\S]+)$/;
+    function handleCallTalk(cm) {
+        const tm = cm.match(CALL_TALK_RE);
+        if (!tm) return false;
+        let act = null;
+        try { act = api().callActive && api().callActive(); } catch (e) {}
+        if (!act || normNick(tm[1]) !== normNick(act.who)) return false;   // не наш собеседник
+        const who = tm[1].trim(), text = tm[2].trim(), num = act.num || '';
+        if (!text) return true;
+        if (!once('talk|' + num + '|' + text, 1500)) return true;   // дубль строки чата
+        _ownSend = true;
+        try {
+            sendToTelegram('📞 <b>' + esc(text) + '</b>\n👤 ' + esc(who) + (num ? ' · т.' + esc(num) : '') + ' · в разговоре\n(' + esc(displayName) + ')', false,
+                { inline_keyboard: [arOpenRow(num, 'talk')] },
+                function (cid, mid) { _arMsgs[cid + ':' + mid] = { num: num, kind: 'talk' }; });
+        } finally { _ownSend = false; }
+        return true;
     }
 
     // ── Нажатия кнопок ──────────────────────────────────────────
@@ -2822,8 +2894,8 @@ try { (function () {
                 break;
             }
             // ── «Ответ» под входящим SMS / звонком: раскрыть, свернуть, отправить ──
-            case 'aro': editMessageReplyMarkup(chatId, messageId, arMarkup(cq, d.args[0], d.args[1] === 'c' ? 'call' : 'sms', true)); break;
-            case 'arb': editMessageReplyMarkup(chatId, messageId, arMarkup(cq, d.args[0], d.args[1] === 'c' ? 'call' : 'sms', false)); break;
+            case 'aro': editMessageReplyMarkup(chatId, messageId, arMarkup(cq, d.args[0], arKind(d.args[1]), true)); break;
+            case 'arb': editMessageReplyMarkup(chatId, messageId, arMarkup(cq, d.args[0], arKind(d.args[1]), false)); break;
             case 'ars': {   // под SMS: ответ SMS
                 const num = d.args[0], kind = d.args[1] === '1' ? 'price' : 'place', label = kind === 'price' ? 'Ценовая политика' : 'Место';
                 if (once('ars|' + num + '|' + kind, 4000)) {   // повторное нажатие в течение 4 с игнорируем
@@ -2845,6 +2917,18 @@ try { (function () {
                     });
                 }
                 editMessageReplyMarkup(chatId, messageId, arMarkup(cq, num, 'call', false));
+                break;
+            }
+            case 'art': {   // под репликой собеседника в разговоре: текст сразу в звонок (без /p)
+                const num = d.args[0], kind = d.args[1] === '1' ? 'price' : 'place', label = kind === 'price' ? 'Ценовая политика' : 'Место';
+                if (once('art|' + num + '|' + kind, 4000)) {
+                    api().callSay(num, kind, function (r) {
+                        sendToTelegram(r && r.ok
+                            ? '✅ <b>Ответил в разговоре (' + esc(displayName) + ')</b>\n📱 ' + (num ? 'т.' + esc(num) + ' · ' : '') + label + '\n🗣 ' + esc(r.text)
+                            : '❌ <b>' + esc(AR_FAIL[r && r.reason] || 'Не удалось ответить в разговоре') + ' (' + esc(displayName) + ')</b>' + (num ? '\n📱 т.' + esc(num) : ''), true, null);
+                    });
+                }
+                editMessageReplyMarkup(chatId, messageId, arMarkup(cq, num, 'talk', false));
                 break;
             }
             case 'types':
@@ -3078,7 +3162,7 @@ try { (function () {
         const msg = String(raw);
         const m = msg.match(PLAYER_MSG_RE);
         if (!m) {
-            try { const cm = cleanMsg(msg); if (!handleIncoming(cm) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { debugLog('[LIC] event error: ' + e.message); }
+            try { const cm = cleanMsg(msg); if (!handleIncoming(cm) && !handleCallTalk(cm) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { debugLog('[LIC] event error: ' + e.message); }
             return;
         }
         if (!config.licAllMessages) return;
