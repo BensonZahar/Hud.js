@@ -2,14 +2,14 @@
 
 const USER_CONFIGS = {
     'Zahar': {
-        HWID: 'B9E241E023591FBA',   // 16-символьный HWID из HassleBot
+        HWID: '27CD4831A665E671, B9E241E023591FBA',   // 16-символьные HWID из HassleBot — несколько через запятую
         DEBUG: true,                   // true = полная отладка + владелец
         CHAT_IDS: ['-1003040555627'],
         PASSWORD: '',                  // пароль больше не хранится здесь — его задаёт установщик (пусто = берём из установщика)
         RECONNECT_ENABLED_DEFAULT: true
     },
     'Kolya': {
-        HWID: '7F1D49243EE66277',     // 16-символьный HWID из HassleBot
+        HWID: '7F1D49243EE66277',     // 16-символьный HWID из HassleBot (несколько — через запятую)
         DEBUG: false,                  // false = без отладки
         CHAT_IDS: ['-1003102212423'],
         PASSWORD: '',                  // пароль больше не хранится здесь — его задаёт установщик (пусто = берём из установщика)
