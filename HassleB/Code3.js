@@ -9,6 +9,8 @@
 // ║   • диалоги: ввод ID → тип лицензии → /givelic <ID> <тип> <цена>     ║
 // ║   • авто-перевыдача (/cancel + повтор) с учётом антифлуда сервера    ║
 // ║   • «Просьба о чае» и авто-ответы игроку (штрафы, запрет, нет денег) ║
+// ║   • /code3 — вкл/выкл режим «в консоли только логи Code3» (логи      ║
+// ║     Code.js и Code2.js скрываются; /code3 on · /code3 off)           ║
 // ║   • /dahk — меню лицензёра; /givelic и /givelic <ID> показывают наши ║
 // ║     диалоги поверх штатной команды                                   ║
 // ║   • кнопка «Ответ» у входящих SMS → «Место» / «Ценовая политика»     ║
@@ -34,7 +36,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.9';
+var VERSION = 'code3 v1.11';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -154,7 +156,7 @@ function plistInfo() {
     return 'хук=' + hooked + ' список=' + (l ? 'есть' : 'НЕТ') + ' игроков=' + cnt + ' local=' + loc +
         ' возраст=' + (_listAt ? (Date.now() - _listAt) + 'мс' : 'ни разу не приходил') +
         ' последний запрос=' + (_reqAt ? (Date.now() - _reqAt) + 'мс назад' : '—') +
-        ' ждущих=' + _listWaiters.length + ' updatePlayerList=' + (typeof window.updatePlayerList === 'function' ? 'fn' : 'НЕТ');
+        ' канал=' + _listSrc + ' ждущих=' + _listWaiters.length + ' updatePlayerList=' + (typeof window.updatePlayerList === 'function' ? 'fn' : 'НЕТ');
 }
 function allNames(max) {
     try {
@@ -205,6 +207,40 @@ function rmBegin(params, nick) {
 
 // Состояние, которое переживает перезагрузку скрипта
 var STATE = window.__code3State || (window.__code3State = { tea: !!OPTS.TEA_ASK, circle: !!OPTS.CIRCLE_LIC, last: null });
+
+if (typeof STATE.only !== 'boolean') STATE.only = false;   // режим «в консоли только логи Code3» (/code3)
+
+// ══════════════════════════ /code3: В КОНСОЛИ ТОЛЬКО ЛОГИ CODE3 ══════════════════════════
+// Игра перенаправляет console.log/info/warn/error/debug в свою консоль, и Code.js/Code2.js пишут туда же ([DEBUG], [INTERACTIONS],
+// [DBG3], [HB Menu]…). Пока STATE.only = true, пропускаем только вызовы, первый аргумент которых начинается с «[CODE3]»
+// (все наши логи именно такие), остальное отбрасываем. /code3 ещё раз — всё возвращается.
+var _conWrap = {};
+var CON_METHODS = ['log', 'info', 'warn', 'error', 'debug'];
+function isC3Line(args) { var a = args && args[0]; return typeof a === 'string' && /^\s*\[CODE3\]/.test(a); }
+function ensureConsoleFilter() {
+    if (_dead) return;
+    CON_METHODS.forEach(function (m) {
+        try {
+            var cur = console[m];
+            if (typeof cur !== 'function' || cur.__code3Filter === RUN) return;
+            var w = function () {
+                if (STATE.only && !_dead && !isC3Line(arguments)) return;
+                return cur.apply(this, arguments);
+            };
+            w.__code3Filter = RUN;
+            console[m] = w;
+            _conWrap[m] = { w: w, prev: cur };
+        } catch (e) {}
+    });
+}
+onUndo(function () { CON_METHODS.forEach(function (m) { try { var c = _conWrap[m]; if (c && console[m] === c.w) console[m] = c.prev; } catch (e) {} }); });
+function setOnly(v) {
+    STATE.only = !!v;
+    ensureConsoleFilter();
+    log(STATE.only ? 'режим «только логи Code3» ВКЛ — логи Code.js/Code2.js скрыты (/code3 — вернуть)' : 'режим «только логи Code3» ВЫКЛ — логи Code.js/Code2.js снова видны');
+    gtAdd(STATE.only ? '~g~/code3: Вкл~n~~w~В консоли только логи Code3' : '~r~/code3: Выкл~n~~w~Логи Code и Code2 снова видны', 3500, 3);
+    return STATE.only;
+}
 
 // ══════════════════════════ ОБЩИЕ ХЕЛПЕРЫ ══════════════════════════
 var GOV_SKINS = [57, 141, 147, 164, 165, 187, 208, 227, 16360];
@@ -292,10 +328,16 @@ function refreshLastNick() {
     var id = l.targetId;
     freshPlayers(function (ok) {
         if (STATE.last !== l || String(l.targetId) !== String(id)) return;
-        var rn = nickById(id);
-        l.rawNick = rn || null; l.nickFresh = true; l.nickAt = Date.now();
+        var trusted = ok || listTrusted();
+        var fromList = trusted ? nickById(id) : null;   // устаревший список (движок молчит) ник НЕ определяет — он называл бы прежнего владельца этого ID
+        var rn = fromList || l.hintRaw || null;         // иначе ник, который сервер показал в меню игрока
+        if (fromList && l.hintRaw && norm(fromList) !== norm(l.hintRaw)) {
+            tr('GIVE/НЕСОВПАДЕНИЕ', 'ID ' + id + ' сейчас у ' + fromList, 'а в меню был ' + l.hintRaw);
+            gtAdd('~r~Проверьте ID~n~~w~ID ' + id + ' сейчас у ' + String(fromList).split('_').join(' ') + ', а меню открыто на ' + String(l.hintRaw).split('_').join(' '), 5000, 3);
+        }
+        l.rawNick = rn; l.nickFresh = true; l.nickAt = Date.now();
         if (rn) l.nick = String(rn).split('_').join(' ');
-        tr('GIVE/ник цели', 'ID ' + id, 'ник из ' + (ok ? 'свежего' : 'НЕ обновившегося') + ' списка: ' + (rn || '—'));
+        tr('GIVE/ник цели', 'ID ' + id, 'ник: ' + (rn || '—'), 'источник: ' + (fromList ? 'свежий список' : (l.hintRaw ? 'меню игрока (список ' + (ok ? 'не нашёл ID' : 'устарел, возраст ' + (listAge() === Infinity ? '—' : listAge() + 'мс')) + ')' : 'нет')));
         var w = l._nw; l._nw = [];
         for (var i = 0; i < w.length; i++) { try { w[i](l.rawNick); } catch (er) {} }
     }, 700);
@@ -307,7 +349,7 @@ function whenNick(id, cb) {
         if (l.nickFresh) return cb(l.rawNick);
         if (l._nw) { l._nw.push(cb); return; }
     }
-    cb(nickById(id));
+    cb(nickByIdTrusted(id));
 }
 
 // Хук на window.onUpdatePlayersList. Code.js/движок могут переприсвоить эту функцию уже после нас — тогда наша
@@ -317,23 +359,78 @@ var RUN = {};
 var _hookInstalls = 0;   // метка именно этого запуска (после перезагрузки скрипта старая обёртка не считается нашей)
 var _listAt = 0;        // когда движок прислал последний список (мс); после перезагрузки скрипта = 0 → старый список считается устаревшим
 var _reqAt = 0;         // когда мы в последний раз просили движок обновить список
+var _listSrc = '—';     // откуда пришёл последний список: onUpdate (onUpdatePlayersList) | iface (interface('PlayersOnline').setPlayersOnlineData/setInterfaceParams)
+// ── Hassle mobile: движок шлёт список игроков, только когда считает окно «Онлайн» (PlayersOnline) ОТКРЫТЫМ ──
+// Так сделано в слежке за другом (Code2.js, Friend Tracker): getInterfaceStatus('PlayersOnline') → true на время слежки, а данные
+// ловятся прокси на window.interface('PlayersOnline') (окно не смонтировано — движок зовёт setPlayersOnlineData/setInterfaceParams
+// прямо на нём). Без этого после закрытия окна список не обновляется вообще (в трассе возраст списка рос 12+ минут).
+// У нас подмена КОРОТКАЯ: только на SPOOF_MS после каждого нашего запроса updatePlayerList().
+var SPOOF_MS = 1500, _spoofUntil = 0, _statusHooked = false, _ifaceHooked = false;
+function hookStatus() {
+    if (_dead || _statusHooked) return;
+    var cur = window.getInterfaceStatus;
+    if (typeof cur !== 'function') return;
+    _statusHooked = true;
+    var w = function (name) {
+        if (name === 'PlayersOnline' && !_dead && Date.now() < _spoofUntil) return true;
+        return cur.apply(this, arguments);
+    };
+    w.__code3 = RUN;
+    window.getInterfaceStatus = w;
+    tr('HOOK/getInterfaceStatus', 'установлен: PlayersOnline «открыт» на ' + SPOOF_MS + 'мс после каждого запроса списка');
+    onUndo(function () { if (window.getInterfaceStatus === w) window.getInterfaceStatus = cur; });
+}
+function hookIface() {
+    if (_dead || _ifaceHooked) return;
+    var cur = window.interface;
+    if (typeof cur !== 'function') return;
+    _ifaceHooked = true;
+    var w = function (name) {
+        var inst = cur.apply(this, arguments);
+        if (name !== 'PlayersOnline' || _dead) return inst;
+        var real = (inst !== null && inst !== undefined && inst !== false);
+        // прокси возвращаем ВСЕГДА (даже если окно не смонтировано) — иначе index.js упадёт на false.setInterfaceParams
+        return new Proxy(real ? inst : {}, {
+            get: function (target, prop) {
+                if (prop === 'setPlayersOnlineData' || prop === 'setInterfaceParams') {
+                    return function () {
+                        try { capturePlayers(arguments[0], 'iface'); } catch (e) {}
+                        if (real) { var fn = inst[prop]; if (typeof fn === 'function') return fn.apply(inst, arguments); }
+                    };
+                }
+                return real ? inst[prop] : undefined;
+            }
+        });
+    };
+    w.__code3 = RUN;
+    window.interface = w;
+    tr('HOOK/interface', 'прокси на window.interface(\'PlayersOnline\') установлен (setPlayersOnlineData / setInterfaceParams)');
+    onUndo(function () { if (window.interface === w) window.interface = cur; });
+}
+var LIST_STALE_MS = 12000;   // список старше — ему нельзя верить: ID в SA-MP переиспользуются (вышел один, зашёл другой с тем же ID)
+function listAge() { return _listAt ? Date.now() - _listAt : Infinity; }
+function listTrusted() { return listAge() < LIST_STALE_MS; }
+function nickByIdTrusted(id) { return listTrusted() ? nickById(id) : null; }
 var _listWaiters = [];  // кто ждёт СВЕЖИЙ ответ движка — просыпаются сразу, как только он пришёл (без опроса по таймеру)
 function flushListWaiters() {
     var w = _listWaiters; _listWaiters = [];
     for (var i = 0; i < w.length; i++) { try { w[i](true); } catch (er) {} }
 }
-function capturePlayers(e) {
+function capturePlayers(e, src) {
+    src = src || 'onUpdate';
     try {
         var rawE = e;
-        if (typeof e === 'string') { try { e = JSON.parse(e); } catch (er) { tr('LIST/ОШИБКА', 'onUpdatePlayersList: строка не парсится', String(rawE).slice(0, 120)); return; } }
+        if (typeof e === 'string') { try { e = JSON.parse(e); } catch (er) { if (src !== 'iface') tr('LIST/ОШИБКА', 'onUpdatePlayersList: строка не парсится', String(rawE).slice(0, 120)); return; } }
         if (e && (e.local || Array.isArray(e.players))) {
             window.__code3PlayerList = e;
             _listAt = Date.now();
+            window.__code3PlayerListAt = _listAt;
+            _listSrc = src;
             if (rmActive()) tr('LIST/получен', 'игроков=' + (Array.isArray(e.players) ? e.players.length : 'нет массива') + ' local=' + (e.local ? e.local.name + '[' + e.local.id + ']' : '—'),
-                'ответ на запрос через ' + (_reqAt ? (_listAt - _reqAt) + 'мс' : '?'), 'ждущих=' + _listWaiters.length);
+                'ответ на запрос через ' + (_reqAt ? (_listAt - _reqAt) + 'мс' : '?'), 'канал=' + src, 'ждущих=' + _listWaiters.length);
             flushListWaiters();
             try { tgtRefreshFromList(); } catch (er2) {}
-        } else {
+        } else if (src !== 'iface') {
             tr('LIST/ОШИБКА', 'onUpdatePlayersList прислал данные неизвестной формы', tstr(e).slice(0, 160));
         }
     } catch (er) { tr('LIST/ИСКЛЮЧЕНИЕ', er); }
@@ -342,8 +439,9 @@ function ensurePlayersHook() {
     if (_dead) return;
     var prev = window.onUpdatePlayersList;
     if (prev && prev.__code3 === RUN) return;
+    if (_hookInstalls >= 30) { trOnce('hooklimit') ; return; }   // защита: не наращивать слои, если кто-то обворачивает нас поверх каждую секунду
     var w = function (e) {
-        if (!_dead) capturePlayers(e);
+        if (!_dead) capturePlayers(e, 'onUpdate');
         if (typeof prev === 'function') return prev.apply(this, arguments);
     };
     w.__code3 = RUN;
@@ -355,7 +453,9 @@ function ensurePlayersHook() {
 }
 function refreshPlayers() {
     ensurePlayersHook();
+    hookStatus(); hookIface();
     _reqAt = Date.now();
+    _spoofUntil = _reqAt + SPOOF_MS;   // на эти мс движок видит PlayersOnline «открытым» и шлёт список
     var has = (typeof window.updatePlayerList === 'function');
     if (!has) tr('LIST/запрос', 'window.updatePlayerList НЕ функция — запросить список нечем!');
     else if (rmActive()) tr('LIST/запрос', 'updatePlayerList() вызван', 'возраст прошлого списка=' + (_listAt ? (_reqAt - _listAt) + 'мс' : '—'));
@@ -415,7 +515,7 @@ function noteResolve(nick, id, how) {
 // При открытии меню сразу просим свежий список (primeTarget); пока меню открыто, ID пересчитывается
 // по каждому приходящему списку. Клик берёт готовый ID без повторных проверок и ожидания.
 var STALE_OK_MS = 10000;   // только для диагностики
-var _tgt = { nick: '', id: null, sid: 0, state: 'idle', waiters: [] };   // state: idle | wait | ok | fail
+var _tgt = { nick: '', id: null, sid: 0, state: 'idle', waiters: [], stale: false };   // state: idle | wait | ok | fail; stale — движок молчит, список устарел
 function tgtFlush() { var w = _tgt.waiters; _tgt.waiters = []; for (var i = 0; i < w.length; i++) { try { w[i](_tgt.id); } catch (e) {} } }
 function tgtRefreshFromList() {   // каждый новый список пока меню открыто → ID актуализируется
     if (!_tgt.nick || _tgt.sid !== _rmSid) return;
@@ -424,16 +524,23 @@ function tgtRefreshFromList() {   // каждый новый список пок
 }
 var CACHE_OK_MS = 6000;   // список моложе — берём ID мгновенно (список и так опрашивается каждые 1–4 с), свежий запрос идёт в фоне
 function primeTarget(nick) {
-    var t = _tgt = { nick: nick, id: null, sid: _rmSid, state: 'wait', waiters: [] };
+    var t = _tgt = { nick: nick, id: null, sid: _rmSid, state: 'wait', waiters: [], stale: false };
     var cached = idByNick(nick), age = _listAt ? Date.now() - _listAt : null;
     var instant = cached !== null && age !== null && age < CACHE_OK_MS;
     if (instant) { t.id = cached; t.state = 'ok'; noteResolve(nick, cached, 'мгновенно из списка (возраст ' + age + 'мс), фоновое обновление'); }
     var tries = 0;
     (function go() {
         if (_dead || _tgt !== t) return;
-        freshPlayers(function () {
+        freshPlayers(function (ok) {
             if (_dead || _tgt !== t) return;
-            var id = idByNick(nick);
+            var trusted = ok || listTrusted();
+            var id = trusted ? idByNick(nick) : null;
+            if (!trusted && !instant) {   // движок не ответил, а список старый: ID из него мог бы принадлежать уже другому игроку
+                var old = idByNick(nick);
+                t.stale = true; t.state = 'fail';
+                tr('ID/СПИСОК УСТАРЕЛ', nickInfo(nick), 'возраст списка ' + (listAge() === Infinity ? '—' : listAge() + 'мс'), 'ID из старого списка был бы ' + (old === null ? '—' : old) + ' — НЕ используем, нужен ручной ввод');
+                tgtFlush(); return;
+            }
             if (id !== null) { var changed = (t.id !== id); t.id = id; t.state = 'ok'; if (!instant) noteResolve(nick, id, 'свежий список при открытии меню'); else if (changed) tr('ID/обновлён', nickInfo(nick), 'фоновый запрос → ID ' + id); tgtFlush(); return; }
             if (instant) return;   // ID уже есть из списка — фоновый ответ без ника не страшен
             if (++tries < 3) return go();   // без пауз: каждая попытка и так ждёт ответ движка
@@ -446,6 +553,7 @@ function resolveId(nick, cb) {
     if (t.nick === nick && t.sid === _rmSid) {
         if (t.state === 'ok') { var cur = idByNick(nick); if (cur !== null) t.id = cur; return cb(t.id); }
         if (t.state === 'wait') { t.waiters.push(cb); return; }
+        if (t.state === 'fail' && t.stale) return cb(null);   // уже выяснили: список устарел — повторно не ждём
     }
     primeTarget(nick); _tgt.waiters.push(cb);   // нет подготовленной цели (напр. меню уже было открыто) — запрашиваем сейчас
 }
@@ -710,21 +818,30 @@ onUndo(function () { if (kbTimer) { clearInterval(kbTimer); kbTimer = null; } kb
 })();
 
 // ── Диалог 678: ввод ID игрока ──
-function showIdInput() {
+var manualPick = null;   // { nick, idx|null, at } — ID вводят вручную, потому что список игроков устарел
+function showIdInput(nk) {
     kbDialogId = DLG_ID;
     scheduleKeyboardNumeric();
-    addDialog('[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]', '', 0);
+    nk = nk ? String(nk).replace(/["\\]/g, '') : '';
+    addDialog('[678,1,"Выдача лицензии","Введите ID игрока' + (nk ? ' ' + nk : '') + ':","Далее","Отмена",0,0]', '', 0);
+}
+function askIdManually(nick, idx) {
+    manualPick = { nick: nick || '', idx: (typeof idx === 'number') ? idx : null, at: Date.now() };
+    gtAdd('~y~Список игроков не обновился~n~~w~ID по нику определить нельзя — введите ID вручную (виден над игроком)', 4500, 3);
+    tr('ID/РУЧНОЙ ВВОД', nickInfo(nick), 'тип #' + (manualPick.idx === null ? '—' : manualPick.idx));
+    showIdInput(nick ? String(nick).split('_').join(' ') : '');
 }
 // ── Диалог 679: выбор типа лицензии ──
-var giveTarget = -1, giveNick = '';
+var giveTarget = -1, giveNick = '', giveExact = false;
 // Ник для показа: «Имя_Фамилия» → «Имя Фамилия» (из подсказки, иначе из списка игроков по ID)
 function nickDisp(id, hint) {
-    var n = hint || lastRaw(id) || nickById(id);
+    var n = hint || lastRaw(id) || nickByIdTrusted(id);
     return n ? String(n).split('_').join(' ') : '';
 }
-function showTypeDialog(id, nickHint) {
+function showTypeDialog(id, nickHint, exact) {
     giveTarget = id;
     giveNick = nickHint || '';
+    giveExact = !!exact;   // ID введён вручную — его не подменяем данными списка
     var nk = nickDisp(id, nickHint);
     var list = 'Выберите тип лицензии:<n>';
     LIC_TYPES.forEach(function (t, i) { list += (i + 1) + '. ' + t.name + '  [' + t.price.toLocaleString('ru-RU') + ' ₽]<n>'; });
@@ -778,25 +895,31 @@ function onDialogResponse(args) {
         return true;
     }
     if (id === DLG_ID) {
+        var mp = manualPick; manualPick = null;
+        if (mp && Date.now() - mp.at > 120000) mp = null;
         if (btn === 1) {
             var inputId = String(args[4] || '').trim();
-            if (inputId) setTimeout(function () { showTypeDialog(inputId); }, 0);
+            if (inputId && mp) {
+                if (!/^\d+$/.test(inputId)) { gtAdd('~r~ID~n~~w~Нужно число', 2500, 3); return true; }
+                if (mp.idx !== null) setTimeout(function () { giveByIndex(inputId, mp.idx, mp.nick, true); }, 0);
+                else setTimeout(function () { showTypeDialog(inputId, mp.nick, true); }, 0);
+            } else if (inputId) setTimeout(function () { showTypeDialog(inputId); }, 0);
         } else setTimeout(updatePanel, 0);   // отмена
         return true;
     }
     // DLG_TYPE
     if (btn !== 1) setTimeout(updatePanel, 0);
-    else if (li >= 0 && li < LIC_TYPES.length) giveByIndex(giveTarget, li, giveNick);
-    giveTarget = -1; giveNick = '';
+    else if (li >= 0 && li < LIC_TYPES.length) giveByIndex(giveTarget, li, giveNick, giveExact);
+    giveTarget = -1; giveNick = ''; giveExact = false;
     return true;
 }
 
 // ══════════════════════════ ВЫДАЧА ЛИЦЕНЗИИ И ПЕРЕВЫДАЧА ══════════════════════════
 // Шлёт /givelic <ID> <тип> <цена>, запоминает данные для перевыдачи и авто-ответов
-function giveByIndex(targetId, idx, nickHint) {
+function giveByIndex(targetId, idx, nickHint, exact) {
     var c = LIC_TYPES[idx];
     if (!c || targetId === null || targetId === undefined || targetId === '') return false;
-    if (nickHint) {   // между открытием меню и выбором типа список мог обновиться — берём самый свежий ID этого ника
+    if (nickHint && !exact && listTrusted()) {   // между открытием меню и выбором типа список мог обновиться — берём самый свежий ID этого ника (только по свежему списку)
         var fid = idByNick(nickHint);
         if (fid !== null && String(fid) !== String(targetId)) { tr('GIVE/ID обновлён', nickInfo(nickHint), targetId + ' → ' + fid); targetId = fid; }
     }
@@ -805,7 +928,7 @@ function giveByIndex(targetId, idx, nickHint) {
     log('отправка:', cmd, '| ник:', nk || '—');
     tr('GIVE/отправка', cmd, 'ID ' + targetId, 'ник: ' + (nk || '—'), 'тип: ' + c.name);
     rawSend(cmd);
-    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [] };
+    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [], hintRaw: nickHint || null };
     refreshLastNick();
     setTimeout(updatePanel, 0);
     return true;
@@ -1039,6 +1162,13 @@ function circleHandle(nick, params) {
     }, 3000);   // страховка
     resolveId(nick, function (id) {
         if (!circle.pending || _dead) { tr('CIRCLE/ответ resolveId ПРОИГНОРИРОВАН', 'pending=' + circle.pending, '_dead=' + _dead, 'id=' + id); return; }
+        if (id === null && _tgt.stale) {
+            circleDone('список устарел');
+            srvSend('MenuInt_OnCloseInterface', 0);
+            tr('CIRCLE/список устарел', nickInfo(nick), '→ ручной ввод ID');
+            askIdManually(nick, null);
+            return;
+        }
         if (id === null) { circleShowNormal(params, nick, 'ID не определён'); gtAdd('~r~Круговое меню~n~~w~Не удалось определить ID (маска/фейк-ник?)', 3000, 3); tr('CIRCLE/уведомление', 'показано «Не удалось определить ID»'); return; }
         circleDone('ID получен');
         log('круговое меню: выдача лицензии →', nick, '| ID:', id);
@@ -1509,7 +1639,7 @@ var Radial = (function () {
     }
 
     // ID цели по нику — ник перечитываем с экрана в момент нажатия; ID всегда из свежего списка (см. resolveId)
-    function withTargetId(cb) {
+    function withTargetId(cb, onStale) {
         var vm = getVm();
         var t = vm ? Target.read(vm, S) : { nick: '', src: 'нет компонента' };
         var nick = t.nick || S.nick || '';
@@ -1517,6 +1647,7 @@ var Radial = (function () {
         if (!nick) { busy = false; tr('RADIAL/ОШИБКА', 'ник пуст → «Не удалось определить игрока»'); trFail('РАДИАЛЬНОЕ МЕНЮ: ник цели пуст'); notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
         resolveId(nick, function (id) {
             if (_dead || !piOpen()) { busy = false; tr('RADIAL/ответ resolveId ПРОИГНОРИРОВАН', '_dead=' + _dead, 'piOpen=' + piOpen(), 'id=' + id, '(меню закрыли, пока искали ID)'); return; }
+            if (id === null && _tgt.stale && onStale) { tr('RADIAL/список устарел', nickInfo(nick), '→ ручной ввод ID'); onStale(nick); return; }
             if (id === null) { busy = false; tr('RADIAL/уведомление', 'показано «Не удалось определить ID»', nickInfo(nick)); notify('~r~Выдача лицензии~n~~w~Не удалось определить ID (маска/фейк-ник?)'); return; }
             tr('RADIAL/ID получен', nickInfo(nick), 'ID ' + id);
             cb(id, nick);
@@ -1538,6 +1669,9 @@ var Radial = (function () {
         withTargetId(function (id, nick) {
             closeMenu();
             setTimeout(function () { busy = false; giveLicense(id, typeIdx, nick); }, 0);
+        }, function (nick) {
+            closeMenu();
+            setTimeout(function () { busy = false; askIdManually(nick, typeIdx); }, 0);
         });
     }
 
@@ -1556,13 +1690,17 @@ var Radial = (function () {
         closeMenu();
         setTimeout(function () { busy = false; showTypeDialog(id, nick); }, 0);
     }
+    function openDialogStale(nick) {
+        closeMenu();
+        setTimeout(function () { busy = false; askIdManually(nick, null); }, 0);
+    }
     function onBtnClick(e) {
         try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
         if (busy) return;
         try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
         tr('RADIAL/onBtnClick', 'нажата запасная DOM-кнопка', 'ник=' + nickInfo(S.nick));
         busy = true;
-        withTargetId(openDialog);
+        withTargetId(openDialog, openDialogStale);
     }
     function injectDom(vm, box) {
         removeBtn();
@@ -1744,7 +1882,7 @@ var _cool = {};
 function cooled(key, ms) { var n = Date.now(); if (_cool[key] && n - _cool[key] < ms) return false; _cool[key] = n; return true; }
 var _lastChat = { msg: '', at: 0 };
 
-function addr(id) { var raw = lastRaw(id) || nickById(id); return raw ? raw.split('_').join(' ') : ('Жетон ' + id); }
+function addr(id) { var raw = lastRaw(id) || nickByIdTrusted(id); return raw ? raw.split('_').join(' ') : ('Жетон ' + id); }
 
 function onChat(message) {
     var msg = String(message);
@@ -1766,7 +1904,7 @@ function onChat(message) {
     var last = STATE.last;
     // Меню игрока открывается с 8 м (MIU: IsPlayerInRangeOfPlayer 8.0), а /givelic требует не дальше 6 м
     if (last && last.at && Date.now() - last.at < 20000 && clean.indexOf('Игрок находится слишком далеко') !== -1 && cooled('far', 3000)) {
-        gtAdd('~y~Игрок далеко~n~~w~/givelic работает до 6 м, меню открывается с 8 м', 3500, 3);
+        gtAdd('~y~Игрок далеко~n~~w~ID ' + last.targetId + (last.nick ? ' (' + last.nick + ')' : '') + ' · /givelic работает до 6 м, меню открывается с 8 м. Если рядом — проверьте ID', 4500, 3);
     }
 
     if (OPTS.AUTO_REPLIES && last && licensorReady()) {
@@ -2374,8 +2512,12 @@ function ensureChatAddHook() {
 // ══════════════════════════ УСТАНОВКА ХУКОВ ══════════════════════════
 (function installHooks() {
 
+    // Консоль: режим /code3 (если игра/другой скрипт переприсвоит console.* — ставим фильтр заново)
+    ensureConsoleFilter();
+    every(ensureConsoleFilter, 2000);
     // Список игроков (нужен для ник ↔ ID)
     ensurePlayersHook();
+    hookStatus(); hookIface();
     every(ensurePlayersHook, 1000);   // как и с чатом: если кто-то переприсвоил — ставим заново
 
     // Чат-команды + счёт отправленного в антифлуд. Цепочка как у Code.js: window.sendChatInputCustom || sendChatInput
@@ -2386,6 +2528,11 @@ function ensureChatAddHook() {
     var myChat = function (e) {
         if (!_dead && typeof e === 'string') {
             var a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
+            if (cmd === '/code3') {   // работает всегда (не только лицензёру): вкл/выкл «в консоли только логи Code3»
+                var ca = (a[1] || '').toLowerCase();
+                setOnly((ca === 'on' || ca === '1' || ca === 'вкл') ? true : (ca === 'off' || ca === '0' || ca === 'выкл') ? false : !STATE.only);
+                return;
+            }
             if (cmd === '/licmenu' || (cmd === '/dahk' && licensorReady())) { showLicMenu(); return; }
             // /givelic и /givelic <ID>: штатная команда уходит на сервер как раньше + наш диалог поверх (если мы лицензёр)
             if (cmd === '/givelic' && a.length <= 2) {
@@ -2546,6 +2693,7 @@ window.__code3 = {
     opts: OPTS,
     state: function () { return { skin: _skin, gov: isGovSkin(), rank: _rank, licensor: isLicensor(), ready: licensorReady(), last: STATE.last, tea: STATE.tea, circle: STATE.circle, panel: intOpen }; },
     menu: showLicMenu,
+    only: function (v) { return (v === undefined) ? !!STATE.only : setOnly(v); },   // __code3.only() — состояние, __code3.only(true/false) — переключить
     panel: updatePanel,
     refreshRank: ensureRank,
     players: function () { var l = plist(); return { hooked: !!(window.onUpdatePlayersList && window.onUpdatePlayersList.__code3 === RUN), ageMs: _listAt ? Date.now() - _listAt : null, count: l && Array.isArray(l.players) ? l.players.length : 0, local: l && l.local ? l.local : null, last: _lastResolve, list: l }; },
@@ -2628,6 +2776,7 @@ log(VERSION + ' загружен. Помощник лицензёра актив
 // START LICENSOR TG MODULE //
 try { (function () {
     'use strict';
+    function c3Dbg(m) { try { console.log('[CODE3][TG] ' + m); } catch (e) {} }   // раньше debugLog из Code.js — под /code3 он скрыт
     // Модуль ходит в переменные Code.js (config, uniqueId, processUpdates…): работает, только если Code3 выполнен
     // в той же области видимости (Load.js подклеивает Code3.js к Code2.js перед eval). Иначе тихо пропускаем.
     if (typeof config === 'undefined' || typeof processUpdates !== 'function' || typeof showFunctionsMenu !== 'function') {
@@ -2833,7 +2982,7 @@ try { (function () {
                         }
                     }
                 }
-            } catch (e) { debugLog('[LIC] tgApi wrap error: ' + e.message); }
+            } catch (e) { c3Dbg('[LIC] tgApi wrap error: ' + e.message); }
             return origApi.call(this, method, payload, onSuccess, onError, retryCount);
         };
         wrappedApi.__licApiWrapped = true;
@@ -2860,7 +3009,7 @@ try { (function () {
         if (!once('in|' + kind + '|' + num + '|' + text, 3000)) return true;
         // небольшая пауза: Code.js (если он шлёт своё уведомление) успевает отправить его раньше нас
         setTimeout(function () {
-            try { deliverIncoming(kind, num, who, text); } catch (e) { debugLog('[LIC] incoming error: ' + e.message); }
+            try { deliverIncoming(kind, num, who, text); } catch (e) { c3Dbg('[LIC] incoming error: ' + e.message); }
         }, 1800);
         return true;
     }
@@ -2929,23 +3078,23 @@ try { (function () {
             case 'menu':   showMenu(chatId, messageId, d.uid); break;
             case 'toggle':
                 config.licAllMessages = !config.licAllMessages;
-                debugLog('[LIC] Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
+                c3Dbg('[LIC] Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
                 showMenu(chatId, messageId, d.uid);
                 break;
             case 'filter':
                 config.licFilter = !config.licFilter;
-                debugLog('[LIC] Фильтр «только про лицензии»: ' + (config.licFilter ? 'ВКЛ' : 'ВЫКЛ'));
+                c3Dbg('[LIC] Фильтр «только про лицензии»: ' + (config.licFilter ? 'ВКЛ' : 'ВЫКЛ'));
                 showMenu(chatId, messageId, d.uid);
                 break;
             case 'circle': {   // «Круговое меню» — как пункт игрового меню лицензёра
                 const r = api().toggleCircle();
-                debugLog('[LIC] Круговое меню: ' + (r ? 'ВКЛ' : 'ВЫКЛ'));
+                c3Dbg('[LIC] Круговое меню: ' + (r ? 'ВКЛ' : 'ВЫКЛ'));
                 showMenu(chatId, messageId, d.uid);
                 break;
             }
             case 'tea': {      // «Просьба о чае» — как пункт игрового меню лицензёра
                 const r = api().toggleTea();
-                debugLog('[LIC] Просьба о чае: ' + (r ? 'ВКЛ' : 'ВЫКЛ'));
+                c3Dbg('[LIC] Просьба о чае: ' + (r ? 'ВКЛ' : 'ВЫКЛ'));
                 showMenu(chatId, messageId, d.uid);
                 break;
             }
@@ -3105,7 +3254,7 @@ try { (function () {
                 config.lastUpdateId = u.update_id;
                 setSharedLastUpdateId(config.lastUpdateId);
                 if (parse(cq.data).uid === uniqueId) {
-                    try { handleCallback(cq); } catch (e) { debugLog('[LIC] callback error: ' + e.message); }
+                    try { handleCallback(cq); } catch (e) { c3Dbg('[LIC] callback error: ' + e.message); }
                 }
                 continue;
             }
@@ -3120,7 +3269,7 @@ try { (function () {
                     if (!idm || !tm) {
                         sendToTelegram('❌ <b>Нужен числовой ID игрока (' + esc(displayName) + ')</b>', false, null);
                     } else {
-                        try { doGive(idm[0], parseInt(tm[1], 10)); } catch (e) { debugLog('[LIC] give error: ' + e.message); }
+                        try { doGive(idm[0], parseInt(tm[1], 10)); } catch (e) { c3Dbg('[LIC] give error: ' + e.message); }
                     }
                     continue;
                 }
@@ -3144,13 +3293,14 @@ try { (function () {
     function cleanMsg(s) {
         return String(s).replace(/\{btn:[^}]*\}/g, '').replace(/\{v:([^}]*)\}/g, '$1').replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\s+/g, ' ').trim();
     }
+    function listStale() { const at = window.__code3PlayerListAt; return !at || Date.now() - at > 12000; }
     function lastGive() { try { return (api() && api().last && api().last()) || null; } catch (e) { return null; } }
     function nickOf(id) {
         try {
             const l = window.__code3PlayerList, sid = String(id);
             const lg = lastGive();   // ник, запомненный при /givelic по свежему списку, надёжнее поиска по ID в старом списке
             if (lg && lg.nickFresh && lg.rawNick && String(lg.targetId) === sid) return lg.rawNick;
-            if (!l) return null;
+            if (!l || listStale()) return null;   // список давно не обновлялся — ID мог перейти к другому игроку
             if (l.local && String(l.local.id) === sid) return l.local.name;
             const f = Array.isArray(l.players) && l.players.find(function (p) { return String(p.id) === sid; });
             return f ? f.name : null;
@@ -3210,7 +3360,7 @@ try { (function () {
         if (!sum || !once('tip|' + nick + '|' + sum, 3000)) return true;
         let id = null;
         try {
-            const l = window.__code3PlayerList, key = nick.split(' ').join('_').toLowerCase();
+            const l = listStale() ? null : window.__code3PlayerList, key = nick.split(' ').join('_').toLowerCase();
             const f = l && Array.isArray(l.players) && l.players.find(function (p) { return String(p.name).toLowerCase() === key; });
             if (f) id = f.id;
         } catch (e) {}
@@ -3223,7 +3373,7 @@ try { (function () {
         const msg = String(raw);
         const m = msg.match(PLAYER_MSG_RE);
         if (!m) {
-            try { const cm = cleanMsg(msg); if (!handleIncoming(cm) && !handleCallTalk(cm) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { debugLog('[LIC] event error: ' + e.message); }
+            try { const cm = cleanMsg(msg); if (!handleIncoming(cm) && !handleCallTalk(cm) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { c3Dbg('[LIC] event error: ' + e.message); }
             return;
         }
         if (!config.licAllMessages) return;
@@ -3247,11 +3397,11 @@ try { (function () {
         if (typeof cur === 'function' && !cur.__licWrapped) {
             const wrapped = function (e, colorArg, t) {
                 cur.call(this, e, colorArg, t);
-                try { onChat(String(e), colorArg); } catch (err) { debugLog('[LIC] chat error: ' + err.message); }
+                try { onChat(String(e), colorArg); } catch (err) { c3Dbg('[LIC] chat error: ' + err.message); }
             };
             wrapped.__licWrapped = true;
             window.OnChatAddMessage = wrapped;
-            debugLog('[LIC] ✅ Хук OnChatAddMessage установлен');
+            c3Dbg('[LIC] ✅ Хук OnChatAddMessage установлен');
         }
     }
     installChatHook();
@@ -3276,7 +3426,7 @@ try { (function () {
     if (typeof sendToTelegram === 'function' && !sendToTelegram.__licGovWrapped) {
         const origSend = sendToTelegram;
         const wrappedSend = function (message, silent, replyMarkup, onMessageSent) {
-            try { onMessageSent = trackSent(message, replyMarkup, onMessageSent); } catch (e) { debugLog('[LIC] track send error: ' + e.message); }
+            try { onMessageSent = trackSent(message, replyMarkup, onMessageSent); } catch (e) { c3Dbg('[LIC] track send error: ' + e.message); }
             try {
                 const gm = (typeof message === 'string') ? message.match(GOV_OUT_RE) : null;
                 if (gm) {
@@ -3292,13 +3442,13 @@ try { (function () {
                         };
                     }
                 }
-            } catch (e) { debugLog('[LIC] gov send error: ' + e.message); }
+            } catch (e) { c3Dbg('[LIC] gov send error: ' + e.message); }
             return origSend.call(this, message, silent, replyMarkup, onMessageSent);
         };
         wrappedSend.__licGovWrapped = true;
         sendToTelegram = wrappedSend;
     }
 
-    debugLog('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
+    c3Dbg('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
 })(); } catch (e) { try { console.error('[CODE3] ошибка Telegram-вкладки «Лицензёр»:', e); } catch (e2) {} }
 // END LICENSOR TG MODULE //
