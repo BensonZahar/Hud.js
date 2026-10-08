@@ -34,7 +34,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.7';
+var VERSION = 'code3 v1.8';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -389,16 +389,21 @@ function tgtRefreshFromList() {   // каждый новый список пок
     var id = idByNick(_tgt.nick);
     if (id !== null) { if (id !== _tgt.id) tr('ID/обновлён', nickInfo(_tgt.nick), _tgt.id + ' → ' + id); _tgt.id = id; _tgt.state = 'ok'; tgtFlush(); }
 }
+var CACHE_OK_MS = 6000;   // список моложе — берём ID мгновенно (список и так опрашивается каждые 1–4 с), свежий запрос идёт в фоне
 function primeTarget(nick) {
     var t = _tgt = { nick: nick, id: null, sid: _rmSid, state: 'wait', waiters: [] };
+    var cached = idByNick(nick), age = _listAt ? Date.now() - _listAt : null;
+    var instant = cached !== null && age !== null && age < CACHE_OK_MS;
+    if (instant) { t.id = cached; t.state = 'ok'; noteResolve(nick, cached, 'мгновенно из списка (возраст ' + age + 'мс), фоновое обновление'); }
     var tries = 0;
     (function go() {
         if (_dead || _tgt !== t) return;
         freshPlayers(function () {
             if (_dead || _tgt !== t) return;
             var id = idByNick(nick);
-            if (id !== null) { t.id = id; t.state = 'ok'; noteResolve(nick, id, 'свежий список при открытии меню'); tgtFlush(); return; }
-            if (++tries < 3) return setTimeout(go, 100);
+            if (id !== null) { var changed = (t.id !== id); t.id = id; t.state = 'ok'; if (!instant) noteResolve(nick, id, 'свежий список при открытии меню'); else if (changed) tr('ID/обновлён', nickInfo(nick), 'фоновый запрос → ID ' + id); tgtFlush(); return; }
+            if (instant) return;   // ID уже есть из списка — фоновый ответ без ника не страшен
+            if (++tries < 3) return go();   // без пауз: каждая попытка и так ждёт ответ движка
             t.state = 'fail'; noteResolve(nick, null, ''); tgtFlush();
         }, 600);
     })();
@@ -636,7 +641,7 @@ function scheduleKeyboardNumeric() {
                             if (sid) kbDialogId = null;   // сброс ДО оригинала — Enter-fallback ниже увидит null и не задублирует
                             orig.apply(this, arguments);
                             if (sid && sv.trim() !== '') {
-                                setTimeout(function () { if (!_dead) window.sendClientEventCustom(0, 'OnDialogResponse', sid, 1, 0, sv); }, 80);
+                                setTimeout(function () { if (!_dead) window.sendClientEventCustom(0, 'OnDialogResponse', sid, 1, 0, sv); }, 0);
                             }
                             ctxH.send = orig;               // хук одноразовый
                             ctxH._code3SendHooked = false;
@@ -659,7 +664,7 @@ onUndo(function () { if (kbTimer) { clearInterval(kbTimer); kbTimer = null; } kb
         if (!sid) return;
         kbDialogId = null;
         var sv = (window.currentKeyboardInput && window.currentKeyboardInput.value) || '';
-        if (sv.trim() !== '') setTimeout(function () { if (!_dead) window.sendClientEventCustom(0, 'OnDialogResponse', sid, 1, 0, sv); }, 80);
+        if (sv.trim() !== '') setTimeout(function () { if (!_dead) window.sendClientEventCustom(0, 'OnDialogResponse', sid, 1, 0, sv); }, 0);
     }
     document.addEventListener('keydown', onKey, true);
     onUndo(function () { document.removeEventListener('keydown', onKey, true); });
@@ -711,7 +716,7 @@ function showLicMenu() {
     menuItems.forEach(function (it, i) { list += (i + 1) + '. ' + it.name + '<n>'; });
     addDialog('[677,4,"ПРАВИТЕЛЬСТВО | Лицензёр","","Выбрать","Отмена",0,0]', list, 0);
     // Hassle: панель Interactions остаётся/возвращается поверх диалога (если он открыт не её кнопкой)
-    if (!skipIntReopen) setTimeout(function () { if (!_dead) updatePanel(); }, 120);
+    if (!skipIntReopen) setTimeout(function () { if (!_dead) updatePanel(); }, 0);
     skipIntReopen = false;
 }
 function toggleTea() {
@@ -730,24 +735,24 @@ function onDialogResponse(args) {
     if (id !== DLG_MENU && id !== DLG_ID && id !== DLG_TYPE) return false;
     var btn = Number(args[2]), li = parseInt(args[3]);
     if (id === DLG_MENU) {
-        if (btn !== 1) { setTimeout(updatePanel, 120); return true; }   // отмена — возвращаем панель
+        if (btn !== 1) { setTimeout(updatePanel, 0); return true; }   // отмена — возвращаем панель
         var it = menuItems[li];
         if (!it) return true;
-        if (it.id === 'givelic') setTimeout(showIdInput, 50);
-        else if (it.id === 'circle') { toggleCircle(); setTimeout(showLicMenu, 50); }
-        else if (it.id === 'tea')    { toggleTea();    setTimeout(showLicMenu, 50); }
-        else if (it.id === 'reissue') { doReissue(); setTimeout(showLicMenu, 150); }
+        if (it.id === 'givelic') setTimeout(showIdInput, 0);
+        else if (it.id === 'circle') { toggleCircle(); setTimeout(showLicMenu, 0); }
+        else if (it.id === 'tea')    { toggleTea();    setTimeout(showLicMenu, 0); }
+        else if (it.id === 'reissue') { doReissue(); setTimeout(showLicMenu, 0); }
         return true;
     }
     if (id === DLG_ID) {
         if (btn === 1) {
             var inputId = String(args[4] || '').trim();
-            if (inputId) setTimeout(function () { showTypeDialog(inputId); }, 50);
-        } else setTimeout(updatePanel, 100);   // отмена
+            if (inputId) setTimeout(function () { showTypeDialog(inputId); }, 0);
+        } else setTimeout(updatePanel, 0);   // отмена
         return true;
     }
     // DLG_TYPE
-    if (btn !== 1) setTimeout(updatePanel, 100);
+    if (btn !== 1) setTimeout(updatePanel, 0);
     else if (li >= 0 && li < LIC_TYPES.length) giveByIndex(giveTarget, li, giveNick);
     giveTarget = -1; giveNick = '';
     return true;
@@ -758,13 +763,17 @@ function onDialogResponse(args) {
 function giveByIndex(targetId, idx, nickHint) {
     var c = LIC_TYPES[idx];
     if (!c || targetId === null || targetId === undefined || targetId === '') return false;
+    if (nickHint) {   // между открытием меню и выбором типа список мог обновиться — берём самый свежий ID этого ника
+        var fid = idByNick(nickHint);
+        if (fid !== null && String(fid) !== String(targetId)) { tr('GIVE/ID обновлён', nickInfo(nickHint), targetId + ' → ' + fid); targetId = fid; }
+    }
     var cmd = '/givelic ' + targetId + ' ' + c.type + ' ' + c.price;
     var nk = nickDisp(targetId, nickHint);
     log('отправка:', cmd, '| ник:', nk || '—');
     tr('GIVE/отправка', cmd, 'ID ' + targetId, 'ник: ' + (nk || '—'), 'тип: ' + c.name);
     rawSend(cmd);
     STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now() };
-    setTimeout(updatePanel, 350);
+    setTimeout(updatePanel, 0);
     return true;
 }
 var reissueTimer = null;
@@ -778,7 +787,7 @@ function reissueSend() {
     var rnk = nickDisp(d.targetId) || d.nick || '';
     tr('GIVE/перевыдача', cmd, 'ID ' + d.targetId, 'ник: ' + (rnk || '—'), 'тип: ' + d.name);
     gtAdd('~g~Авто-перевыдача~n~~w~' + d.name + ' → ' + (rnk ? rnk + ' ' : '') + 'ID: ' + d.targetId + ' | ' + Number(d.price).toLocaleString('ru-RU') + ' ₽', 3000, 3);
-    setTimeout(updatePanel, 550);
+    setTimeout(updatePanel, 0);
 }
 // Из «тишины» уходит мгновенно; если лимит исчерпан — одна отложенная перевыдача в первый допустимый момент
 function reissueLic() {
@@ -802,7 +811,7 @@ function doReissue() {
     if (!OPTS.AUTO_REISSUE) return;
     if (!STATE.last) {
         gtAdd('~r~Авто-перевыдача~n~~w~Нет данных — сначала выдайте лицензию через меню', 3500, 3);
-        setTimeout(updatePanel, 200);
+        setTimeout(updatePanel, 0);
         return;
     }
     reissueLic();
@@ -881,7 +890,7 @@ function onInteractionsClick(tp) {
         intOpen = false;
         skipIntReopen = true;
         try { window.closeInterface('Interactions'); } catch (e) {}
-        setTimeout(showLicMenu, 50);
+        setTimeout(showLicMenu, 0);
         return true;
     }
     if (tp === INT_REISSUE) { doReissue(); return true; }       // панель остаётся — обновится после выдачи
@@ -1001,7 +1010,7 @@ function circleHandle(nick, params) {
         tr('CIRCLE/выдача', nickInfo(nick), 'ID ' + id);
         var sent = srvSend('MenuInt_OnCloseInterface', 0);   // сам компонент мы не открывали — сообщаем серверу, что меню «закрыто»
         tr('CIRCLE/MenuInt_OnCloseInterface', 'отправлено=' + sent);
-        setTimeout(function () { tr('CIRCLE/showTypeDialog', 'ID ' + id, 'ник ' + nick); showTypeDialog(id, nick); }, 80);
+        tr('CIRCLE/showTypeDialog', 'ID ' + id, 'ник ' + nick); showTypeDialog(id, nick);   // сразу, без паузы
     });
 }
 
@@ -1493,7 +1502,7 @@ var Radial = (function () {
         try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
         withTargetId(function (id, nick) {
             closeMenu();
-            setTimeout(function () { busy = false; giveLicense(id, typeIdx, nick); }, 80);
+            setTimeout(function () { busy = false; giveLicense(id, typeIdx, nick); }, 0);
         });
     }
 
@@ -1510,7 +1519,7 @@ var Radial = (function () {
     }
     function openDialog(id, nick) {
         closeMenu();
-        setTimeout(function () { busy = false; showTypeDialog(id, nick); }, 80);
+        setTimeout(function () { busy = false; showTypeDialog(id, nick); }, 0);
     }
     function onBtnClick(e) {
         try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
@@ -1552,7 +1561,7 @@ var Radial = (function () {
     return {
         // события открытия/обновления только «подталкивают» движок — решает он сам по состоянию компонента
         onOpen: function (params, was) { Target.event(params, was ? 'open(меню уже было открыто)' : 'open'); if (!was) busy = false; setTimeout(tick, 0); },
-        onUpdate: function (params) { Target.event(params, 'update'); setTimeout(tick, 30); },
+        onUpdate: function (params) { Target.event(params, 'update'); setTimeout(tick, 0); },
         setNick: function (n) { Target.setNick(n, 'setNick'); },
         resetBusy: function () { if (busy) tr('RADIAL/resetBusy', 'busy сброшен (было true)'); busy = false; },
         inject: function () { setTimeout(tick, 0); },
@@ -2409,6 +2418,12 @@ function ensureChatAddHook() {
                 if (!was) {
                     if (circle.pending) { tr('OPEN/ПРОПУСК', 'повторный openInterface, пока идёт определение ID (circle.pending)'); return Promise.resolve(); }   // это открытие уже обрабатываем
                     var nick = parseNick(params);
+                    if (STATE.circle && nick && giveTarget !== -1 && typeof window.IsDialogOpened === 'function' && window.IsDialogOpened() && norm(giveNick) === norm(nick)) {
+                        // выбор типа для этого игрока уже на экране — второй перехват заменил бы диалог (визуально «переоткрывается»)
+                        tr('OPEN/ПРОПУСК', 'выбор лицензии для ' + nickInfo(nick) + ' уже открыт — повторно не открываем');
+                        srvSend('MenuInt_OnCloseInterface', 0);   // сервер считает меню открытым — сбрасываем
+                        return Promise.resolve();
+                    }
                     rmBegin(params, nick);
                     try { if (nick && NICK_RE.test(nick) && licensorReady()) primeTarget(nick); } catch (e) { tr('OPEN/ОШИБКА', 'refreshPlayers', e); }   // список готов ещё до нажатия
                     var intercept = false;
