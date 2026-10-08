@@ -34,7 +34,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.6';
+var VERSION = 'code3 v1.7';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -299,6 +299,7 @@ function capturePlayers(e) {
             if (rmActive()) tr('LIST/получен', 'игроков=' + (Array.isArray(e.players) ? e.players.length : 'нет массива') + ' local=' + (e.local ? e.local.name + '[' + e.local.id + ']' : '—'),
                 'ответ на запрос через ' + (_reqAt ? (_listAt - _reqAt) + 'мс' : '?'), 'ждущих=' + _listWaiters.length);
             flushListWaiters();
+            try { tgtRefreshFromList(); } catch (er2) {}
         } else {
             tr('LIST/ОШИБКА', 'onUpdatePlayersList прислал данные неизвестной формы', tstr(e).slice(0, 160));
         }
@@ -376,36 +377,39 @@ function noteResolve(nick, id, how) {
     _lastFail = { at: failAt, nick: nick, why: why, list: plistInfo(), names: allNames(8000), state: stateInfo(), trace: _trBuf.slice(-60) };
     trFail('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ ID', 'ник: ' + nickInfo(nick) + '\nПРИЧИНА: ' + why + '\nвесь список: ' + allNames(8000));
 }
-var FRESH_MS = 5000;      // ник найден в списке моложе этого возраста — берём ID сразу, без ожидания ответа движка (пока меню открыто, список обновляется раз в секунду; цель стоит рядом, её ID за секунды не меняется)
-var STALE_OK_MS = 10000;  // если движок вообще не отвечает — старый список не старше этого ещё годится
-function resolveId(nick, cb) {
-    var attempt = 0, t0 = Date.now();
-    tr('ID/старт', nickInfo(nick), plistInfo());
-    if (_listAt && Date.now() - _listAt <= FRESH_MS) {
-        var quick = idByNick(nick);
-        tr('ID/быстрый путь', 'список свежий (' + (Date.now() - _listAt) + 'мс)', quick !== null ? 'ник найден → ID ' + quick : 'ника в свежем списке нет → идём к движку');
-        if (quick !== null) {
-            noteResolve(nick, quick, 'свежий список');
-            if (Date.now() - _listAt > 600) refreshPlayers();   // список обновим фоном — клик не ждёт
-            return cb(quick);
-        }
-    } else {
-        tr('ID/быстрый путь', 'пропущен: ' + (_listAt ? 'список старый (' + (Date.now() - _listAt) + 'мс > ' + FRESH_MS + 'мс)' : 'список ни разу не приходил'));
-    }
+// ── ID цели: ВСЕГДА свежий, определяется заново при КАЖДОМ открытии меню игрока ──
+// Сервер шлёт в меню только ник (GetPlayerNameEx), ID приходит лишь из списка игроков движка.
+// При открытии меню сразу просим свежий список (primeTarget); пока меню открыто, ID пересчитывается
+// по каждому приходящему списку. Клик берёт готовый ID без повторных проверок и ожидания.
+var STALE_OK_MS = 10000;   // только для диагностики
+var _tgt = { nick: '', id: null, sid: 0, state: 'idle', waiters: [] };   // state: idle | wait | ok | fail
+function tgtFlush() { var w = _tgt.waiters; _tgt.waiters = []; for (var i = 0; i < w.length; i++) { try { w[i](_tgt.id); } catch (e) {} } }
+function tgtRefreshFromList() {   // каждый новый список пока меню открыто → ID актуализируется
+    if (!_tgt.nick || _tgt.sid !== _rmSid) return;
+    var id = idByNick(_tgt.nick);
+    if (id !== null) { if (id !== _tgt.id) tr('ID/обновлён', nickInfo(_tgt.nick), _tgt.id + ' → ' + id); _tgt.id = id; _tgt.state = 'ok'; tgtFlush(); }
+}
+function primeTarget(nick) {
+    var t = _tgt = { nick: nick, id: null, sid: _rmSid, state: 'wait', waiters: [] };
+    var tries = 0;
     (function go() {
-        if (_dead) { tr('ID/отмена', 'скрипт перезагружен (_dead)'); return; }
-        var n = attempt + 1;
-        tr('ID/попытка ' + n + '/3', 'просим у движка свежий список');
-        freshPlayers(function (ok) {
+        if (_dead || _tgt !== t) return;
+        freshPlayers(function () {
+            if (_dead || _tgt !== t) return;
             var id = idByNick(nick);
-            tr('ID/попытка ' + n + '/3 итог', ok ? 'движок ответил' : 'движок НЕ ответил', 'ник в списке: ' + (id !== null ? 'да, ID ' + id : 'нет'), 'всего прошло ' + (Date.now() - t0) + 'мс');
-            // Как в pravo.js: ник найден в уже имеющемся списке — берём его, даже если движок не ответил свежим
-            // списком (раньше при молчании движка список старше 10 с отбрасывался → «не удалось определить ID»)
-            if (id !== null) { noteResolve(nick, id, ok ? 'ответ движка' : 'кэш (движок не ответил)'); return cb(id); }
-            if (++attempt >= 3) { noteResolve(nick, null, ''); tr('ID/итог', 'null после 3 попыток, ' + (Date.now() - t0) + 'мс'); return cb(null); }
-            setTimeout(go, 150);
-        }, 700);
+            if (id !== null) { t.id = id; t.state = 'ok'; noteResolve(nick, id, 'свежий список при открытии меню'); tgtFlush(); return; }
+            if (++tries < 3) return setTimeout(go, 100);
+            t.state = 'fail'; noteResolve(nick, null, ''); tgtFlush();
+        }, 600);
     })();
+}
+function resolveId(nick, cb) {
+    var t = _tgt;
+    if (t.nick === nick && t.sid === _rmSid) {
+        if (t.state === 'ok') { var cur = idByNick(nick); if (cur !== null) t.id = cur; return cb(t.id); }
+        if (t.state === 'wait') { t.waiters.push(cb); return; }
+    }
+    primeTarget(nick); _tgt.waiters.push(cb);   // нет подготовленной цели (напр. меню уже было открыто) — запрашиваем сейчас
 }
 
 // ══════════════════════════ СКИН И ЗВАНИЕ ══════════════════════════
@@ -1469,8 +1473,6 @@ var Radial = (function () {
         if (!nick) { busy = false; tr('RADIAL/ОШИБКА', 'ник пуст → «Не удалось определить игрока»'); trFail('РАДИАЛЬНОЕ МЕНЮ: ник цели пуст'); notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
         resolveId(nick, function (id) {
             if (_dead || !piOpen()) { busy = false; tr('RADIAL/ответ resolveId ПРОИГНОРИРОВАН', '_dead=' + _dead, 'piOpen=' + piOpen(), 'id=' + id, '(меню закрыли, пока искали ID)'); return; }
-            var v2 = getVm(), t2 = v2 ? Target.read(v2, S) : null;
-            if (t2 && t2.nick && t2.nick !== nick) { busy = false; tr('RADIAL/ЦЕЛЬ СМЕНИЛАСЬ', nick + ' → ' + t2.nick, 'пока искали ID'); notify('~r~Выдача лицензии~n~~w~Цель изменилась, повторите'); return; }
             if (id === null) { busy = false; tr('RADIAL/уведомление', 'показано «Не удалось определить ID»', nickInfo(nick)); notify('~r~Выдача лицензии~n~~w~Не удалось определить ID (маска/фейк-ник?)'); return; }
             tr('RADIAL/ID получен', nickInfo(nick), 'ID ' + id);
             cb(id, nick);
@@ -2408,7 +2410,7 @@ function ensureChatAddHook() {
                     if (circle.pending) { tr('OPEN/ПРОПУСК', 'повторный openInterface, пока идёт определение ID (circle.pending)'); return Promise.resolve(); }   // это открытие уже обрабатываем
                     var nick = parseNick(params);
                     rmBegin(params, nick);
-                    try { if (nick && NICK_RE.test(nick) && licensorReady()) refreshPlayers(); } catch (e) { tr('OPEN/ОШИБКА', 'refreshPlayers', e); }   // список готов ещё до нажатия
+                    try { if (nick && NICK_RE.test(nick) && licensorReady()) primeTarget(nick); } catch (e) { tr('OPEN/ОШИБКА', 'refreshPlayers', e); }   // список готов ещё до нажатия
                     var intercept = false;
                     try { intercept = !!nick && circleCanIntercept(nick); } catch (e) { tr('OPEN/ОШИБКА', 'circleCanIntercept', e); }
                     if (!nick) tr('OPEN/ник пуст', 'не меню игрока (машина/дом/NPC) или params не разобрались — перехвата не будет');
