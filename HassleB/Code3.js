@@ -20,8 +20,11 @@
 // ║     «Круговое меню» и                                                ║
 // ║     «Просьба о чае» в меню «Лицензёр» (как в игре)                   ║
 // ║                                                                      ║
+// ║   • проверка ник ↔ ID через серверный /id перед /givelic (v1.17):    ║
+// ║     ID не тот / игрока нет → выдача отменяется, ник берётся с сервера ║
+// ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
-// ║  мышь/колесо, проверка ника, перетаскивание окон.                    ║
+// ║  мышь/колесо, перетаскивание окон.                                   ║
 // ║                                                                      ║
 // ║  Доступно только в правительственном скине со званием «Лицензёр».    ║
 // ║  Звание берётся из профиля, который уже грузит Code.js               ║
@@ -36,7 +39,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.16';
+var VERSION = 'code3 v1.17';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -71,6 +74,10 @@ var OPTS = (function () {
         SMS_BTN: true,           // кнопка «Ответ» у входящих SMS → «Место» / «Ценовая политика» (как в pravo.js)
         SMS_TEXT: '',            // свой текст пункта «Место» (пусто = «Здравствуйте, нахожусь в правительстве [/gps - Правительство]»)
         SMS_TEXT_PRICE: '',      // свой текст «Ценовой политики» (пусто = собирается из цен лицензий)
+        ID_CHECK: true,          // перед /givelic спрашиваем сервер «/id <ID>» и сверяем ник (false — как раньше, без проверки)
+        ID_CHECK_STRICT: false,  // true — если сервер на /id не ответил, выдачу отменяем; false — выдаём без проверки
+        ID_CHECK_TTL: 15000,     // мс: подтверждённая пара ник↔ID не перепроверяется (перевыдача подряд)
+        ID_CHECK_MS: 2500,       // мс: сколько ждать ответ сервера на /id
         TRACE: true,             // полное логирование радиального меню / поиска ID (консоль + буфер: __code3.trace())
         TRACE_LIST: false,       // true — писать КАЖДЫЙ запрос/ответ списка игроков (раз в секунду, много строк); false — только сбои и медленные ответы
         DEBUG: false
@@ -325,6 +332,14 @@ function lastRaw(id) {
 }
 function refreshLastNick() {
     var l = STATE.last; if (!l) return;
+    if (l.verifiedNick) {   // сервер сам ответил на «/id <ID>» — кому принадлежит ID; список игроков (может отставать) не нужен
+        l.rawNick = l.verifiedNick; l.nickFresh = true; l.nickAt = Date.now();
+        l.nick = String(l.rawNick).split('_').join(' ');
+        var w0 = l._nw || []; l._nw = [];
+        for (var j = 0; j < w0.length; j++) { try { w0[j](l.rawNick); } catch (er0) {} }
+        tr('GIVE/ник цели', 'ID ' + l.targetId, 'ник: ' + l.rawNick, 'источник: сервер (/id)');
+        return;
+    }
     l.nickFresh = false; l.rawNick = null; l._nw = l._nw || [];
     var id = l.targetId;
     freshPlayers(function (ok) {
@@ -932,7 +947,7 @@ function onDialogResponse(args) {
         kbDialogId = null;   // диалог закрыт (любой кнопкой) — клавиатура больше не «его»
         if (btn === 1) {
             var inputId = String(args[4] || '').trim();
-            if (inputId) setTimeout(function () { showTypeDialog(inputId); }, 0);
+            if (inputId) setTimeout(function () { showTypeDialogChecked(inputId); }, 0);
         } else setTimeout(updatePanel, 0);   // отмена
         return true;
     }
@@ -941,6 +956,94 @@ function onDialogResponse(args) {
     else if (li >= 0 && li < LIC_TYPES.length) giveByIndex(giveTarget, li, giveNick, giveExact);
     giveTarget = -1; giveNick = ''; giveExact = false;
     return true;
+}
+
+// ══════════════════════════ ПРОВЕРКА НИК ↔ ID ЧЕРЕЗ СЕРВЕРНЫЙ /id ══════════════════════════
+// /givelic принимает только ID и ничего не знает про ник. Наш ID берётся из списка игроков движка (может отставать,
+// ID в SA-MP переиспользуются). Поэтому прямо перед выдачей спрашиваем у сервера «/id <ID>» (он отвечает
+// «Ник, ID: N, уровень: …» или «Такого игрока нет») и сверяем ник. Совпало → выдаём; нет → отмена и подсказка,
+// у кого сейчас этот ID. Ответ сервера — единственный источник истины.
+var ID_LINE_RE = /^(.*?),\s*ID:\s*(\d+),\s*уровень:/;
+var _idq = null;                                   // идущая проверка: { id, want, cb, timer, sentAt }
+var _idOk = { id: null, name: '', at: 0 };         // последняя подтверждённая серверная пара ник↔ID
+onUndo(function () { if (_idq) { clearTimeout(_idq.timer); _idq = null; } });
+function sameNick(name, want) {
+    var raw = String(name).trim().toLowerCase();
+    if (raw === want) return true;
+    var t = raw.split(/\s+/);
+    return t.length > 1 && t[t.length - 1] === want;   // перед ником стоит префикс (время и т.п.)
+}
+function whenFloodFree(n, fn) {                    // ждём, пока антифлуд пропустит n команд подряд
+    (function go() {
+        if (_dead) return;
+        var w = floodWait(n);
+        if (w > 0) { setTimeout(go, w + 5); return; }
+        fn();
+    })();
+}
+function idCheckFinish(res) {
+    var q = _idq; if (!q) return;
+    clearTimeout(q.timer); _idq = null;
+    tr('ID/ПРОВЕРКА', 'ID ' + q.id, 'ждали ник: ' + (q.want || '—'), 'итог: ' + (res.ok === true ? 'СОВПАЛО' : res.ok === false ? 'ОТКАЗ ' + res.reason : 'нет ответа ' + res.reason), res.name ? 'сервер назвал: ' + res.name : '', 'за ' + (q.sentAt ? Date.now() - q.sentAt : 0) + 'мс');
+    try { q.cb(res); } catch (e) { warn('idCheck cb:', e); }
+}
+// cb({ok:true,name} | {ok:false,reason:'mismatch'|'none'|'busy',name?} | {ok:null,reason:'timeout'|'flood'})
+function verifyTarget(id, nick, cb) {
+    if (OPTS.ID_CHECK === false) return cb({ ok: true, skipped: true, name: '' });
+    id = String(id).trim();
+    var want = nick ? String(nick).trim().split(' ').join('_').toLowerCase() : '';
+    var ttl = Number(OPTS.ID_CHECK_TTL) || 0;
+    if (_idOk.id === id && Date.now() - _idOk.at < ttl && (!want || sameNick(_idOk.name, want))) {
+        tr('ID/ПРОВЕРКА', 'ID ' + id, 'уже подтверждён сервером ' + (Date.now() - _idOk.at) + 'мс назад', _idOk.name);
+        return cb({ ok: true, cached: true, name: _idOk.name });
+    }
+    if (_idq) return cb({ ok: false, reason: 'busy' });   // предыдущая проверка ещё идёт (двойной тап)
+    _idq = { id: id, want: want, cb: cb, timer: null, sentAt: 0 };
+    var q = _idq;
+    whenFloodFree(2, function () {                        // /id + следующая команда не должны упереться в «Не флудите»
+        if (_idq !== q) return;
+        q.sentAt = Date.now();
+        q.timer = setTimeout(function () { if (_idq === q) idCheckFinish({ ok: null, reason: 'timeout' }); }, Number(OPTS.ID_CHECK_MS) || 2500);
+        rawSend('/id ' + id);
+    });
+}
+function idCheckOnChat(clean) {
+    var q = _idq; if (!q || !q.sentAt) return;
+    var m = ID_LINE_RE.exec(clean);
+    if (m) {
+        if (m[2] !== q.id) return;                         // строка про другого игрока
+        var name = m[1].trim();
+        if (!q.want || sameNick(name, q.want)) { _idOk = { id: q.id, name: name, at: Date.now() }; idCheckFinish({ ok: true, name: name }); }
+        else { _idOk = { id: null, name: '', at: 0 }; idCheckFinish({ ok: false, reason: 'mismatch', name: name }); }
+        return;
+    }
+    if (clean.indexOf('Такого игрока нет') !== -1) { _idOk = { id: null, name: '', at: 0 }; idCheckFinish({ ok: false, reason: 'none' }); }
+    else if (clean.indexOf('Не флудите') !== -1 || clean.indexOf('Пожалуйста, подождите несколько секунд') !== -1) idCheckFinish({ ok: null, reason: 'flood' });
+}
+// true — можно слать /givelic. Иначе уже показано уведомление.
+function idGuardPass(res, id, nick) {
+    if (res.ok === true) return true;
+    var who = nick ? String(nick).split('_').join(' ') : '';
+    if (res.ok === false) {
+        if (res.reason === 'busy') return false;
+        if (res.reason === 'none') gtAdd('~r~ID ' + id + '~n~~w~Игрока с таким ID нет — выдача отменена', 4500, 3);
+        else gtAdd('~r~Не тот игрок~n~~w~ID ' + id + ' сейчас у ' + String(res.name).split('_').join(' ') + (who ? ', а нужен ' + who : '') + ' — выдача отменена', 6000, 3);
+        return false;
+    }
+    if (OPTS.ID_CHECK_STRICT) { gtAdd('~r~Проверка /id~n~~w~Сервер не ответил — выдача отменена', 4000, 3); return false; }
+    gtAdd('~y~Проверка /id~n~~w~Сервер не ответил — выдаю без проверки', 2500, 3);
+    return true;
+}
+// ID введён вручную: сначала узнаём у сервера, чей он, и показываем ник в заголовке диалога выбора типа
+function showTypeDialogChecked(id) {
+    id = String(id).trim();
+    if (!/^\d+$/.test(id)) { gtAdd('~r~Выдача лицензии~n~~w~ID должен быть числом', 3000, 3); setTimeout(showIdInput, 0); return; }
+    verifyTarget(id, '', function (res) {
+        if (_dead) return;
+        if (res.ok === true) return showTypeDialog(id, res.name || '', true);
+        if (res.ok === false && res.reason !== 'busy') { idGuardPass(res, id, ''); setTimeout(showIdInput, 0); return; }
+        showTypeDialog(id, '', true);   // сервер не ответил — как раньше, без ника
+    });
 }
 
 // ══════════════════════════ ВЫДАЧА ЛИЦЕНЗИИ И ПЕРЕВЫДАЧА ══════════════════════════
@@ -952,29 +1055,48 @@ function giveByIndex(targetId, idx, nickHint, exact) {
         var fid = idByNick(nickHint);
         if (fid !== null && String(fid) !== String(targetId)) { tr('GIVE/ID обновлён', nickInfo(nickHint), targetId + ' → ' + fid); targetId = fid; }
     }
-    var cmd = '/givelic ' + targetId + ' ' + c.type + ' ' + c.price;
-    var nk = nickDisp(targetId, nickHint);
-    log('отправка:', cmd, '| ник:', nk || '—');
-    tr('GIVE/отправка', cmd, 'ID ' + targetId, 'ник: ' + (nk || '—'), 'тип: ' + c.name);
-    rawSend(cmd);
-    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [], hintRaw: nickHint || null };
-    refreshLastNick();
-    setTimeout(updatePanel, 0);
+    var tid = targetId;
+    verifyTarget(tid, nickHint, function (res) {   // сверка ник ↔ ID у сервера (/id) — только потом /givelic
+        if (_dead) return;
+        if (!idGuardPass(res, tid, nickHint)) { setTimeout(updatePanel, 0); return; }
+        whenFloodFree(1, function () {
+            if (_dead) return;
+            var vn = (res.ok === true && !res.skipped && res.name) ? res.name : null;
+            var hint = nickHint || vn || '';
+            var cmd = '/givelic ' + tid + ' ' + c.type + ' ' + c.price;
+            var nk = nickDisp(tid, hint);
+            log('отправка:', cmd, '| ник:', nk || '—');
+            tr('GIVE/отправка', cmd, 'ID ' + tid, 'ник: ' + (nk || '—'), 'тип: ' + c.name, vn ? 'проверено /id' : 'без проверки');
+            rawSend(cmd);
+            STATE.last = { targetId: tid, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [], hintRaw: hint || null, verifiedNick: vn };
+            refreshLastNick();
+            setTimeout(updatePanel, 0);
+        });
+    });
     return true;
 }
 var reissueTimer = null;
 function reissueSend() {
     var d = STATE.last; if (!d) return;
-    var cmd = '/givelic ' + d.targetId + ' ' + d.type + ' ' + d.price;
-    d.at = Date.now();
-    rawSend('/cancel');
-    rawSend(cmd);
-    refreshLastNick();
-    log('перевыдача: /cancel +', cmd);
-    var rnk = nickDisp(d.targetId) || d.nick || '';
-    tr('GIVE/перевыдача', cmd, 'ID ' + d.targetId, 'ник: ' + (rnk || '—'), 'тип: ' + d.name);
-    gtAdd('~g~Авто-перевыдача~n~~w~' + d.name + ' → ' + (rnk ? rnk + ' ' : '') + 'ID: ' + d.targetId + ' | ' + Number(d.price).toLocaleString('ru-RU') + ' ₽', 3000, 3);
-    setTimeout(updatePanel, 0);
+    var want = d.verifiedNick || d.hintRaw || d.rawNick || '';
+    verifyTarget(d.targetId, want, function (res) {   // ID мог сменить владельца с прошлой выдачи — перепроверяем (если подтверждение старше ID_CHECK_TTL)
+        if (_dead || STATE.last !== d) return;
+        if (!idGuardPass(res, d.targetId, want)) { setTimeout(updatePanel, 0); return; }
+        d.verifiedNick = (res.ok === true && !res.skipped && res.name) ? res.name : null;
+        whenFloodFree(2, function () {
+            if (_dead || STATE.last !== d) return;
+            var cmd = '/givelic ' + d.targetId + ' ' + d.type + ' ' + d.price;
+            d.at = Date.now();
+            rawSend('/cancel');
+            rawSend(cmd);
+            refreshLastNick();
+            log('перевыдача: /cancel +', cmd);
+            var rnk = nickDisp(d.targetId) || d.nick || '';
+            tr('GIVE/перевыдача', cmd, 'ID ' + d.targetId, 'ник: ' + (rnk || '—'), 'тип: ' + d.name);
+            gtAdd('~g~Авто-перевыдача~n~~w~' + d.name + ' → ' + (rnk ? rnk + ' ' : '') + 'ID: ' + d.targetId + ' | ' + Number(d.price).toLocaleString('ru-RU') + ' ₽', 3000, 3);
+            setTimeout(updatePanel, 0);
+        });
+    });
 }
 // Из «тишины» уходит мгновенно; если лимит исчерпан — одна отложенная перевыдача в первый допустимый момент
 function reissueLic() {
@@ -1914,6 +2036,7 @@ function onChat(message) {
     else if (msg.indexOf('SMS:') !== -1 && msg.indexOf('Получатель:') !== -1) { try { _c3SmsOnAck(); } catch (e) {} }
 
     var clean = msg.replace(/\{[0-9a-fA-F]{6}\}/g, '');
+    try { idCheckOnChat(clean); } catch (eIc) { warn('idCheck:', eIc); }   // ответ сервера на нашу проверку «/id <ID>»
     _c3CallOnChat(clean);   // входящие звонки / подтверждение ответа на звонок (кнопка «Ответ» в Telegram)
     var last = STATE.last;
     // Меню игрока открывается с 8 м (MIU: IsPlayerInRangeOfPlayer 8.0), а /givelic требует не дальше 6 м
