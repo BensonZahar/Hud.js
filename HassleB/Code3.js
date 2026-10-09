@@ -3345,7 +3345,8 @@ try { (function () {
 // ║  Окно рисует только видимые строки (виртуальный скролл), поэтому     ║
 // ║  читаем данные из хука, а не из DOM. DOM — только запасной вариант.  ║
 // ║                                                                      ║
-// ║  Команды: /tab · /tab quiet · /tab tg · /tab hide|show · /tab close  ║
+// ║  Команды: /tab · /tab quiet · /tab tg · /tab raw · /tab hide|show ·  ║
+// ║  /tab close. raw — сырой ответ движка (почему в списке только мы).   ║
 // ║  (алиасы: /таб, /ефи). quiet — прочитать список БЕЗ открытия окна.   ║
 // ║                                                                      ║
 // ║  Сверка ID: когда Code3 узнаёт ID по нику через серверный /id, список║
@@ -3361,7 +3362,7 @@ try { (function () {
 'use strict';
 
 if (typeof window.__code3TabCleanup === 'function') { try { window.__code3TabCleanup(); } catch (e) {} }
-var TVER = 'tab-test v1.1';
+var TVER = 'tab-test v1.2';
 var dead = false, undo = [], MYID = String(Date.now()) + '_' + Math.random();
 function onUndo(fn) { undo.push(fn); }
 window.__code3TabCleanup = function () {
@@ -3399,6 +3400,8 @@ var O = (function () {
         XCHECK_MAX_AGE_MS: 3000, // список моложе этого возраста считается свежим; старше — запрашиваем заново
         XCHECK_WAIT_MS: 2500, // сколько ждать свежий список для сверки
         XCHECK_TG_MISS: false,// true — писать в Telegram и когда игрока нет в списке / список не получен (по умолчанию только в консоль)
+        MERGE: true,          // во время /tab копить игроков из всех ответов движка и объединять (если список приходит кусками)
+        RETRY_MS: 4000,       // если список неполный (игроков меньше, чем «онлайн») — перезапрашивать у движка столько мс, потом отдать что есть
         AUTO_REFRESH_S: 0     // >0 — запрашивать список в фоне каждые N с, пока окно закрыто (открытое окно обновляется само раз в 3 с)
     };
     try { var g = window.CODE3_OPTS && window.CODE3_OPTS.TAB; if (g) for (var k in g) o[k] = g[k]; } catch (e) {}
@@ -3449,30 +3452,118 @@ function rec(p, me) {
         me: !!me
     };
 }
+function toObj(x) { if (typeof x === 'string') { try { return JSON.parse(x); } catch (e) { return null; } } return x; }
+// Где в ответе движка лежат игроки. Игра ждёт players:[...], но на всякий случай понимаем и другие виды:
+// объект-словарь {id: {...}}, ключи list/playerList/..., вложенность в data, JSON-строку вместо массива.
+function pickPlayers(e) {
+    var keys = ['players', 'list', 'playerList', 'playersList', 'onlinePlayers'];
+    var srcs = [e];
+    var dd = toObj(e.data); if (dd && typeof dd === 'object') srcs.push(dd);
+    for (var s = 0; s < srcs.length; s++) {
+        for (var k = 0; k < keys.length; k++) {
+            var v = toObj(srcs[s][keys[k]]);
+            if (Array.isArray(v)) return { arr: v, key: (s ? 'data.' : '') + keys[k], src: srcs[s] };
+            if (v && typeof v === 'object') {
+                var vals = [];
+                for (var q in v) {
+                    if (!Object.prototype.hasOwnProperty.call(v, q)) continue;
+                    var it = v[q];
+                    if (!it || typeof it !== 'object') continue;
+                    if (it.id === undefined || it.id === null) { var c = {}; for (var z in it) c[z] = it[z]; c.id = q; it = c; }
+                    vals.push(it);
+                }
+                return { arr: vals, key: (s ? 'data.' : '') + keys[k] + '(объект)', src: srcs[s] };
+            }
+        }
+    }
+    return null;
+}
 function parseEngine(e) {
-    if (typeof e === 'string') { try { e = JSON.parse(e); } catch (x) { return null; } }
-    if (!e || typeof e !== 'object' || !Array.isArray(e.players)) return null;
+    e = toObj(e);
+    if (!e || typeof e !== 'object') return null;
+    var pk = pickPlayers(e);
+    if (!pk) return null;
     var list = [], seen = {};
-    var loc = (e.local && typeof e.local === 'object') ? e.local : null;
-    if (loc && loc.id !== undefined) { list.push(rec(loc, true)); seen[String(loc.id)] = 1; }
-    for (var i = 0; i < e.players.length; i++) {
-        var p = e.players[i];
+    var loc = toObj(pk.src.local); if (!loc || typeof loc !== 'object') loc = toObj(e.local);
+    var hasLoc = !!(loc && typeof loc === 'object' && loc.id !== undefined && loc.id !== null);
+    if (hasLoc) { list.push(rec(loc, true)); seen[String(loc.id)] = 1; }
+    for (var i = 0; i < pk.arr.length; i++) {
+        var p = pk.arr[i];
         if (!p || typeof p !== 'object') continue;
-        var key = String(p.id);
-        if (seen[key]) continue;
-        seen[key] = 1;
+        if (p.id !== undefined && p.id !== null) {      // без id не склеиваем (раньше все такие строки схлопывались в одну)
+            var key = String(p.id);
+            if (seen[key]) continue;
+            seen[key] = 1;
+        }
         list.push(rec(p, false));
     }
-    var cnt = (e.count !== undefined && e.count !== null) ? Number(e.count) : e.players.length;
-    return { at: Date.now(), src: 'engine', serverName: String(e.serverName === undefined || e.serverName === null ? '' : e.serverName), online: (isNaN(cnt) ? e.players.length : cnt) + 1, list: list };
+    var cnt = (pk.src.count !== undefined && pk.src.count !== null) ? Number(pk.src.count) : pk.arr.length;
+    var sn = pk.src.serverName;
+    return {
+        at: Date.now(), src: 'engine',
+        serverName: String(sn === undefined || sn === null ? '' : sn),
+        online: (isNaN(cnt) ? pk.arr.length : cnt) + 1,
+        list: list,
+        meta: { key: pk.key, rawPlayers: pk.arr.length, count: pk.src.count, hasLocal: hasLoc, merged: 0 }
+    };
 }
+
+// ── Сырой ответ движка: что именно пришло (чтобы видеть, ПОЧЕМУ в списке только мы) ──
+var rawLast = null, rawObjLast = null, rawHist = [];
+function noteRaw(e, obj) {
+    var d = { at: Date.now(), type: typeof e, keys: '', count: undefined, playersLen: '—', sample: '', local: '' };
+    try {
+        if (typeof e === 'string') d.bytes = e.length;
+        if (obj && typeof obj === 'object') {
+            d.keys = Object.keys(obj).join(',');
+            d.count = obj.count;
+            var pl = toObj(obj.players);
+            if (Array.isArray(pl)) { d.playersLen = pl.length; d.sample = JSON.stringify(pl.slice(0, 2)).slice(0, 500); }
+            else if (pl && typeof pl === 'object') { d.playersLen = 'объект:' + Object.keys(pl).length; d.sample = JSON.stringify(pl).slice(0, 500); }
+            else if (obj.players !== undefined) d.playersLen = typeof obj.players;
+            d.local = JSON.stringify(obj.local).slice(0, 300);
+        }
+    } catch (x) {}
+    var prev = rawHist.length ? rawHist[rawHist.length - 1] : null;
+    rawLast = d; rawObjLast = obj;
+    rawHist.push(d); if (rawHist.length > 8) rawHist.shift();
+    // в консоль — только первый ответ и каждое изменение размера списка (иначе спам каждые 3 с)
+    if (!prev || prev.playersLen !== d.playersLen || prev.count !== d.count) tlog('движок прислал: ' + rawLine(d));
+}
+function rawLine(d) {
+    d = d || rawLast; if (!d) return 'ответов от движка ещё не было';
+    return 'тип ' + d.type + ' · ключи [' + d.keys + '] · count ' + d.count + ' · players ' + d.playersLen + ' · вызовов хука ' + hookInfo.calls;
+}
+
 function onEngineList(e) {
-    var s = parseEngine(e);
     hookInfo.calls++; hookInfo.lastAt = Date.now();
-    if (!s) { hookInfo.lastErr = 'неожиданный формат данных: ' + typeof e; return; }
+    var obj = toObj(e);
+    noteRaw(e, obj);
+    var s = parseEngine(obj);
+    if (!s) { hookInfo.lastErr = 'неожиданный формат данных: ' + typeof e + (obj && typeof obj === 'object' ? ' · ключи [' + Object.keys(obj).join(',') + ']' : ''); return; }
     hookInfo.lastErr = '';
     snap = s;
+    // во время /tab копим игроков из всех ответов движка (если движок отдаёт список кусками — соберём целиком)
+    var r = RUN;
+    if (r && r.active && O.MERGE) {
+        r.calls = (r.calls || 0) + 1;
+        if (!r.acc) r.acc = {};
+        for (var i = 0; i < s.list.length; i++) { var q = s.list[i]; r.acc[q.me ? 'me' : String(q.id) + '|' + q.name] = q; }
+        r.maxOnline = Math.max(r.maxOnline || 0, s.online);
+    }
     flushWaiters();
+}
+// Итоговый снимок запуска: последний ответ, а если ответов было несколько и список неполный — объединение всех
+function mergedSnap(r) {
+    var s = snap;
+    if (!O.MERGE || !r || !r.acc || (r.calls || 0) < 2) return s;
+    var list = [];
+    for (var k in r.acc) if (Object.prototype.hasOwnProperty.call(r.acc, k)) list.push(r.acc[k]);
+    if (list.length <= s.list.length) return s;
+    var m = { at: s.at, src: 'engine', serverName: s.serverName, online: Math.max(s.online, r.maxOnline || 0), list: list, meta: {} };
+    for (var z in s.meta) m.meta[z] = s.meta[z];
+    m.meta.merged = r.calls;
+    return m;
 }
 var waiters = [], lastReqAt = 0;
 function flushWaiters() {
@@ -3557,6 +3648,12 @@ function buildOk(s, complete) {
         '🕒 ' + stamp(s.at) + '\n' +
         '📨 Частей со списком: ' + parts.length + (cut ? ' (ещё ' + cut + ' не отправлено: лимит TG_MAX_MSGS)' : '') + '\n' +
         'ID · Ник · Ур. · Пинг · 📱моб/💻пк · 👑адм 💎vip 🔇мут';
+    if (s.src === 'engine' && !complete) {
+        head += '\n\n🧪 <b>Список неполный — что прислал движок</b>\n' + esc(rawLine()) +
+            (s.meta ? '\nplayers в ответе: ' + s.meta.rawPlayers + ' · найден в: ' + esc(s.meta.key) + ' · local: ' + (s.meta.hasLocal ? 'есть' : 'нет') : '') +
+            (rawLast && rawLast.sample ? '\nобразец players: <code>' + esc(rawLast.sample.slice(0, 300)) + '</code>' : '\nplayers пустой — движок/сервер не прислал ни одного игрока кроме нас (это не ошибка разбора в Code3)') +
+            '\nПодробнее: /tab raw';
+    }
     var msgs = [{ text: head, silent: false }];
     for (var j = 0; j < parts.length; j++) {
         msgs.push({ text: '<b>Часть ' + (j + 1) + '/' + parts.length + '</b>\n<pre>' + esc(parts[j]) + '</pre>', silent: !!O.TG_SILENT_PARTS });
@@ -3837,6 +3934,7 @@ function diagText(r) {
         ' · updatePlayerList: ' + (typeof window.updatePlayerList === 'function' ? 'есть' : 'нет') +
         ' · хук: ' + (hookInfo.installed ? 'стоит' : 'не встал') + ', вызовов ' + hookInfo.calls +
         (hookInfo.lastErr ? ' · ' + hookInfo.lastErr : '') +
+        ' · ' + rawLine() +
         (window.App && window.App.developmentMode ? ' · developmentMode (движок не отвечает)' : '');
 }
 
@@ -3854,9 +3952,14 @@ function run(opt) {
     (function poll() {
         if (dead || !r.active) return;
         var now = Date.now();
-        if (snap && snap.at >= r.t0 && snap.src === 'engine') { return gotList(r, snap); }
+        if (snap && snap.at >= r.t0 && snap.src === 'engine') {
+            if (!r.firstAt) r.firstAt = now;
+            var ms = mergedSnap(r);
+            // полный список — сразу; неполный — ещё пару раз спрашиваем движок (RETRY_MS), потом отдаём что есть, но с пометкой
+            if (ms.list.length >= ms.online || now - r.firstAt >= O.RETRY_MS) return gotList(r, ms);
+        }
         if (now - r.lastReq >= 1000) { r.lastReq = now; requestList(); }
-        if (now - r.t0 >= O.WAIT_LIST_MS) {
+        if (now - r.t0 >= O.WAIT_LIST_MS && !(snap && snap.at >= r.t0 && snap.src === 'engine')) {
             var d = scrapeDom();
             if (d) { tlog('движок не ответил за ' + O.WAIT_LIST_MS + ' мс — беру то, что нарисовано в окне (неполный список)'); return gotList(r, d); }
             return failList(r, 'движок не прислал список за ' + (O.WAIT_LIST_MS / 1000) + ' с');
@@ -3870,7 +3973,7 @@ function gotList(r, s) {
     r.list = s;
     var complete = s.src === 'engine' && s.list.length >= s.online;
     var l1 = s.src === 'engine'
-        ? { t: 'Список: ' + (complete ? '✅ ' : '⚠️ ') + s.list.length + ' из ' + s.online + ' игроков (движок' + (complete ? ', полный' : ', неполный') + ')', c: complete ? 'ok' : 'warn' }
+        ? { t: 'Список: ' + (complete ? '✅ ' : '⚠️ ') + s.list.length + ' из ' + s.online + ' игроков (движок' + (complete ? ', полный' : ', неполный') + (s.meta && s.meta.merged ? ', объединено ответов: ' + s.meta.merged : '') + ')', c: complete ? 'ok' : 'warn' }
         : { t: 'Список: ⚠️ ' + s.list.length + ' из ' + s.online + ' (только видимые строки окна — неполный)', c: 'warn' };
     tlog(l1.t + ' · сервер: ' + (s.serverName || '—'));
     setLines([l1, { t: 'Telegram: ⏳ готовлю отправку…', c: 'wait' }]);
@@ -3903,10 +4006,40 @@ function finish(r, l1, tl) {
     if (O.AUTO_CLOSE_S > 0) later(function () { if (isOpen()) closeAll('автозакрытие'); }, O.AUTO_CLOSE_S * 1000);
 }
 
+// /tab raw — сырой ответ движка (без окна): в консоль и в Telegram. Players урезаны до первых 3, чтобы влезло в сообщение.
+function dumpRaw() {
+    installHook();
+    var t0 = Date.now();
+    lastReqAt = t0; requestList();
+    tlog('raw: запрашиваю у движка…');
+    later(function () {
+        var o = rawObjLast, shown = null;
+        try {
+            if (o && typeof o === 'object') {
+                shown = {};
+                for (var k in o) shown[k] = o[k];
+                var pl = toObj(o.players);
+                if (Array.isArray(pl)) shown.players = { length: pl.length, first3: pl.slice(0, 3) };
+            }
+        } catch (x) {}
+        var js = ''; try { js = JSON.stringify(shown); } catch (x) { js = String(x); }
+        if (js && js.length > 2500) js = js.slice(0, 2500) + '…';
+        var fresh = !!(rawLast && rawLast.at >= t0);
+        var hist = rawHist.map(function (d) { return stamp(d.at).slice(11) + ' players ' + d.playersLen + ' count ' + d.count; }).join('\n');
+        tlog('raw: ' + (fresh ? 'свежий ответ' : 'свежего ответа нет, показываю последний') + ' · ' + rawLine());
+        try { console.log('[CODE3][TAB] raw JSON (players урезан): ' + js); } catch (x) {}
+        var dn = nick();
+        tgOnce('🧪 <b>/tab raw — ответ движка</b>' + (dn ? ' (' + esc(dn) + ')' : '') + '\n' + (fresh ? '' : '⚠️ свежего ответа за 2 с нет — последний из памяти\n') +
+            esc(rawLine()) + '\n<pre>' + esc(js || '—') + '</pre>\nИстория ответов (последние 8):\n<pre>' + esc(hist || '—') + '</pre>', false);
+        toast('~y~/tab raw: ~w~' + (fresh ? 'ответ получен' : '~r~нет свежего ответа') + ' · players ' + (rawLast ? rawLast.playersLen : '—'), 4000);
+    }, 2000);
+}
+
 // ══════════════════════════ КОМАНДА /tab ══════════════════════════
 function onTabCmd(arg) {
     if (arg === 'close' || arg === 'off' || arg === 'x') { closeAll('/tab close'); return; }
     if (arg === 'tg') { run({}); return; }
+    if (arg === 'raw' || arg === 'dump' || arg === 'сырое') { dumpRaw(); return; }
     if (arg === 'quiet' || arg === 'q' || arg === 'silent' || arg === 'тихо') { run({ quiet: true }); return; }
     if (arg === 'hide' || arg === 'скрыть') { if (isOpen()) setHidden(true); return; }
     if (arg === 'show' || arg === 'показать') { if (isOpen()) setHidden(false); return; }
@@ -3949,14 +4082,16 @@ var api = {
     close: function () { closeAll('api'); },
     last: function () { return snap; },
     scrape: scrapeDom,
+    raw: dumpRaw,                     // сырой ответ движка → консоль + Telegram
+    hist: function () { return rawHist; },
     refresh: refresh,                 // refresh(maxAgeMs, cb(снимок, 'cache'|'fresh'|'timeout')) — список без окна
     crossCheck: crossCheck,           // crossCheck(ник, id, ник_от_сервера) — сверка с ответом /id
     find: function (q) { if (!snap) return []; var w = nrm(q), n = /^\d+$/.test(String(q)); return snap.list.filter(function (p) { return n ? String(p.id) === String(q) : nrm(p.name) === w; }); },
-    state: function () { return { version: TVER, open: isOpen(), hook: hookInfo, snap: snap ? { src: snap.src, got: snap.list.length, online: snap.online, ageMs: Date.now() - snap.at } : null, run: RUN ? { n: RUN.n, active: RUN.active, uiOpen: RUN.uiOpen } : null, tg: !!tgFn() }; }
+    state: function () { return { version: TVER, open: isOpen(), hook: hookInfo, snap: snap ? { src: snap.src, got: snap.list.length, online: snap.online, ageMs: Date.now() - snap.at, meta: snap.meta } : null, raw: rawLast, run: RUN ? { n: RUN.n, active: RUN.active, uiOpen: RUN.uiOpen } : null, tg: !!tgFn() }; }
 };
 window.__code3tab = api;
 onUndo(function () { if (window.__code3tab === api) window.__code3tab = null; });
-tlog(TVER + ' загружен. /tab — открыть список и отправить в Telegram, ✕ — закрыть.');
+tlog(TVER + ' загружен. /tab — открыть список и отправить в Telegram, ✕ — закрыть, /tab raw — сырой ответ движка.');
 
 })(); } catch (e) { try { console.error('[CODE3] ошибка блока TAB TEST:', e); } catch (e2) {} }
 // END TAB TEST MODULE //
