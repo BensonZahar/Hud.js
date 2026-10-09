@@ -34,7 +34,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.10';
+var VERSION = 'code3 v1.11';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -127,6 +127,7 @@ function tr(tag) {
         if (_trSkipped) { trEmit('… предыдущая запись повторилась ещё ' + _trSkipped + ' раз(а)'); _trSkipped = 0; }
         _trPrev = body; _trPrevAt = now;
         trEmit(body);
+        if (/ОШИБКА|ИСКЛЮЧЕНИЕ/.test(tag)) reportFail('Ошибка: ' + tag, body);
     } catch (e) {}
 }
 function trOnce(key) {   // не чаще одного раза за одно открытие меню
@@ -185,7 +186,34 @@ function diagnose(nick) {
 }
 function rmActive() { return !!_rmT0 && (Date.now() - _rmT0 < 20000 || isOpen('PlayerInteraction')); }
 // Полный дамп в консоль сразу при провале (без ручных команд): причина, состояние, список игроков, последние 60 событий
+// Отчёт о сбое уходит в Telegram САМ (приёмник window.__code3FailSink ставит Telegram-вкладка «Лицензёр»), консоль открывать не нужно.
+// Один и тот же сбой — не чаще раза в минуту, всего не больше 8 отчётов за 10 минут.
+var _rfLast = {}, _rfRecent = [], _rfBusy = false;
+function reportFail(title, extra) {
+    if (_rfBusy) return;
+    _rfBusy = true;
+    try {
+        var sink = window.__code3FailSink;
+        if (typeof sink !== 'function') return;
+        var now = Date.now();
+        var key = title + '|' + String(extra || '').split('\n')[0].slice(0, 80);
+        if (_rfLast[key] && now - _rfLast[key] < 60000) return;
+        _rfRecent = _rfRecent.filter(function (t) { return now - t < 600000; });
+        if (_rfRecent.length >= 8) return;
+        _rfLast[key] = now; _rfRecent.push(now);
+        var ex = String(extra || ''); if (ex.length > 1000) ex = ex.slice(0, 1000) + '…';
+        var head = VERSION + '\n' + ex + '\n' + stateInfo() + '\n' + plistInfo();
+        var budget = 3300 - head.length, lines = [];
+        for (var i = _trBuf.length - 1; i >= 0 && lines.length < 40; i--) {
+            var ln = String(_trBuf[i]); if (ln.length > 260) ln = ln.slice(0, 260) + '…';
+            if (ln.length + 1 > budget) break;
+            budget -= ln.length + 1; lines.unshift(ln);
+        }
+        sink({ title: title, head: head, trace: lines.join('\n'), at: now });
+    } catch (e) {} finally { _rfBusy = false; }
+}
 function trFail(title, extra) {
+    reportFail(title, extra);
     if (OPTS.TRACE === false) return;
     try {
         var txt = '═══ ' + title + ' ═══\n' + (extra ? extra + '\n' : '') + stateInfo() + '\n' + plistInfo() + '\n--- последние события ---\n' + _trBuf.slice(-60).join('\n');
@@ -2623,7 +2651,7 @@ every(function () {
     if (!watch || age < 12000 || Date.now() - _wdAt < 10000) return;
     _wdAt = Date.now(); _wdCount++;
     tr('WATCHDOG/список молчит', 'возраст=' + age + 'мс', 'срабатывание №' + _wdCount, hookInfo());
-    if (_wdCount <= 3) trFail('СТОРОЖ: список игроков не приходит ' + age + 'мс', 'пере-ставлю хук и спрашиваю движок напрямую');
+    if (_wdCount <= 3 && licensorReady()) trFail('СТОРОЖ: список игроков не приходит ' + age + 'мс', 'пере-ставлю хук и спрашиваю движок напрямую');
     ensurePlayersHook(true);
     engineRequest('сторож: список не приходил ' + age + 'мс');
     refreshPlayers();
@@ -2736,6 +2764,13 @@ try { (function () {
     function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
     function money(n) { return Number(n).toLocaleString('ru-RU') + ' ₽'; }
     function api() { return window.__code3 || null; }
+    // Авто-отчёты о сбоях Code3 (не удалось определить ID, молчит список игроков, ошибки меню) — прямо в Telegram, без консоли
+    window.__code3FailSink = function (rec) {
+        try {
+            sendToTelegram('🛑 <b>Code3: ' + esc(rec.title) + ' (' + esc(displayName) + ')</b>\n<pre>' + esc(rec.head) +
+                (rec.trace ? '\n--- последние события ---\n' + esc(rec.trace) : '') + '</pre>', false, null);
+        } catch (e) {}
+    };
     function ready() { try { const a = api(); return !!(a && a.ready && a.ready()); } catch (e) { return false; } }
     function types() { const a = api(); return (a && a.types) || []; }
     function btn(t, d, st) { return createButton(t, d, st); }
