@@ -36,7 +36,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.14';
+var VERSION = 'code3 v1.16';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -727,7 +727,19 @@ function addDialog(params, content, prio) {
 }
 
 // ── Клавиатура Hassle: числовая раскладка «123», ники остаются видны, авто-подтверждение по «Send» ──
-var kbOurs = false, kbDialogId = null, kbTimer = null;
+var kbOurs = false, kbDialogId = null, kbTimer = null, kbDialogAt = 0;
+// Клавиатура у чата и у диалога ОДНА (Keyboard + window.currentKeyboardInput). Раньше kbDialogId залипал, если диалог ID закрыли
+// (Отмена/ESC/игра закрыла) — и следующая отправка чата/команды уходила как «ответ диалога 678»: открывалась выдача лицензии с этим текстом.
+// Теперь ввод считается ответом диалога, только если наш диалог ID РЕАЛЬНО открыт (.input-window, поле ввода внутри него); иначе это обычный ввод.
+function dlgInputVisible() {
+    try {
+        var ci = window.currentKeyboardInput;
+        if (ci && typeof ci.closest === 'function') return !!ci.closest('.input-window');
+        return !!document.querySelector('.input-window');
+    } catch (e) { return false; }
+}
+function kbDialogLive() { return !!kbDialogId && dlgInputVisible(); }   // диалог ID открыт → ввод его; нет → к диалогу не относится (без лимита по времени)
+function kbDialogDrop(why) { if (kbDialogId) { tr('KB/сброс диалога ID', why); } kbDialogId = null; }
 function sdlsOrig() { var f = window.setDrawLabelStatus; return (f && f.__orig) || f; }
 function kbEnsureHooks() {
     var sd = window.setDrawLabelStatus;
@@ -804,6 +816,7 @@ function scheduleKeyboardNumeric() {
                         ctxH.send = function () {
                             var sv = (this && this.text != null) ? String(this.text) : ((window.currentKeyboardInput && window.currentKeyboardInput.value) || '');
                             var sid = kbDialogId;
+                            if (sid && !kbDialogLive()) { kbDialogDrop('отправка при закрытом диалоге — это обычный ввод (чат/команда), не ответ диалога'); sid = null; }
                             if (sid) kbDialogId = null;   // сброс ДО оригинала — Enter-fallback ниже увидит null и не задублирует
                             orig.apply(this, arguments);
                             if (sid && sv.trim() !== '') {
@@ -828,6 +841,7 @@ onUndo(function () { if (kbTimer) { clearInterval(kbTimer); kbTimer = null; } kb
         if ((e.key !== 'Enter' && e.keyCode !== 13) || e.isTrusted) return;
         var sid = kbDialogId;
         if (!sid) return;
+        if (!kbDialogLive()) { kbDialogDrop('Enter при закрытом диалоге — обычный ввод'); return; }
         kbDialogId = null;
         var sv = (window.currentKeyboardInput && window.currentKeyboardInput.value) || '';
         if (sv.trim() !== '') setTimeout(function () { if (!_dead) window.sendClientEventCustom(0, 'OnDialogResponse', sid, 1, 0, sv); }, 0);
@@ -835,6 +849,9 @@ onUndo(function () { if (kbTimer) { clearInterval(kbTimer); kbTimer = null; } kb
     document.addEventListener('keydown', onKey, true);
     onUndo(function () { document.removeEventListener('keydown', onKey, true); });
 })();
+every(function () {   // диалог ID не появился за 3 с или уже закрыт (ESC/игра) — сбросить, чтобы не перехватить чат
+    if (kbDialogId && Date.now() - kbDialogAt > 3000 && !dlgInputVisible()) kbDialogDrop('диалога ID нет на экране');   // 3 с — даём диалогу появиться; пока он открыт — висит сколько угодно
+}, 500);
 // Страховка как в pravo.js: ESC тоже сбрасывает флаг «наша клавиатура»
 (function () {
     function onEsc(e) { if (e.keyCode === 27) kbOurs = false; }
@@ -844,7 +861,7 @@ onUndo(function () { if (kbTimer) { clearInterval(kbTimer); kbTimer = null; } kb
 
 // ── Диалог 678: ввод ID игрока ──
 function showIdInput() {
-    kbDialogId = DLG_ID;
+    kbDialogId = DLG_ID; kbDialogAt = Date.now();
     scheduleKeyboardNumeric();
     addDialog('[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]', '', 0);
 }
@@ -912,6 +929,7 @@ function onDialogResponse(args) {
         return true;
     }
     if (id === DLG_ID) {
+        kbDialogId = null;   // диалог закрыт (любой кнопкой) — клавиатура больше не «его»
         if (btn === 1) {
             var inputId = String(args[4] || '').trim();
             if (inputId) setTimeout(function () { showTypeDialog(inputId); }, 0);
