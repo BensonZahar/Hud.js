@@ -34,7 +34,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.12';
+var VERSION = 'code3 v1.13';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -334,10 +334,12 @@ function refreshLastNick() {
     var id = l.targetId;
     freshPlayers(function (ok) {
         if (STATE.last !== l || String(l.targetId) !== String(id)) return;
-        var rn = nickById(id);
+        // Список не обновился (движок молчит) → ID мог достаться другому игроку, поэтому ник по ID из старого списка НЕ берём:
+        // используем ник, который был на экране меню в момент выбора типа лицензии (если он есть), иначе оставляем как есть.
+        var rn = ok ? nickById(id) : (l.hint || null);
         l.rawNick = rn || null; l.nickFresh = true; l.nickAt = Date.now();
         if (rn) l.nick = String(rn).split('_').join(' ');
-        tr('GIVE/ник цели', 'ID ' + id, 'ник из ' + (ok ? 'свежего' : 'НЕ обновившегося') + ' списка: ' + (rn || '—'));
+        tr('GIVE/ник цели', 'ID ' + id, ok ? 'ник из свежего списка: ' + (rn || '—') : 'список молчит — ' + (rn ? 'ник из меню: ' + rn : 'ника нет, оставлен прежний'));
         var w = l._nw; l._nw = [];
         for (var i = 0; i < w.length; i++) { try { w[i](l.rawNick); } catch (er) {} }
     }, 700);
@@ -370,7 +372,7 @@ function capturePlayers(e) {
         if (typeof e === 'string') { try { e = JSON.parse(e); } catch (er) { tr('LIST/ОШИБКА', 'onUpdatePlayersList: строка не парсится', String(rawE).slice(0, 120)); return; } }
         if (e && (e.local || Array.isArray(e.players))) {
             window.__code3PlayerList = e;
-            if (_wdEp > 0) { tr('WATCHDOG/список ожил', 'молчал ~' + (Date.now() - Math.max(_listAt, _wdStart)) + 'мс', 'срабатываний в этот раз=' + _wdEp); _wdEp = 0; }
+            if (_wdEp > 0) { tr('WATCHDOG/список ожил', 'молчал ~' + (Date.now() - Math.max(_listAt, _wdStart)) + 'мс', 'срабатываний в этот раз=' + _wdEp); _wdEp = 0; _wdSent = false; }
             _listAt = Date.now();
             if (rmActive()) tr('LIST/получен', 'игроков=' + (Array.isArray(e.players) ? e.players.length : 'нет массива') + ' local=' + (e.local ? e.local.name + '[' + e.local.id + ']' : '—'),
                 'ответ на запрос через ' + (_reqAt ? (_listAt - _reqAt) + 'мс' : '?'), 'ждущих=' + _listWaiters.length);
@@ -468,6 +470,7 @@ function ensurePlayersHook(force) {
 
 // Прямой запрос списка у движка (то же, что делает window.updatePlayerList), если обёртка пропала/сломана
 var _wdCount = 0;   // сколько раз сторож канала срабатывал (всего)
+var _wdSent = false;   // уведомление об этом «молчании» уже отправлено
 var _wdEp = 0;      // срабатываний в текущем «молчании» движка (обнуляется, когда список снова пришёл)
 var _wdStart = Date.now();
 function engineRequest(why) {
@@ -930,7 +933,7 @@ function giveByIndex(targetId, idx, nickHint) {
     log('отправка:', cmd, '| ник:', nk || '—');
     tr('GIVE/отправка', cmd, 'ID ' + targetId, 'ник: ' + (nk || '—'), 'тип: ' + c.name);
     rawSend(cmd);
-    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [] };
+    STATE.last = { targetId: targetId, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [], hint: nickHint ? String(nickHint) : null };
     refreshLastNick();
     setTimeout(updatePanel, 0);
     return true;
@@ -2689,13 +2692,19 @@ every(function () {
        engineSilent ? 'ДВИЖОК НЕ ВЫЗЫВАЕТ обработчик' : 'обработчик вызывался', _winErr ? 'ошибка окна: ' + _winErr.slice(0, 100) : '');
     if (HK.depth !== 0) { tr('WATCHDOG/глубина диспетчера зависла', 'depth=' + HK.depth + ' → сброс в 0'); HK.depth = 0; HK.cur = null; }
     // Одно уведомление на одно «молчание» (раньше уходило до трёх подряд — выглядело как серия ошибок)
-    if (_wdEp === 1 && licensorReady()) {
+    // Короткие провалы не беспокоят (выдача по ID работает без списка); если движок молчит ≥45 с — одно сообщение с трассой
+    if (!_wdSent && age >= 45000 && licensorReady()) {
+        _wdSent = true;
         trFail('СТОРОЖ: список игроков не приходит ' + age + 'мс',
             engineSilent ? 'движок не вызывает onUpdatePlayersList (хук цел) — ник по ID не обновится; выдача по ID работает' : 'обработчик вызывался, но список не принят — см. трассу');
     }
     // Хук трогаем, только если он реально сорван/чужой; при целом хуке переустановка ничего не даёт
     if (_wdEp === 1 || !hookAlive() || HK.capture !== capturePlayers) ensurePlayersHook(true);
     if (_wdEp <= 3 || _wdEp % 6 === 0) engineRequest('сторож: список не приходил ' + age + 'мс');
+    // Эксперимент: второй канал движка (счётчик онлайна). Если после него список ожил — в логе будет видно по «WATCHDOG/список ожил»
+    if (_wdEp === 2 || _wdEp === 5) {
+        try { if (typeof window.updatePlayers === 'function') { window.updatePlayers(); tr('WATCHDOG/запрос updatePlayers()', 'попытка разбудить движок через UpdatePlayers'); } } catch (e) { tr('WATCHDOG/ИСКЛЮЧЕНИЕ updatePlayers', e); }
+    }
 }, 2000);
 // Звание могло смениться (повышение/понижение): раз в минуту перечитываем уже загруженный профиль (без запросов к серверу)
 every(function () { if (isGovSkin() && _rank) pullRank(); }, 60000);
