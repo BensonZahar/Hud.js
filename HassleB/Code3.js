@@ -3479,3 +3479,139 @@ try { (function () {
     debugLog('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
 })(); } catch (e) { try { console.error('[CODE3] ошибка Telegram-вкладки «Лицензёр»:', e); } catch (e2) {} }
 // END LICENSOR TG MODULE //
+// ══════════════════════════ ПЕРЕЗАПУСК КАНАЛА СПИСКА ИГРОКОВ ══════════════════════════
+// Вставить в самый низ Code3.js, ПОСЛЕ основной обёртки (})();).
+// При молчании движка > 60 с: мягкий перезапуск (прямые запросы).
+// Не помогло > 90 с: жёсткий перезапуск (открытие PlayersOnline на 6 с).
+// Не помогло > 2 мин: уведомление «перезайдите». Каждые 3 мин цикл повторяется.
+(function () {
+    'use strict';
+    if (window.__code3ListRestart) return;
+    window.__code3ListRestart = true;
+
+    var _rlCount = 0;       // стадия: 0=ждём, 1=мягкий, 2=жёсткий, 3=уведомление
+    var _rlBusy = false;
+    var _rlAt = Date.now(); // когда последний раз список приходил (наш наблюдатель)
+
+    // ── Наблюдатель: перехватываем обновление списка чтобы знать возраст ──
+    // Основной код пишет в window.__code3PlayerList. Ставим свой дозор поверх:
+    // раз в 2 секунды сравниваем, изменился ли объект. Если да — список «пришёл».
+    var _rlPrevList = window.__code3PlayerList || null;
+    setInterval(function () {
+        try {
+            var cur = window.__code3PlayerList;
+            if (cur && cur !== _rlPrevList) {
+                _rlPrevList = cur;
+                _rlAt = Date.now();
+                if (_rlCount > 0) {
+                    console.log('[CODE3-RL] Список ожил после стадии ' + _rlCount);
+                    _rlCount = 0;
+                    _rlBusy = false;
+                }
+            }
+        } catch (e) {}
+    }, 2000);
+
+    function age() { return Date.now() - _rlAt; }
+
+    // ── Стадия 1: мягкий перезапуск — прямые запросы движку ──
+    function softRestart() {
+        console.log('[CODE3-RL] Мягкий перезапуск: прямые запросы движку');
+        try {
+            var eng = (typeof engine !== 'undefined') ? engine : window.engine;
+            if (eng && typeof eng.trigger === 'function') {
+                eng.trigger('UpdatePlayersList');
+                eng.trigger('UpdatePlayers');
+            }
+        } catch (e) {}
+        try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (e) {}
+        try { if (typeof window.updatePlayers === 'function') window.updatePlayers(); } catch (e) {}
+    }
+
+    // ── Стадия 2: жёсткий перезапуск — открыть PlayersOnline на 6 секунд ──
+    // Его mounted-хук ставит 3-секундный интервал updatePlayerList() → движок может проснуться.
+    function hardRestart() {
+        console.log('[CODE3-RL] Жёсткий перезапуск: открываю PlayersOnline на 6 с');
+        try {
+            if (window.getInterfaceStatus && window.getInterfaceStatus('PlayersOnline')) {
+                console.log('[CODE3-RL] PlayersOnline уже открыт — пропускаю');
+                return;
+            }
+            if (typeof window.openInterface === 'function') {
+                window.openInterface('PlayersOnline');
+                setTimeout(function () {
+                    try {
+                        if (window.getInterfaceStatus && window.getInterfaceStatus('PlayersOnline')) {
+                            window.closeInterface('PlayersOnline');
+                            console.log('[CODE3-RL] PlayersOnline закрыт');
+                        }
+                    } catch (e) {}
+                }, 6000);
+            }
+        } catch (e) { console.warn('[CODE3-RL] hardRestart:', e); }
+    }
+
+    // ── Стадия 3: уведомление пользователю ──
+    function notify() {
+        console.log('[CODE3-RL] Ничего не помогло — уведомление');
+        try {
+            var gt = window.interface && window.interface('GameText');
+            if (gt && typeof gt.add === 'function') {
+                gt.add(JSON.stringify([3,
+                    '~r~Список игроков не обновляется~n~~w~Попробуйте перезайти на сервер',
+                    5000, 0, 0, true, false, 2.0]));
+            }
+        } catch (e) {}
+    }
+
+    // ── Главный цикл: раз в 5 секунд проверяем возраст ──
+    setInterval(function () {
+        try {
+            var a = age();
+
+            // Список свежий — сброс
+            if (a < 45000) {
+                _rlCount = 0;
+                _rlBusy = false;
+                return;
+            }
+
+            if (_rlBusy) return;
+
+            // Стадия 1: молчит > 60 с
+            if (a > 60000 && _rlCount === 0) {
+                _rlCount = 1;
+                _rlBusy = true;
+                softRestart();
+                setTimeout(function () { _rlBusy = false; }, 10000);
+                return;
+            }
+
+            // Стадия 2: молчит > 90 с (мягкий не помог)
+            if (a > 90000 && _rlCount === 1) {
+                _rlCount = 2;
+                _rlBusy = true;
+                hardRestart();
+                setTimeout(function () { _rlBusy = false; }, 12000);
+                return;
+            }
+
+            // Стадия 3: молчит > 2 мин
+            if (a > 120000 && _rlCount === 2) {
+                _rlCount = 3;
+                notify();
+                return;
+            }
+
+            // Каждые 3 минуты повторяем цикл с нуля
+            if (a > 180000 && _rlCount >= 3) {
+                console.log('[CODE3-RL] Повторный цикл перезапуска');
+                _rlCount = 0;
+                _rlBusy = false;
+            }
+        } catch (e) {}
+    }, 5000);
+
+    console.log('[CODE3-RL] Блок перезапуска канала списка игроков загружен');
+})();
+// ══════════════════════════ КОНЕЦ БЛОКА ПЕРЕЗАПУСКА ══════════════════════════
