@@ -36,7 +36,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.13';
+var VERSION = 'code3 v1.14';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -843,18 +843,10 @@ onUndo(function () { if (kbTimer) { clearInterval(kbTimer); kbTimer = null; } kb
 })();
 
 // ── Диалог 678: ввод ID игрока ──
-var manualPick = null;   // { nick, idx|null, at } — ID вводят вручную, потому что список игроков устарел
-function showIdInput(nk) {
+function showIdInput() {
     kbDialogId = DLG_ID;
     scheduleKeyboardNumeric();
-    nk = nk ? String(nk).replace(/["\\]/g, '') : '';
-    addDialog('[678,1,"Выдача лицензии","Введите ID игрока' + (nk ? ' ' + nk : '') + ':","Далее","Отмена",0,0]', '', 0);
-}
-function askIdManually(nick, idx) {
-    manualPick = { nick: nick || '', idx: (typeof idx === 'number') ? idx : null, at: Date.now() };
-    gtAdd('~y~Список игроков не обновился~n~~w~ID по нику определить нельзя — введите ID вручную (виден над игроком)', 4500, 3);
-    tr('ID/РУЧНОЙ ВВОД', nickInfo(nick), 'тип #' + (manualPick.idx === null ? '—' : manualPick.idx));
-    showIdInput(nick ? String(nick).split('_').join(' ') : '');
+    addDialog('[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]', '', 0);
 }
 // ── Диалог 679: выбор типа лицензии ──
 var giveTarget = -1, giveNick = '', giveExact = false;
@@ -920,23 +912,9 @@ function onDialogResponse(args) {
         return true;
     }
     if (id === DLG_ID) {
-        var mp = manualPick; manualPick = null;
-        if (mp && Date.now() - mp.at > 120000) mp = null;
         if (btn === 1) {
             var inputId = String(args[4] || '').trim();
-            if (inputId && mp) {
-                if (!/^\d+$/.test(inputId)) { gtAdd('~r~ID~n~~w~Нужно число', 2500, 3); return true; }
-                var pl = STATE.last;   // тот же ID, что мы только что вводили/выдавали ДРУГОМУ нику — почти всегда опечатка (ID прошлого игрока)
-                if (pl && String(pl.targetId) === inputId && pl.hintRaw && mp.nick && norm(pl.hintRaw) !== norm(mp.nick) && Date.now() - pl.at < 600000 && mp.warnedId !== inputId) {
-                    mp.warnedId = inputId; mp.at = Date.now(); manualPick = mp;
-                    tr('ID/ПОВТОР', 'ID ' + inputId + ' уже был у ' + pl.hintRaw, 'сейчас цель ' + mp.nick, 'просим подтвердить');
-                    gtAdd('~r~ID ' + inputId + ' — это ' + String(pl.hintRaw).split('_').join(' ') + '~n~~w~Вы только что выдавали ему. Введите ID ' + String(mp.nick).split('_').join(' ') + ' (над головой). Тот же — введите ещё раз', 6000, 3);
-                    setTimeout(function () { showIdInput(String(mp.nick).split('_').join(' ')); }, 0);
-                    return true;
-                }
-                if (mp.idx !== null) setTimeout(function () { giveByIndex(inputId, mp.idx, mp.nick, true); }, 0);
-                else setTimeout(function () { showTypeDialog(inputId, mp.nick, true); }, 0);
-            } else if (inputId) setTimeout(function () { showTypeDialog(inputId); }, 0);
+            if (inputId) setTimeout(function () { showTypeDialog(inputId); }, 0);
         } else setTimeout(updatePanel, 0);   // отмена
         return true;
     }
@@ -1195,14 +1173,7 @@ function circleHandle(nick, params) {
     }, 3000);   // страховка
     resolveId(nick, function (id) {
         if (!circle.pending || _dead) { tr('CIRCLE/ответ resolveId ПРОИГНОРИРОВАН', 'pending=' + circle.pending, '_dead=' + _dead, 'id=' + id); return; }
-        if (id === null && _tgt.stale) {
-            circleDone('список устарел');
-            srvSend('MenuInt_OnCloseInterface', 0);
-            tr('CIRCLE/список устарел', nickInfo(nick), '→ ручной ввод ID');
-            askIdManually(nick, null);
-            return;
-        }
-        if (id === null) { circleShowNormal(params, nick, 'ID не определён'); gtAdd('~r~Круговое меню~n~~w~Не удалось определить ID (маска/фейк-ник?)', 3000, 3); tr('CIRCLE/уведомление', 'показано «Не удалось определить ID»'); return; }
+        if (id === null) { var st = !!_tgt.stale; circleShowNormal(params, nick, st ? 'список игроков устарел' : 'ID не определён'); gtAdd(st ? '~y~Список игроков не обновился~n~~w~ID не определён — откроется обычное меню' : '~r~Круговое меню~n~~w~Не удалось определить ID (маска/фейк-ник?)', 3000, 3); tr('CIRCLE/уведомление', st ? 'список устарел — обычное меню, без диалога' : 'показано «Не удалось определить ID»'); return; }
         circleDone('ID получен');
         log('круговое меню: выдача лицензии →', nick, '| ID:', id);
         tr('CIRCLE/выдача', nickInfo(nick), 'ID ' + id);
@@ -1672,7 +1643,7 @@ var Radial = (function () {
     }
 
     // ID цели по нику — ник перечитываем с экрана в момент нажатия; ID всегда из свежего списка (см. resolveId)
-    function withTargetId(cb, onStale) {
+    function withTargetId(cb) {
         var vm = getVm();
         var t = vm ? Target.read(vm, S) : { nick: '', src: 'нет компонента' };
         var nick = t.nick || S.nick || '';
@@ -1680,8 +1651,7 @@ var Radial = (function () {
         if (!nick) { busy = false; tr('RADIAL/ОШИБКА', 'ник пуст → «Не удалось определить игрока»'); trFail('РАДИАЛЬНОЕ МЕНЮ: ник цели пуст'); notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
         resolveId(nick, function (id) {
             if (_dead || !piOpen()) { busy = false; tr('RADIAL/ответ resolveId ПРОИГНОРИРОВАН', '_dead=' + _dead, 'piOpen=' + piOpen(), 'id=' + id, '(меню закрыли, пока искали ID)'); return; }
-            if (id === null && _tgt.stale && onStale) { tr('RADIAL/список устарел', nickInfo(nick), '→ ручной ввод ID'); onStale(nick); return; }
-            if (id === null) { busy = false; tr('RADIAL/уведомление', 'показано «Не удалось определить ID»', nickInfo(nick)); notify('~r~Выдача лицензии~n~~w~Не удалось определить ID (маска/фейк-ник?)'); return; }
+            if (id === null) { busy = false; var st = !!_tgt.stale; tr('RADIAL/уведомление', st ? 'список устарел — ID не определён, диалога нет' : 'показано «Не удалось определить ID»', nickInfo(nick)); notify(st ? '~y~Выдача лицензии~n~~w~Список игроков не обновился — ID не определён' : '~r~Выдача лицензии~n~~w~Не удалось определить ID (маска/фейк-ник?)'); return; }
             tr('RADIAL/ID получен', nickInfo(nick), 'ID ' + id);
             cb(id, nick);
         });
@@ -1702,9 +1672,6 @@ var Radial = (function () {
         withTargetId(function (id, nick) {
             closeMenu();
             setTimeout(function () { busy = false; giveLicense(id, typeIdx, nick); }, 0);
-        }, function (nick) {
-            closeMenu();
-            setTimeout(function () { busy = false; askIdManually(nick, typeIdx); }, 0);
         });
     }
 
@@ -1723,17 +1690,13 @@ var Radial = (function () {
         closeMenu();
         setTimeout(function () { busy = false; showTypeDialog(id, nick); }, 0);
     }
-    function openDialogStale(nick) {
-        closeMenu();
-        setTimeout(function () { busy = false; askIdManually(nick, null); }, 0);
-    }
     function onBtnClick(e) {
         try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
         if (busy) return;
         try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
         tr('RADIAL/onBtnClick', 'нажата запасная DOM-кнопка', 'ник=' + nickInfo(S.nick));
         busy = true;
-        withTargetId(openDialog, openDialogStale);
+        withTargetId(openDialog);
     }
     function injectDom(vm, box) {
         removeBtn();
