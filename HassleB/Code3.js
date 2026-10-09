@@ -266,7 +266,10 @@ function gtAdd(text, duration, type) {
 // ══════════════════════════ НИК ЦЕЛИ ══════════════════════════
 // Списка игроков движка (PlayersOnline / updatePlayerList) больше нет. И ID по нику, и проверка ник ↔ ID идут ТОЛЬКО через
 // серверную команду /id (см. ниже «ПРОВЕРКА НИК ↔ ID ЧЕРЕЗ СЕРВЕРНЫЙ /id»).
-function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
+// «1. Ник» → «Ник»: серверный «/id <ник>» отвечает нумерованным списком («1. Имя_Фамилия, ID: …»), а «/id <ID>» — без номера.
+// Номер списка (и возможный префикс-время «[21:30:27]») — не часть ника, поэтому режем его везде, где ник берётся из ответа сервера.
+function stripListPrefix(s) { return String(s === undefined || s === null ? '' : s).replace(/^\s*(?:\[\d{1,2}:\d{2}(?::\d{2})?\]\s*)?(?:\d+\s*[.)]\s*)?/, '').trim(); }
+function norm(s) { return stripListPrefix(s).split(' ').join('_').toLowerCase(); }
 var RUN = {};              // метка этого запуска (фильтр консоли /code3 отличает свои обёртки от обёрток прошлого запуска)
 var _lastResolve = null;   // что и как определили в последний раз (смотреть: __code3.diag().lastResolve)
 function noteResolve(nick, id, how) {
@@ -284,7 +287,7 @@ function lastRaw(id) {
 }
 function refreshLastNick() {
     var l = STATE.last; if (!l) return;
-    var rn = l.verifiedNick || l.hintRaw || null;
+    var rn = stripListPrefix(l.verifiedNick || l.hintRaw || '') || null;
     l.rawNick = rn; l.nickFresh = true; l.nickAt = Date.now();
     if (rn) l.nick = String(rn).split('_').join(' ');
     tr('GIVE/ник цели', 'ID ' + l.targetId, 'ник: ' + (rn || '—'), 'источник: ' + (l.verifiedNick ? 'сервер (/id)' : (l.hintRaw ? 'меню игрока' : 'нет')));
@@ -608,11 +611,12 @@ function showIdInput() {
 var giveTarget = -1, giveNick = '', giveExact = false;
 // Ник для показа: «Имя_Фамилия» → «Имя Фамилия» (из подсказки, иначе ник последней выдачи)
 function nickDisp(id, hint) {
-    var n = hint || lastRaw(id);
-    return n ? String(n).split('_').join(' ') : '';
+    var n = stripListPrefix(hint) || lastRaw(id);
+    return n ? stripListPrefix(n).split('_').join(' ') : '';
 }
 function showTypeDialog(id, nickHint, exact) {
     giveTarget = id;
+    nickHint = stripListPrefix(nickHint);
     giveNick = nickHint || '';
     giveExact = !!exact;   // ID введён вручную
     var nk = nickDisp(id, nickHint);
@@ -687,12 +691,13 @@ function onDialogResponse(args) {
 // а прямо перед выдачей спрашиваем у сервера «/id <ID>» (он отвечает
 // «Ник, ID: N, уровень: …» или «Такого игрока нет») и сверяем ник. Совпало → выдаём; нет → отмена и подсказка,
 // у кого сейчас этот ID. Ответ сервера — единственный источник истины.
-var ID_LINE_RE = /^(.*?),\s*ID:\s*(\d+),\s*уровень:/;
+var ID_LINE_RE = /^\s*(?:\[\d{1,2}:\d{2}(?::\d{2})?\]\s*)?(?:\d+\s*[.)]\s*)?(.*?),\s*ID:\s*(\d+),\s*уровень:/;   // «[время] N. Ник, ID: …» → группа 1 = Ник (без номера списка)
 var _idq = null;                                   // идущая проверка: { id, want, cb, timer, sentAt }
 var _idOk = { id: null, name: '', at: 0 };         // последняя подтверждённая серверная пара ник↔ID
 onUndo(function () { if (_idq) { clearTimeout(_idq.timer); _idq = null; } });
 function sameNick(name, want) {
-    var raw = String(name).trim().toLowerCase();
+    var raw = stripListPrefix(name).toLowerCase();
+    want = stripListPrefix(want).split(' ').join('_').toLowerCase();
     if (raw === want) return true;
     var t = raw.split(/\s+/);
     return t.length > 1 && t[t.length - 1] === want;   // перед ником стоит префикс (время и т.п.)
@@ -715,7 +720,7 @@ function idCheckFinish(res) {
 function verifyTarget(id, nick, cb) {
     if (OPTS.ID_CHECK === false) return cb({ ok: true, skipped: true, name: '' });
     id = String(id).trim();
-    var want = nick ? String(nick).trim().split(' ').join('_').toLowerCase() : '';
+    var want = nick ? norm(nick) : '';
     var ttl = Number(OPTS.ID_CHECK_TTL) || 0;
     if (_idOk.id === id && Date.now() - _idOk.at < ttl && (!want || sameNick(_idOk.name, want))) {
         tr('ID/ПРОВЕРКА', 'ID ' + id, 'уже подтверждён сервером ' + (Date.now() - _idOk.at) + 'мс назад', _idOk.name);
@@ -733,7 +738,7 @@ function verifyTarget(id, nick, cb) {
 }
 // cb({ok:true,id,name} | {ok:false,reason:'none'|'busy'} | {ok:null,reason:'timeout'|'flood'})
 function lookupIdByNick(nick, cb) {
-    var want = String(nick || '').trim().split(' ').join('_').toLowerCase();
+    var want = norm(nick || '');
     if (!want) return cb({ ok: false, reason: 'none' });
     var ttl = Number(OPTS.ID_CHECK_TTL) || 0;
     if (_idOk.id !== null && Date.now() - _idOk.at < ttl && sameNick(_idOk.name, want)) {   // сервер только что сам назвал эту пару
@@ -747,7 +752,7 @@ function lookupIdByNick(nick, cb) {
         if (_idq !== q) return;
         q.sentAt = Date.now();
         q.timer = setTimeout(function () { if (_idq === q) idCheckFinish({ ok: null, reason: 'timeout' }); }, Number(OPTS.ID_CHECK_MS) || 2500);
-        rawSend('/id ' + String(nick).trim().split(' ').join('_'));
+        rawSend('/id ' + stripListPrefix(nick).split(' ').join('_'));
     });
 }
 function idCheckOnChat(clean) {
@@ -755,7 +760,7 @@ function idCheckOnChat(clean) {
     var m = ID_LINE_RE.exec(clean);
     if (q.byNick) {   // ищем ID по нику: берём строку с ТОЧНО этим ником (частичные совпадения игнорируем)
         if (m) {
-            var nm = m[1].trim();
+            var nm = stripListPrefix(m[1]);
             if (sameNick(nm, q.want)) { _idOk = { id: m[2], name: nm, at: Date.now() }; idCheckFinish({ ok: true, id: m[2], name: nm }); }
         } else if (clean.indexOf('Такого игрока нет') !== -1) idCheckFinish({ ok: false, reason: 'none' });
         else if (clean.indexOf('Не флудите') !== -1 || clean.indexOf('Пожалуйста, подождите несколько секунд') !== -1) idCheckFinish({ ok: null, reason: 'flood' });
@@ -763,7 +768,7 @@ function idCheckOnChat(clean) {
     }
     if (m) {
         if (m[2] !== q.id) return;                         // строка про другого игрока
-        var name = m[1].trim();
+        var name = stripListPrefix(m[1]);
         if (!q.want || sameNick(name, q.want)) { _idOk = { id: q.id, name: name, at: Date.now() }; idCheckFinish({ ok: true, name: name }); }
         else { _idOk = { id: null, name: '', at: 0 }; idCheckFinish({ ok: false, reason: 'mismatch', name: name }); }
         return;
@@ -774,11 +779,11 @@ function idCheckOnChat(clean) {
 // true — можно слать /givelic. Иначе уже показано уведомление.
 function idGuardPass(res, id, nick) {
     if (res.ok === true) return true;
-    var who = nick ? String(nick).split('_').join(' ') : '';
+    var who = nick ? stripListPrefix(nick).split('_').join(' ') : '';
     if (res.ok === false) {
         if (res.reason === 'busy') return false;
         if (res.reason === 'none') gtAdd('~r~ID ' + id + '~n~~w~Игрока с таким ID нет — выдача отменена', 4500, 3);
-        else gtAdd('~r~Не тот игрок~n~~w~ID ' + id + ' сейчас у ' + String(res.name).split('_').join(' ') + (who ? ', а нужен ' + who : '') + ' — выдача отменена', 6000, 3);
+        else gtAdd('~r~Не тот игрок~n~~w~ID ' + id + ' сейчас у ' + stripListPrefix(res.name).split('_').join(' ') + (who ? ', а нужен ' + who : '') + ' — выдача отменена', 6000, 3);
         return false;
     }
     if (OPTS.ID_CHECK_STRICT) { gtAdd('~r~Проверка /id~n~~w~Сервер не ответил — выдача отменена', 4000, 3); return false; }
@@ -803,6 +808,7 @@ function giveByIndex(targetId, idx, nickHint, exact) {
     var c = LIC_TYPES[idx];
     if (!c || targetId === null || targetId === undefined || targetId === '') return false;
     var tid = targetId;
+    nickHint = stripListPrefix(nickHint);
     verifyTarget(tid, nickHint, function (res) {   // сверка ник ↔ ID у сервера (/id) — только потом /givelic
         if (_dead) return;
         if (!idGuardPass(res, tid, nickHint)) { setTimeout(updatePanel, 0); return; }
@@ -825,7 +831,7 @@ function giveByIndex(targetId, idx, nickHint, exact) {
 var reissueTimer = null;
 function reissueSend() {
     var d = STATE.last; if (!d) return;
-    var want = d.verifiedNick || d.hintRaw || d.rawNick || '';
+    var want = stripListPrefix(d.verifiedNick || d.hintRaw || d.rawNick || '');
     verifyTarget(d.targetId, want, function (res) {   // ID мог сменить владельца с прошлой выдачи — перепроверяем (если подтверждение старше ID_CHECK_TTL)
         if (_dead || STATE.last !== d) return;
         if (!idGuardPass(res, d.targetId, want)) { setTimeout(updatePanel, 0); return; }
@@ -884,7 +890,7 @@ function ownItems() {
     var items = [[INT_MENU, 'Лицензёр: меню']];
     if (OPTS.AUTO_REISSUE && STATE.last) {
         var raw = lastRaw(STATE.last.targetId);
-        var who = raw ? raw.split('_').join(' ') : STATE.last.name;
+        var who = raw ? stripListPrefix(raw).split('_').join(' ') : STATE.last.name;
         items.push([INT_REISSUE, 'Перевыдать на ' + STATE.last.name + ': ' + who]);
     }
     items.push([INT_GIVE, 'Выдать лицензию']);
@@ -974,7 +980,7 @@ var Target = (function () {
     var ev = { nick: '', at: 0, src: '' };
     function clean(raw) {
         if (typeof raw !== 'string') return '';
-        var s = raw.replace(/\{[0-9A-Fa-f]{6,8}\}/g, '').replace(/\s+/g, ' ').trim();
+        var s = stripListPrefix(raw.replace(/\{[0-9A-Fa-f]{6,8}\}/g, '').replace(/\s+/g, ' '));
         if (!s || /[{}\[\]"<>]/.test(s)) return '';
         var parts = s.split(/[ _]+/).filter(Boolean);
         return parts.length >= 2 ? parts.join('_') : '';
