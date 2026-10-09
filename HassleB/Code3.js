@@ -3617,68 +3617,112 @@ try { (function () {
 })(); } catch (e) { try { console.error('[CODE3] ошибка Telegram-вкладки «Лицензёр»:', e); } catch (e2) {} }
 // END LICENSOR TG MODULE //
 // ═══════════════════════════════════════════════════════════╗
-// ║  ID-FIX v2: фикс потери ID после переподключений       ║
-// ║  Работает поверх любой версии скрипта, без конфликтов  ║
+// ║  CODE3 ALL-IN-ONE FIX v4: подмена+watchdog+ник+автоdiag  ║
+// ║  Консоль молчит; пишет САМ только когда что-то сломалось ║
 // ╚══════════════════════════════════════════════════════════╝
 try { (function () {
     'use strict';
+    if (window.__c3aio) return;
+    window.__c3aio = true;
 
-    // Защита от двойной установки
-    if (window.__idfixV2) return;
-    window.__idfixV2 = true;
+    var pauseUntil = 0, _lastReq = 0, GAP = 1500, _warnAt = 0;
 
-    var _lastReq = 0;
-    var GAP = 1700;
-
-    function req() {
-        var n = Date.now();
-        if (n - _lastReq < GAP) return;
-        _lastReq = n;
-        try { window.updatePlayerList && window.updatePlayerList(); } catch (e) {}
-    }
-
+    function ready() { try { return !!(window.__code3 && window.__code3.ready && window.__code3.ready()); } catch (e) { return false; } }
+    function age() { var t = window.__code3PlayerListAt; return t ? Date.now() - t : Infinity; }
     function reqBoth() {
-        var n = Date.now();
-        if (n - _lastReq < GAP) return;
-        _lastReq = n;
+        var n = Date.now(); if (n - _lastReq < GAP) return; _lastReq = n;
         try { window.updatePlayers && window.updatePlayers(); } catch (e) {}
         try { window.updatePlayerList && window.updatePlayerList(); } catch (e) {}
     }
+    function nickById(id) {
+        try {
+            var l = window.__code3PlayerList; if (!l) return null;
+            var s = String(id);
+            if (l.local && String(l.local.id) === s) return l.local.name;
+            if (Array.isArray(l.players)) for (var i = 0; i < l.players.length; i++) if (String(l.players[i].id) === s) return l.players[i].name;
+        } catch (e) {}
+        return null;
+    }
+    // Авто-диагностика: то же, что __code3.players(), но пишется САМО при сбое
+    function selfDiag(why) {
+        if (Date.now() - _warnAt < 30000) return; _warnAt = Date.now();
+        try {
+            var p = (window.__code3 && window.__code3.players) ? window.__code3.players() : null;
+            console.warn('[FIX] ' + why + ' | возраст списка=' + Math.round(age() / 1000) + 'с' +
+                ' | игроков=' + (p ? p.count : '?') + ' | ' + (p ? p.roster : 'code3 недоступен'));
+        } catch (e) {}
+    }
 
-    // Перехват открытия меню игрока — серия запросов с задержками
-    var _open = window.openInterface;
-    if (typeof _open === 'function') {
-        window.openInterface = function (name) {
-            if (name === 'PlayerInteraction') {
-                reqBoth();
-                setTimeout(req, 400);
-                setTimeout(req, 850);
-                setTimeout(reqBoth, 1300);
-            }
-            return _open.apply(this, arguments);
+    // 1) Пауза подмены на TAB и open/close PlayersOnline (зеркалим Code3, чтобы окно «Онлайн» работало)
+    document.addEventListener('keydown', function (e) { try { if (e && e.keyCode === 9) pauseUntil = Date.now() + 1500; } catch (er) {} }, true);
+    var _o = window.openInterface, _c = window.closeInterface;
+    if (typeof _o === 'function') window.openInterface = function (n) { if (n === 'PlayersOnline') pauseUntil = Date.now() + 1500; return _o.apply(this, arguments); };
+    if (typeof _c === 'function') window.closeInterface = function (n) { if (n === 'PlayersOnline') pauseUntil = Date.now() + 1500; return _c.apply(this, arguments); };
+
+    // 2) ВТОРОЙ СЛОЙ подмены: если Code3 сам выключил подмену (_noSpoof после восстановления) — отвечаем true за него
+    var _st = window.getInterfaceStatus;
+    if (typeof _st === 'function') {
+        window.getInterfaceStatus = function (name) {
+            var r = _st.apply(this, arguments);
+            if (name === 'PlayersOnline' && r !== true && Date.now() >= pauseUntil && ready()) return true;
+            return r;   // '__code3probe' и остальные имена проходят сквозь — цепочка Code3 не рвётся
         };
     }
 
-    // Перехват закрытия меню игрока — обновляем список на будущее
-    var _close = window.closeInterface;
-    if (typeof _close === 'function') {
-        window.closeInterface = function (name) {
-            var r = _close.apply(this, arguments);
-            if (name === 'PlayerInteraction') setTimeout(req, 400);
-            return r;
-        };
-    }
-
-    // Фоновый мониторинг свежести списка
+    // 3) Watchdog: список старше 12с → прямой запрос мимо пауз quiet15/quiet45 + авто-диагностика в консоль
     setInterval(function () {
-        var t = window.__code3PlayerListAt;
-        var age = t ? Date.now() - t : Infinity;
-        if (age > 5500 && age < 11000) req();
-        else if (age >= 11000) reqBoth();
-    }, 2800);
+        if (age() > 12000 && ready()) { reqBoth(); selfDiag('движок молчит, список устарел'); }
+    }, 4000);
+
+    // 4) Открытие меню игрока: два запроса (сразу и через 1.6с), чтобы ответ успел до таймаута freshPlayers
+    if (typeof _o === 'function') {
+        var _o2 = window.openInterface;
+        window.openInterface = function (n) {
+            if (n === 'PlayerInteraction' && ready()) { reqBoth(); setTimeout(reqBoth, 1600); }
+            return _o2.apply(this, arguments);
+        };
+    }
+
+    // 5) NICK-FIX: диалог 679 без ника → ник по ID из списка (ждём список до 2.5с), чтобы не было просто «Жетон»
+    function patchDialog() {
+        var orig = window._hassleOrig_addDialogInQueue || window.addDialogInQueue;
+        if (typeof orig !== 'function' || orig.__fix679) return true;
+        var w = function (params, content, prio) {
+            try {
+                if (typeof params === 'string' && params.indexOf('[679,') === 0) {
+                    var m = params.match(/Выдача лицензии \| ID: (\d+)"/);
+                    if (m && params.indexOf('ID: ' + m[1] + ' | ') === -1) {
+                        var id = m[1], nick = nickById(id);
+                        if (nick) {
+                            params = params.replace('Выдача лицензии | ID: ' + id + '"', 'Выдача лицензии | ID: ' + id + ' | ' + String(nick).split('_').join(' ') + '"');
+                        } else {
+                            reqBoth();
+                            var t0 = Date.now(), self = this;
+                            var poll = setInterval(function () {
+                                var n2 = nickById(id);
+                                if (n2 || Date.now() - t0 > 2500) {
+                                    clearInterval(poll);
+                                    if (n2) params = params.replace('Выдача лицензии | ID: ' + id + '"', 'Выдача лицензии | ID: ' + id + ' | ' + String(n2).split('_').join(' ') + '"');
+                                    else selfDiag('диалог 679: ник по ID ' + id + ' не найден');
+                                    orig.call(self, params, content, prio);
+                                }
+                            }, 100);
+                            return;
+                        }
+                    }
+                }
+            } catch (e) {}
+            return orig.call(this, params, content, prio);
+        };
+        w.__fix679 = true;
+        if (window._hassleOrig_addDialogInQueue) window._hassleOrig_addDialogInQueue = w; else window.addDialogInQueue = w;
+        return true;
+    }
+    var tries = 0;
+    var ti = setInterval(function () { if (++tries > 60 || patchDialog()) clearInterval(ti); }, 500);
 
 })(); } catch (e) {}
-// ═══ END ID-FIX v2 ═══
+// ═══ END CODE3 ALL-IN-ONE FIX v4 ═══
 // ═══════════════════════════════════════════════════════════╗
 // ║  NICK-FIX: определение ника по ID при ручном вводе     ║
 // ║  Перехватывает диалог 679 и подставляет ник по ID      ║
