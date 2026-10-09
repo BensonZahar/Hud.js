@@ -3679,3 +3679,103 @@ try { (function () {
 
 })(); } catch (e) {}
 // ═══ END ID-FIX v2 ═══
+// ═══════════════════════════════════════════════════════════╗
+// ║  NICK-FIX: определение ника по ID при ручном вводе     ║
+// ║  Перехватывает диалог 679 и подставляет ник по ID      ║
+// ╚══════════════════════════════════════════════════════════╝
+try { (function () {
+    'use strict';
+    if (window.__nickFixDone) return;
+    window.__nickFixDone = true;
+
+    var MAX_WAIT = 2500;
+
+    function getNickById(id) {
+        try {
+            var list = window.__code3PlayerList;
+            if (!list) return null;
+            var sid = String(id);
+            if (list.local && String(list.local.id) === sid) return list.local.name;
+            if (Array.isArray(list.players)) {
+                for (var i = 0; i < list.players.length; i++) {
+                    if (String(list.players[i].id) === sid) return list.players[i].name;
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function formatNick(nick) {
+        return nick ? String(nick).split('_').join(' ') : '';
+    }
+
+    function patchAddDialog() {
+        var orig = window._hassleOrig_addDialogInQueue || window.addDialogInQueue;
+        if (typeof orig !== 'function') return false;
+        if (orig.__nickFixPatched) return false;
+
+        var wrapped = function (params, content, prio) {
+            try {
+                if (typeof params === 'string' && params.indexOf('[679,') === 0) {
+                    var match = params.match(/Выдача лицензии \| ID: (\d+)/);
+                    if (match) {
+                        var id = match[1];
+                        var hasNick = params.indexOf('Выдача лицензии | ID: ' + id + ' | ') !== -1;
+
+                        if (!hasNick) {
+                            var nick = getNickById(id);
+                            if (nick) {
+                                params = params.replace(
+                                    'Выдача лицензии | ID: ' + id,
+                                    'Выдача лицензии | ID: ' + id + ' | ' + formatNick(nick)
+                                );
+                                return orig.call(this, params, content, prio);
+                            }
+
+                            try { window.updatePlayerList(); } catch (e) {}
+                            try { window.updatePlayers(); } catch (e) {}
+
+                            var startTime = Date.now();
+                            var self = this;
+                            var poll = setInterval(function () {
+                                var n = getNickById(id);
+                                if (n || Date.now() - startTime > MAX_WAIT) {
+                                    clearInterval(poll);
+                                    if (n) {
+                                        params = params.replace(
+                                            'Выдача лицензии | ID: ' + id,
+                                            'Выдача лицензии | ID: ' + id + ' | ' + formatNick(n)
+                                        );
+                                    }
+                                    orig.call(self, params, content, prio);
+                                }
+                            }, 80);
+                            return;
+                        }
+                    }
+                }
+            } catch (e) {}
+            return orig.call(this, params, content, prio);
+        };
+        wrapped.__nickFixPatched = true;
+
+        if (window._hassleOrig_addDialogInQueue === orig) {
+            window._hassleOrig_addDialogInQueue = wrapped;
+        } else if (window.addDialogInQueue === orig) {
+            window.addDialogInQueue = wrapped;
+        }
+        return true;
+    }
+
+    var attempts = 0;
+    var checker = setInterval(function () {
+        attempts++;
+        if (patchAddDialog()) {
+            clearInterval(checker);
+        } else if (attempts > 100) {
+            clearInterval(checker);
+        }
+    }, 300);
+
+})(); } catch (e) {}
+// ═══ END NICK-FIX ═══
