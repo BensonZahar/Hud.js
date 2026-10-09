@@ -3302,3 +3302,85 @@ try { (function () {
     debugLog('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
 })(); } catch (e) { try { console.error('[CODE3] ошибка Telegram-вкладки «Лицензёр»:', e); } catch (e2) {} }
 // END LICENSOR TG MODULE //
+// ═══════════════════════════════════════════════════════════════════════╗
+// ║  FIX: надёжный перехват onUpdatePlayersList через Object.defineProperty ║
+// ║  Устраняет проблему потери хука и устаревания списка игроков          ║
+// ║  Вставить В САМЫЙ НИЗ файла (после всех закрытых скобок)              ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+try { (function () {
+    'use strict';
+
+    var _dead    = false;
+    var _listAt  = 0;
+    var _waiters = [];
+    var _handler = null;   // текущий (обёрнутый) обработчик
+
+    // ── Захват данных списка ──────────────────────────────────────────
+    function capture(e) {
+        try {
+            if (typeof e === 'string') {
+                try { e = JSON.parse(e); } catch (er) { return; }
+            }
+            if (e && (e.local || Array.isArray(e.players))) {
+                window.__code3PlayerList = e;
+                _listAt = Date.now();
+                var w = _waiters; _waiters = [];
+                for (var i = 0; i < w.length; i++) {
+                    try { w[i](true); } catch (er) {}
+                }
+            }
+        } catch (er) {}
+    }
+
+    // ── Обёртка над любым входящим обработчиком ──────────────────────
+    function wrap(fn) {
+        var w = function (e) {
+            if (!_dead) capture(e);
+            if (typeof fn === 'function') return fn.apply(this, arguments);
+        };
+        w.__fixHook = true;   // маркер: уже обёрнуто этим блоком
+        return w;
+    }
+
+    // ── Инициализация ─────────────────────────────────────────────────
+    // Берём то, что уже стоит (возможно это хук из основного кода с __code3)
+    var existing = window.onUpdatePlayersList;
+    if (existing && !existing.__fixHook) {
+        _handler = wrap(existing);
+    } else {
+        _handler = existing || null;
+    }
+
+    // Перехватываем ВСЕ будущие записи в window.onUpdatePlayersList
+    Object.defineProperty(window, 'onUpdatePlayersList', {
+        configurable: true,
+        enumerable:   false,
+        get: function () {
+            return _handler;
+        },
+        set: function (fn) {
+            // Если уже обёрнуто (нами или основным кодом с __code3) — не оборачиваем дважды
+            if (fn && !fn.__fixHook && !fn.__code3) {
+                _handler = wrap(fn);
+            } else {
+                _handler = fn;
+            }
+        }
+    });
+
+    // ── Периодический запрос обновления (каждые 2 сек, когда лицензёр) ──
+    setInterval(function () {
+        try {
+            var api = window.__code3;
+            if (api && typeof api.ready === 'function' && api.ready()) {
+                if (typeof window.updatePlayerList === 'function') {
+                    window.updatePlayerList();
+                }
+            }
+        } catch (e) {}
+    }, 2000);
+
+    console.log('[FIX] Object.defineProperty на onUpdatePlayersList установлен');
+})(); } catch (e) {
+    try { console.error('[FIX] ошибка установки перехвата:', e); } catch (e2) {}
+}
