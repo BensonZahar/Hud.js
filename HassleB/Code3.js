@@ -497,9 +497,15 @@ function refreshPlayers() {
     _spoofUntil = _reqAt + SPOOF_MS;   // на эти мс движок видит PlayersOnline «открытым» и шлёт список
     verifyDelivery();
     var has = (typeof window.updatePlayerList === 'function');
-    if (!has) tr('LIST/запрос', 'window.updatePlayerList НЕ функция — запросить список нечем!');
+    if (!has) tr('LIST/запрос', 'window.updatePlayerList НЕ функция — просим движок напрямую engine.trigger(UpdatePlayersList)');
     else if (OPTS.TRACE_LIST && rmActive()) tr('LIST/запрос', 'updatePlayerList() вызван', 'возраст прошлого списка=' + (_listAt ? (_reqAt - _listAt) + 'мс' : '—'));
-    try { if (has) window.updatePlayerList(); } catch (e) { tr('LIST/ИСКЛЮЧЕНИЕ', 'updatePlayerList бросил', e); }
+    var viaWindow = false;
+    try { if (has) { window.updatePlayerList(); viaWindow = true; } } catch (e) { tr('LIST/ИСКЛЮЧЕНИЕ', 'updatePlayerList бросил', e); }
+    // window.updatePlayerList в index.js — это просто engine.trigger("UpdatePlayersList"), но он молча ничего не делает при
+    // window.App.developmentMode и пропадает, если его затёрли. Прямой вызов работает всегда — шлём его, когда обёртка не сработала.
+    if (!viaWindow || (window.App && window.App.developmentMode)) {
+        try { if (typeof engine !== 'undefined') engine.trigger('UpdatePlayersList'); } catch (e2) { tr('LIST/ИСКЛЮЧЕНИЕ', 'engine.trigger(UpdatePlayersList) бросил', e2); }
+    }
 }
 // Просит у движка СВЕЖИЙ список и вызывает cb(ok) в ту же миллисекунду, как список пришёл (ok=true).
 // Если движок промолчал — повторяем запрос и через maxMs отдаём cb(false): тогда решает вызывающий.
