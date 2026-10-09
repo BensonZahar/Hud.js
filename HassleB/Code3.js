@@ -3443,9 +3443,9 @@ function rec(p, me) {
     return {
         id: Number(p.id) || 0,
         name: String(p.name === undefined || p.name === null ? '' : p.name),
-        level: Number(p.level) || 0,
+        level: Number(p.level !== undefined ? p.level : p.score) || 0,   // у Hassle в списке вместо level приходит score
         ping: Number(p.ping) || 0,
-        mobile: !!(p.mobile && Number(p.mobile) !== 0),
+        mobile: p.mobile === undefined ? null : !!(p.mobile && Number(p.mobile) !== 0),   // null — движок это поле не прислал
         admin: !!Number(p.admin),
         vip: !!Number(p.vip),
         muted: !!Number(p.muted),
@@ -3626,7 +3626,7 @@ function scrapeDom() {
 
 // ══════════════════════════ TELEGRAM ══════════════════════════
 function fmtRow(p) {
-    return padL(p.id, 4) + ' ' + padR(p.name, 24) + ' ' + padL(p.level, 3) + ' ' + padL(p.ping, 4) + ' ' + (p.mobile ? '📱' : '💻') + (p.admin ? '👑' : '') + (p.vip ? '💎' : '') + (p.muted ? '🔇' : '') + (p.me ? ' ←я' : '');
+    return padL(p.id, 4) + ' ' + padR(p.name, 24) + ' ' + padL(p.level, 3) + ' ' + padL(p.ping, 4) + ' ' + (p.mobile === null ? '' : (p.mobile ? '📱' : '💻')) + (p.admin ? '👑' : '') + (p.vip ? '💎' : '') + (p.muted ? '🔇' : '') + (p.me ? ' ←я' : '');
 }
 function buildOk(s, complete) {
     var rows = s.list.slice().sort(function (a, b) { return a.id - b.id; }).map(fmtRow);
@@ -3647,7 +3647,7 @@ function buildOk(s, complete) {
         '🔎 Источник: ' + (s.src === 'engine' ? 'движок (полный список)' : 'окно (только видимые строки — неполный)') + '\n' +
         '🕒 ' + stamp(s.at) + '\n' +
         '📨 Частей со списком: ' + parts.length + (cut ? ' (ещё ' + cut + ' не отправлено: лимит TG_MAX_MSGS)' : '') + '\n' +
-        'ID · Ник · Ур. · Пинг · 📱моб/💻пк · 👑адм 💎vip 🔇мут';
+        'ID · Ник · Ур./score · Пинг · 📱моб/💻пк · 👑адм 💎vip 🔇мут';
     if (s.src === 'engine' && !complete) {
         head += '\n\n🧪 <b>Список неполный — что прислал движок</b>\n' + esc(rawLine()) +
             (s.meta ? '\nplayers в ответе: ' + s.meta.rawPlayers + ' · найден в: ' + esc(s.meta.key) + ' · local: ' + (s.meta.hasLocal ? 'есть' : 'нет') : '') +
@@ -3727,7 +3727,7 @@ function tgLine(job) {
 function nrm(x) {
     return String(x === undefined || x === null ? '' : x).replace(/^\s*(?:\[\d{1,2}:\d{2}(?::\d{2})?\]\s*)?(?:\d+\s*[.)]\s*)?/, '').trim().split(' ').join('_').toLowerCase();
 }
-function devIcon(p) { return p.mobile ? '📱' : '💻'; }
+function devIcon(p) { return p.mobile === null ? '' : (p.mobile ? '📱' : '💻'); }
 var xcSeen = {};
 function crossCheck(nickRaw, id, srvName) {
     if (dead || !O.XCHECK) return;
