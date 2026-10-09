@@ -4,37 +4,6 @@
 const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: ПОКОЛЕНИЕ КОПИИ СКРИПТА (защита от дублей /reload)║
-// ║  Раньше при /reload старая копия не останавливалась: её    ║
-// ║  таймеры, long-poll Telegram, store.watch и обёртки чата   ║
-// ║  жили рядом с новой → каждое событие обрабатывалось N раз  ║
-// ║  (двоились сообщения в Telegram и в игре).                 ║
-// ║  Теперь каждая копия знает свой номер; как только стартует ║
-// ║  новая — старая становится «устаревшей» и молчит.          ║
-// ╚══════════════════════════════════════════════════════════╝
-const __HASSLE_GEN = (window.__hassleGen = (window.__hassleGen || 0) + 1);
-function __hassleStale() { return window.__hassleGen !== __HASSLE_GEN; }
-// Таймеры этой копии: после появления новой копии они сами себя гасят.
-// (перекрываем setTimeout/setInterval только внутри Code.js и eval'нутого из него Code2.js)
-const setTimeout = function (fn, ms) {
-    if (typeof fn !== 'function') return window.setTimeout.apply(window, arguments);
-    const extra = Array.prototype.slice.call(arguments, 2);
-    return window.setTimeout(function () {
-        if (__hassleStale()) return;
-        return fn.apply(this, extra);
-    }, ms);
-};
-const setInterval = function (fn, ms) {
-    if (typeof fn !== 'function') return window.setInterval.apply(window, arguments);
-    const extra = Array.prototype.slice.call(arguments, 2);
-    const id = window.setInterval(function () {
-        if (__hassleStale()) { window.clearInterval(id); return; }
-        return fn.apply(this, extra);
-    }, ms);
-    return id;
-};
-
-// ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
 // ║  Описание: Глобальные флаги состояния                    ║
 // ║             (AFK, тюрьма, ID последних сообщений)        ║
@@ -447,7 +416,6 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
     const REC_DEFER_MS    = 150;     // задержка перед реальным вызовом (мс)
 
     window.sendChatInput = function(cmd) {
-        if (__hassleStale()) return typeof _orig === 'function' ? _orig.apply(this, arguments) : undefined;
         const isRec = typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim());
 
         if (isRec) {
@@ -2593,7 +2561,7 @@ function _dbg3InstallSubs() {
 (function() {
     const _prev = window.sendChatInput;
     window.sendChatInput = function(cmd) {
-        if (typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim()) && _debugStatTimer && !__hassleStale()) {
+        if (typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim()) && _debugStatTimer) {
             const pos = getPlayerPositionFromStore();
             const hp  = getPlayerHpFromStore();
             _dbg3Rec = {
@@ -2707,7 +2675,7 @@ function waitForSpawnThenLoadProfile() {
                 globalState._spawnWatchSet = true;
                 store.watch(
                     function(state, getters) { return getters['player/isPlayerConnected']; },
-                    function(v) { if (v && !__hassleStale()) waitForSpawnThenLoadProfile(); }
+                    function(v) { if (v) waitForSpawnThenLoadProfile(); }
                 );
             } catch(e) { globalState._spawnWatchSet = false; }
         }
@@ -2945,7 +2913,6 @@ function trackNicknameAndServer() {
             store.watch(
                 (state, getters) => getters[getterKey],
                 (newVal) => {
-                    if (__hassleStale()) return;
                     debugLog(`[NICK] ${getterKey} -> ${newVal}`);
                     applyNicknameServer();
                 }
@@ -2956,7 +2923,7 @@ function trackNicknameAndServer() {
     try {
         store.watch(
             (state, getters) => getters["player/skinId"],
-            (newSkin) => { if (__hassleStale()) return; applySkinChange(newSkin, 'store.watch'); }
+            (newSkin) => applySkinChange(newSkin, 'store.watch')
         );
     } catch(e) { debugLog(`[SKIN] watch не удался: ${e.message}`); }
     watchGetter("player/nickName");
@@ -2987,7 +2954,6 @@ function createButton(text, command, style) {
 // Универсальная функция для всех запросов к Telegram Bot API
 // FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
 function tgApi(method, payload, onSuccess, onError, _retryCount) {
-    if (__hassleStale()) return; // старая копия после /reload — молчим (иначе сообщения двоятся)
     _retryCount = _retryCount || 0;
     // FIX: общий backoff — после 429 все запросы (кроме answerCallbackQuery) ждут вместе,
     // а не бьют по API каждый со своим таймером
@@ -3457,7 +3423,7 @@ function sendWelcomeMessage(editOnly = false) {
     const replyMarkup = buildWelcomeKeyboard();
 
     // Хранилище ID приветственного сообщения отдельно по каждому чату
-    if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = (window.__hassleWelcomeIds = window.__hassleWelcomeIds || {}); // живёт на window — переживает /reload, welcome редактируется, а не шлётся заново
+    if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = {};
     if (!globalState.welcomeSending) globalState.welcomeSending = {};
 
     config.chatIds.forEach(chatId => {
@@ -4605,7 +4571,6 @@ function _skipOldUpdatesOnFreshStart(callback) {
 }
 
 function checkTelegramCommands() {
-    if (__hassleStale()) return; // старая копия — цикл опроса обрываем
     if (window._hassleReloading) return;
     _pollRestartScheduled = false;
     config.lastUpdateId = getSharedLastUpdateId();
@@ -4626,7 +4591,6 @@ function checkTelegramCommands() {
     xhr.timeout = 30000;
     xhr.onload = function() {
         if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
-        if (__hassleStale()) return; // ответ пришёл уже старой копии — не обрабатываем (новая получит его сама)
         if (xhr.status === 200) {
             let data = null;
             try {
@@ -4679,20 +4643,17 @@ function checkTelegramCommands() {
     };
     xhr.onerror = function(error) {
         if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
-        if (__hassleStale()) return;
         debugLog('Ошибка при проверке команд:', error);
         setTimeout(checkTelegramCommands, config.checkInterval);
     };
     xhr.ontimeout = function() {
         if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
-        if (__hassleStale()) return;
         debugLog('Long-polling timeout, перезапуск...');
         setTimeout(checkTelegramCommands, 0);
     };
     xhr.send();
 }
 function processUpdates(updates) {
-    if (__hassleStale()) return;
     for (const update of updates) {
         config.lastUpdateId = update.update_id;
         setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
@@ -4834,7 +4795,7 @@ function processUpdates(updates) {
                 }
             } else if (message === '/list') {
                 // Удаляем все старые welcome-сообщения и сбрасываем оба хранилища ID
-                if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = (window.__hassleWelcomeIds = window.__hassleWelcomeIds || {}); // живёт на window — переживает /reload, welcome редактируется, а не шлётся заново
+                if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = {};
                 config.chatIds.forEach(cid => {
                     const oldId = globalState.welcomeMessageIds[cid];
                     if (oldId) {
@@ -7655,7 +7616,6 @@ window.OnChatAddMessage = function(e, colorArg, t) {
     if (typeof _kacOrigOnChat === 'function') {
         _kacOrigOnChat.call(this, e, colorArg, t);
     }
-    if (__hassleStale()) return; // старая копия — только пропускаем сообщение дальше по цепочке
 
     const msg        = String(e);
     const normalized = (typeof normalizeToCyrillic === 'function')

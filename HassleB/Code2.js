@@ -1,12 +1,6 @@
 // Code2.js — продолжение Code.js в отдельном файле
 // eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
 
-// Устаревшая копия (после /reload запущена новая Code.js) — её хуки/таймеры ничего не обрабатывают.
-// __hassleStale() объявлена в Code.js (Code2 eval'ится изнутри него); без неё — поведение как раньше.
-const __c2Stale = function () {
-    try { return typeof __hassleStale === 'function' && __hassleStale(); } catch (e) { return false; }
-};
-
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: DIALOG MONITOR v2.1                             ║
 // ║  Описание: Перехват серверных диалогов игры и управление ║
@@ -1838,7 +1832,7 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
     // ═══════════════════════════════════════════════════════════
     const _ftOrigOnUpdatePlayers = window.onUpdatePlayersList;
     window.onUpdatePlayersList = function (e) {
-        try { if (!__c2Stale()) _ftCheck(e); } catch (err) {
+        try { _ftCheck(e); } catch (err) {
             debugLog(`[TRACKER] onUpdatePlayersList err: ${err.message}`);
         }
         if (typeof _ftOrigOnUpdatePlayers === 'function') {
@@ -1917,7 +1911,7 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
                         ) {
                             return function () {
                                 // Прогоняем данные через трекер (здесь есть level!)
-                                try { if (!__c2Stale()) _ftCheck(arguments[0]); } catch (e) {
+                                try { _ftCheck(arguments[0]); } catch (e) {
                                     debugLog(`[TRACKER] PO Proxy err: ${e.message}`);
                                 }
                                 // Если компонент реально смонтирован — зовём оригинал
@@ -2373,7 +2367,7 @@ function _sobesInstallChatHook() {
     if (typeof cur === 'function' && !cur.__sobesWrapped) {
         const wrapped = function (e, colorArg, t) {
             cur.call(this, e, colorArg, t);
-            try { if (!__c2Stale()) _sobesOnChat(String(e), colorArg); } catch (err) { debugLog('[SOBESED] Ошибка: ' + err.message); }
+            try { _sobesOnChat(String(e), colorArg); } catch (err) { debugLog('[SOBESED] Ошибка: ' + err.message); }
         };
         wrapped.__sobesWrapped = true;
         window.OnChatAddMessage = wrapped;
@@ -2975,13 +2969,9 @@ function init() {
         });
     } catch (e) {}
     window.addEventListener('resize', function () {
-        if (__c2Stale()) return;
         if (_invVisible) positionLeaf();
     });
-    const _invTimer = setInterval(function () {
-        if (__c2Stale()) { clearInterval(_invTimer); return; }
-        tick();
-    }, 300);
+    setInterval(tick, 300);
     tick();
 }
 
@@ -3308,7 +3298,7 @@ if (document.readyState === 'loading') {
         if (typeof cur === 'function' && !cur.__phnWrapped) {
             const wrapped = function (e, colorArg, t) {
                 cur.call(this, e, colorArg, t);
-                if (!__c2Stale()) onChat(String(e), colorArg);
+                onChat(String(e), colorArg);
             };
             wrapped.__phnWrapped = true;
             window.OnChatAddMessage = wrapped;
