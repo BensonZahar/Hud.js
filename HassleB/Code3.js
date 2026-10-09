@@ -3779,3 +3779,65 @@ try { (function () {
 
 })(); } catch (e) {}
 // ═══ END NICK-FIX ═══
+// ═══════════════════════════════════════════════════════════╗
+// ║  ROSTER-GUARD v1: второй слой подмены статуса + вотчдог ║
+// ║  Чинит случай «восстановление выключило подмену навсегда║
+// ║  (_noSpoof) → движок молчит → список протух → ID нет»   ║
+// ╚══════════════════════════════════════════════════════════╝
+try { (function () {
+    'use strict';
+    if (window.__rosterGuard) return;
+    window.__rosterGuard = true;
+
+    var pauseUntil = 0;
+    function want() {
+        try { return !!(window.__code3 && window.__code3.ready && window.__code3.ready()); } catch (e) { return false; }
+    }
+
+    // Пауза подмены на TAB и на open/close PlayersOnline — зеркалим Code3 (1.5 с),
+    // чтобы штатное окно «Онлайн» открывалось и закрывалось как обычно
+    document.addEventListener('keydown', function (e) {
+        try { if (e && e.keyCode === 9) pauseUntil = Date.now() + 1500; } catch (er) {}
+    }, true);
+    var _open = window.openInterface;
+    if (typeof _open === 'function') {
+        window.openInterface = function (name) {
+            if (name === 'PlayersOnline') pauseUntil = Date.now() + 1500;
+            return _open.apply(this, arguments);
+        };
+    }
+    var _close = window.closeInterface;
+    if (typeof _close === 'function') {
+        window.closeInterface = function (name) {
+            if (name === 'PlayersOnline') pauseUntil = Date.now() + 1500;
+            return _close.apply(this, arguments);
+        };
+    }
+
+    // Второй слой подмены: если ВСЁ, что ниже (Code3 + игра), ответило для
+    // 'PlayersOnline' не true — отвечаем true, пока мы лицензёр и не в паузе.
+    // Код Code3 ниже не трогаем: его проба '__code3probe' проходит сквозь нас.
+    var _status = window.getInterfaceStatus;
+    if (typeof _status === 'function') {
+        window.getInterfaceStatus = function (name) {
+            var r = _status.apply(this, arguments);
+            if (name === 'PlayersOnline' && r !== true && Date.now() >= pauseUntil && want()) return true;
+            return r;
+        };
+    }
+
+    // Вотчдог: список старше 15 с → дёргаем движок НАПРЯМУЮ, минуя паузы
+    // восстановления Code3 (quiet15/quiet45). С подменой выше движок ответит.
+    setInterval(function () {
+        try {
+            if (!want()) return;
+            var age = window.__code3PlayerListAt ? Date.now() - window.__code3PlayerListAt : Infinity;
+            if (age > 15000) {
+                if (typeof window.updatePlayers === 'function') window.updatePlayers();
+                if (typeof window.updatePlayerList === 'function') window.updatePlayerList();
+            }
+        } catch (e) {}
+    }, 5000);
+
+})(); } catch (e) {}
+// ═══ END ROSTER-GUARD v1 ═══
