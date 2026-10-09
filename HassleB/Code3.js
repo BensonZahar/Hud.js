@@ -3529,17 +3529,46 @@ try { (function () {
     }
 
     // ── Стадия 2: жёсткий перезапуск — открыть PlayersOnline на 6 секунд ──
-    // Его mounted-хук ставит 3-секундный интервал updatePlayerList() → движок может проснуться.
+    // ВАЖНО: передаём данные из window.__code3PlayerList, иначе интерфейс будет пустой!
+    // PlayersOnline при открытии сам вызывает window.updatePlayerList() каждые 3 секунды,
+    // что может "разбудить" движок. А переданные данные покажутся сразу, даже если движок молчит.
     function hardRestart() {
         console.log('[CODE3-RL] Жёсткий перезапуск: открываю PlayersOnline на 6 с');
         try {
+            // Проверка: не заблокировано ли открытие интерфейсов
+            if (window.blockInterfaces) {
+                console.log('[CODE3-RL] blockInterfaces установлен — пропускаю');
+                return;
+            }
+            
+            // Проверка: не открыт ли уже PlayersOnline
             if (window.getInterfaceStatus && window.getInterfaceStatus('PlayersOnline')) {
                 console.log('[CODE3-RL] PlayersOnline уже открыт — пропускаю');
                 return;
             }
+            
+            // Берём актуальные данные из Code3
+            var data = window.__code3PlayerList;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (e) { data = null; }
+            }
+            
+            // Формируем параметры для передачи в openInterface
+            var params = null;
+            if (data && (data.local || Array.isArray(data.players))) {
+                params = JSON.stringify(data);
+                console.log('[CODE3-RL] Передаю данные в PlayersOnline: игроков=' + 
+                    (Array.isArray(data.players) ? data.players.length : 'нет массива'));
+            } else {
+                console.log('[CODE3-RL] Нет данных в __code3PlayerList — открываю без параметров');
+            }
+            
+            // Открываем интерфейс
             if (typeof window.openInterface === 'function') {
-                window.openInterface('PlayersOnline');
-                setTimeout(function () {
+                window.openInterface('PlayersOnline', params);
+                
+                // Закрываем через 6 секунд
+                setTimeout(function() {
                     try {
                         if (window.getInterfaceStatus && window.getInterfaceStatus('PlayersOnline')) {
                             window.closeInterface('PlayersOnline');
@@ -3548,7 +3577,9 @@ try { (function () {
                     } catch (e) {}
                 }, 6000);
             }
-        } catch (e) { console.warn('[CODE3-RL] hardRestart:', e); }
+        } catch (e) { 
+            console.warn('[CODE3-RL] hardRestart ошибка:', e); 
+        }
     }
 
     // ── Стадия 3: уведомление пользователю ──
