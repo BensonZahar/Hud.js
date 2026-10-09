@@ -36,7 +36,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.20';
+var VERSION = 'code3 v1.18';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -331,24 +331,16 @@ function refreshLastNick() {
         if (STATE.last !== l || String(l.targetId) !== String(id)) return;
         var trusted = ok || listTrusted();
         var fromList = trusted ? nickById(id) : null;   // устаревший список (движок молчит) ник НЕ определяет — он называл бы прежнего владельца этого ID
-        var rn0 = fromList || l.hintRaw || null;        // иначе ник, который сервер показал в меню игрока
-        function fin(rn, viaSrv) {
-            if (fromList && l.hintRaw && norm(fromList) !== norm(l.hintRaw)) {
-                tr('GIVE/НЕСОВПАДЕНИЕ', 'ID ' + id + ' сейчас у ' + fromList, 'а в меню был ' + l.hintRaw);
-                gtAdd('~r~Проверьте ID~n~~w~ID ' + id + ' сейчас у ' + String(fromList).split('_').join(' ') + ', а меню открыто на ' + String(l.hintRaw).split('_').join(' '), 5000, 3);
-            }
-            l.rawNick = rn; l.nickFresh = true; l.nickAt = Date.now();
-            if (rn) l.nick = String(rn).split('_').join(' ');
-            tr('GIVE/ник цели', 'ID ' + id, 'ник: ' + (rn || '—'), 'источник: ' + (viaSrv ? 'серверная /id ' + id : fromList ? 'свежий список' : (l.hintRaw ? 'меню игрока (список ' + (ok ? 'не нашёл ID' : 'устарел, возраст ' + (listAge() === Infinity ? '—' : listAge() + 'мс')) + ')' : 'нет')));
-            var w = l._nw; l._nw = [];
-            for (var i = 0; i < w.length; i++) { try { w[i](l.rawNick); } catch (er) {} }
+        var rn = fromList || l.hintRaw || null;         // иначе ник, который сервер показал в меню игрока
+        if (fromList && l.hintRaw && norm(fromList) !== norm(l.hintRaw)) {
+            tr('GIVE/НЕСОВПАДЕНИЕ', 'ID ' + id + ' сейчас у ' + fromList, 'а в меню был ' + l.hintRaw);
+            gtAdd('~r~Проверьте ID~n~~w~ID ' + id + ' сейчас у ' + String(fromList).split('_').join(' ') + ', а меню открыто на ' + String(l.hintRaw).split('_').join(' '), 5000, 3);
         }
-        if (rn0) return fin(rn0, false);
-        // ника нет ни в списке, ни в меню (ID введён вручную, список молчит) — спрашиваем сервер: «/id <ID>» → «Ник, ID: …», иначе в авто-ответах было бы «Жетон <ID>»
-        srvLookup(String(id), function (r) {
-            if (_dead || STATE.last !== l || String(l.targetId) !== String(id)) return;
-            fin(r ? r.name : null, !!r);
-        });
+        l.rawNick = rn; l.nickFresh = true; l.nickAt = Date.now();
+        if (rn) l.nick = String(rn).split('_').join(' ');
+        tr('GIVE/ник цели', 'ID ' + id, 'ник: ' + (rn || '—'), 'источник: ' + (fromList ? 'свежий список' : (l.hintRaw ? 'меню игрока (список ' + (ok ? 'не нашёл ID' : 'устарел, возраст ' + (listAge() === Infinity ? '—' : listAge() + 'мс')) + ')' : 'нет')));
+        var w = l._nw; l._nw = [];
+        for (var i = 0; i < w.length; i++) { try { w[i](l.rawNick); } catch (er) {} }
     }, 700);
 }
 // cb(rawНик|null): сразу, если ник уже определён по свежему списку, иначе — как только список придёт
@@ -361,44 +353,36 @@ function whenNick(id, cb) {
     cb(nickByIdTrusted(id));
 }
 
-// ══════════ ROSTER v3: «анти-пропад» списка игроков (заменил ROSTER v2) ══════════
-// Проблема: после переподключения друга (2+ раза) ID не определялся — движок молчал дольше 12 с, список «устарел» и в ID отказывали.
-// Что делает v3 (roster-v3.1, проверен отдельным блоком):
-//   1) getInterfaceStatus('PlayersOnline') = true ПОСТОЯННО, пока помощник активен (пауза на open/close «Онлайн» и TAB) — движок отдаёт список только при «открытом» окне;
-//   2) опрос раз в 2,5 с, но не чаще одного запроса в 1,8 с; каждый запрос = updatePlayerList() + updatePlayers();
-//   3) приём по ВСЕМ каналам: onUpdatePlayersList, прокси window.interface('PlayersOnline'), updateParams;
-//   4) список верим до 15 с (было 12), свежим считаем до 4 с, свежий ждём до 3,5 с (было 1,5);
-//   5) детектор переподключений: новый ник/ID в списке → пишем в трассу «RECONNECT» и просим список ещё раз;
-//   6) при открытии меню игрока — принудительный запрос списка (мимо MIN_GAP);
-//   7) движок молчит → лесенка из 4 шагов: тишина 10 с → запрос; запрос сразу; тишина 20 с → запрос; пауза 3 с → запрос. Не помогло — 60 с покоя, дальше обычный опрос.
-// ID из списка берётся только свежим (ID в SA-MP переиспользуются). Движок молчит — спрашиваем сервер «/id <ник>» (srvLookup, v1.19), потом ручной ввод.
-// Отладка из консоли: __code3.roster.state() · .trace(30) · .force()   (то же самое — window.__rosterV3)
-var RUN = {};              // метка именно этого запуска (после перезагрузки скрипта старая обёртка не считается нашей)
-var ROSTER = {
-    VERSION: 'roster-v3.1',
-    POLL_MS: 2500,           // опрос каждые 2,5 с (штатное окно «Онлайн» — 3 с)
-    MIN_GAP_MS: 1800,        // минимум между запросами к движку
-    FRESH_MS: 4000,          // список младше — свежий, новый ждать не нужно
-    STALE_MS: 15000,         // список старше — ему нельзя верить (ID переиспользуются)
-    SILENT_MS: 8000,         // движок молчит дольше — запускаем восстановление
-    FRESH_TIMEOUT_MS: 3500,  // сколько ждём свежий список по умолчанию (freshPlayers без maxMs)
-    FORCE_ON_OPEN: true,     // принудительный запрос при открытии меню игрока
-    WATCH_RECONNECT: true    // следить за переподключениями
-};
-// Если раньше вставляли отдельный блок ROSTER v3 в конец файла — снимаем его, иначе хуки задвоятся
-try { var _legacyRoster = window.__rosterV3; if (_legacyRoster && typeof _legacyRoster.destroy === 'function') _legacyRoster.destroy(); } catch (e) {}
-
-var _hookInstalls = 0;
+// ══════════ ROSTER v2: список игроков по образцу «Слежки за другом» (Friend Tracker, Code2.js) ══════════
+// Почему раньше ID не определялся (трасса: возраст списка 27+ минут, «LIST/fresh ТАЙМАУТ», «ID/СПИСОК УСТАРЕЛ»):
+// на Hassle движок отдаёт список игроков, только пока getInterfaceStatus('PlayersOnline') отвечает true — и проверяет
+// это В СВОЙ момент (после сетевого ответа сервера), а не когда мы позвали updatePlayerList(). Код v1.16 держал подмену
+// всего 2.5 с после каждого запроса, поэтому ответ приходил, когда подмена уже выключилась, и список не обновлялся вообще.
+// Слежка в Code2 работает, потому что делает три вещи, и ровно это повторено тут:
+//   1) getInterfaceStatus('PlayersOnline') = true ПОСТОЯННО, пока помощник активен (а не короткими окнами);
+//   2) updatePlayerList() регулярно — список всегда свежий ещё до открытия меню. НО раз в 3 с, а не чаще: v1.17 опрашивала раз в секунду,
+//      и по трассе движок ответил ровно 52 раза и замолчал навсегда (ровно когда опрос ускорился с 3 с до 1 с). Штатное окно «Онлайн» тоже опрашивает раз в 3 с;
+//   3) приём по ВСЕМ каналам: window.onUpdatePlayersList, прокси window.interface('PlayersOnline') и updateParams.
+// Подмена не мешает самой игре: на время openInterface/closeInterface('PlayersOnline') и нажатия TAB она ставится на паузу.
+// ID берётся ТОЛЬКО из списка движка: если он молчит — ID не угадываем (ни из чата, ни из устаревшего списка), причина видна в трассе.
+var RUN = {};
+var _hookInstalls = 0;  // метка именно этого запуска (после перезагрузки скрипта старая обёртка не считается нашей)
 var _listAt = 0;        // когда движок прислал последний список (мс); после перезагрузки скрипта = 0 → старый список считается устаревшим
 var _reqAt = 0;         // когда мы в последний раз просили движок обновить список
 var _prevListAt = 0;    // когда пришёл предыдущий список (для лога «возобновился после паузы»)
 var _listSrc = '—';     // откуда пришёл последний список: onUpdate | iface | upd
-var _reqSinceAns = 0;   // запросов без ответа подряд
-var _statusHooked = false, _ifaceHooked = false, _hookRepairs = 0, _spoofPauseUntil = 0;
+var _bootAt = Date.now();
+var FRESH_MS = 3500;        // список не старше — считается свежим, новый ждать не нужно (опрос раз в ~3 с)
+var LIST_STALE_MS = 12000;  // старше — ему нельзя верить: ID в SA-MP переиспользуются (вышел один, зашёл другой с тем же ID)
+var POLL_BASE_MS = 3000;    // как штатное окно «Онлайн» (PlayersOnline.js: setInterval 3000). Чаще — движок перестаёт отвечать
+var MIN_GAP_MS = 2500;      // два наших запроса — не чаще этого (включая запросы при открытии меню игрока)
+var SILENT_MS = 9000;       // список старше — движок «молчит», запускаем восстановление
+var _pollMs = POLL_BASE_MS; // текущий интервал опроса (после восстановления может вырасти)
+var _reqTimer = null, _reqSinceAns = 0, _quietUntil = 0, _recCoolUntil = 0, _noSpoof = false, _useBoth = false;
+var _rec = { active: false, stage: '', n: 0, mode: '', probeAt: 0, waitUntil: 0, log: [], okMode: '' };
+var _statusHooked = false, _ifaceHooked = false, _hookRepairs = 0, _spoofPauseUntil = 0, _silentNoted = 0;
 var _calls = { req: 0, onUpdate: 0, iface: 0, upd: 0 };   // сколько раз что сработало (диагностика: __code3.players().calls)
 var _listWaiters = [];  // кто ждёт СВЕЖИЙ ответ движка — просыпаются сразу, как только он пришёл (без опроса по таймеру)
-var _silentSince = 0, _recActive = false, _recStep = 0, _recTimer = null, _recCoolUntil = 0, _recStartAt = 0, _recLog = [];
-var _prevPlayerIds = {}, _prevSeen = false, _reconnectAt = 0, _reconnectNames = [];
 
 // Нужен ли сейчас список: нужен, пока мы лицензёр, и пока роль ещё не выяснена (скин/звание не загрузились)
 function rosterWanted() {
@@ -412,6 +396,7 @@ function rosterWanted() {
 }
 
 // ── Подмена статуса «Онлайн открыт» ──
+function spoofOff() { return _noSpoof || (_rec.active && _rec.mode === 'nospoof' && _rec.stage === 'probe'); }
 function hookStatus() {
     if (_dead || _statusHooked) return;
     var cur = window.getInterfaceStatus;
@@ -419,7 +404,7 @@ function hookStatus() {
     _statusHooked = true;
     var w = function (name) {
         if (name === '__code3probe') return RUN;   // проба «наша обёртка ещё в цепочке» (внешние обёртки передают имя дальше)
-        if (name === 'PlayersOnline' && !_dead && Date.now() >= _spoofPauseUntil && rosterWanted()) return true;
+        if (name === 'PlayersOnline' && !_dead && Date.now() >= _spoofPauseUntil && !spoofOff() && rosterWanted()) return true;
         return cur.apply(this, arguments);
     };
     w.__code3 = RUN;
@@ -503,36 +488,11 @@ function ensureRosterHooks() {
 })();
 
 function listAge() { return _listAt ? Date.now() - _listAt : Infinity; }
-function listFresh() { return listAge() <= ROSTER.FRESH_MS; }
-function listTrusted() { return listAge() < ROSTER.STALE_MS; }
+function listTrusted() { return listAge() < LIST_STALE_MS; }
 function nickByIdTrusted(id) { return listTrusted() ? nickById(id) : null; }
 function flushListWaiters() {
     var w = _listWaiters; _listWaiters = [];
     for (var i = 0; i < w.length; i++) { try { w[i](true); } catch (er) {} }
-}
-
-// ── Детектор переподключений: сравниваем ник по каждому ID с предыдущим списком ──
-// Новый ID или другой ник на прежнем ID = кто-то зашёл/перезашёл → пишем в трассу и просим список ещё раз (если с прошлого запроса прошло ≥ MIN_GAP)
-function rosterNorm(s) { return String(s || '').toLowerCase().replace(/[\s_]+/g, ''); }
-function detectReconnects(list) {
-    if (!ROSTER.WATCH_RECONNECT) return;
-    var ids = {}, i, p, id, changed = [];
-    if (list && Array.isArray(list.players)) {
-        for (i = 0; i < list.players.length; i++) { p = list.players[i]; if (p) ids[String(p.id)] = rosterNorm(p.name); }
-    }
-    if (_prevSeen) {   // первый снимок — это не «переподключения», а просто начальное состояние
-        for (id in ids) {
-            if (!ids.hasOwnProperty(id)) continue;
-            if (_prevPlayerIds.hasOwnProperty(id)) { if (_prevPlayerIds[id] !== ids[id]) changed.push({ id: id, old: _prevPlayerIds[id], nw: ids[id] }); }
-            else if (ids[id]) changed.push({ id: id, old: null, nw: ids[id] });
-        }
-    }
-    _prevPlayerIds = ids; _prevSeen = true;
-    if (!changed.length) return;
-    _reconnectAt = Date.now();
-    _reconnectNames = changed.map(function (c) { return c.nw || ('ID' + c.id); });
-    tr('RECONNECT', 'изменений в списке: ' + changed.length, changed.slice(0, 5).map(function (c) { return 'ID' + c.id + ': ' + (c.old || '—') + ' → ' + c.nw; }).join(', '));
-    setTimeout(function () { if (!_dead) requestList(); }, 500);   // движок может дать второй, уточнённый список
 }
 
 // ── Приём списка: все каналы сходятся сюда ──
@@ -540,7 +500,7 @@ function detectReconnects(list) {
 function capturePlayers(e, src) {
     src = src || 'onUpdate';
     var second = (src === 'iface' || src === 'upd');
-    if (second && _listAt && Date.now() - _listAt < 200) return;   // тот же снимок только что пришёл другим каналом (index.js сразу зовёт прокси)
+    if (second && _listAt && Date.now() - _listAt < 150) return;   // тот же снимок только что пришёл другим каналом (index.js сразу зовёт прокси)
     try {
         var rawE = e;
         if (typeof e === 'string') { try { e = JSON.parse(e); } catch (er) { if (!second) tr('LIST/ОШИБКА', 'строка не парсится', String(rawE).slice(0, 120)); return; } }
@@ -552,15 +512,13 @@ function capturePlayers(e, src) {
             _listSrc = src;
             _calls[src === 'onUpdate' ? 'onUpdate' : src === 'iface' ? 'iface' : 'upd']++;
             _reqSinceAns = 0;
-            _silentSince = 0;
+            try { recoveryOnList(); } catch (er3) {}
             var gap = _prevListAt ? _listAt - _prevListAt : null, lag = _reqAt ? _listAt - _reqAt : null;
             // по умолчанию молчим: пишем только возобновление после паузы или медленный ответ (TRACE_LIST — каждый)
-            if (OPTS.TRACE_LIST || (gap !== null && gap > ROSTER.STALE_MS) || (lag !== null && lag > 1200))
+            if (OPTS.TRACE_LIST || (gap !== null && gap > LIST_STALE_MS) || (lag !== null && lag > 1500))
                 tr('LIST/получен', 'игроков=' + (Array.isArray(e.players) ? e.players.length : 'нет массива') + ' local=' + (e.local ? e.local.name + '[' + e.local.id + ']' : '—'),
-                    'ответ через ' + (lag === null ? '?' : lag + 'мс'), 'канал=' + src, gap !== null && gap > ROSTER.STALE_MS ? 'перед этим список не приходил ' + Math.round(gap / 1000) + ' с' : '', 'ждущих=' + _listWaiters.length);
-            try { detectReconnects(e); } catch (er4) { tr('RECONNECT/ОШИБКА', er4); }
+                    'ответ через ' + (lag === null ? '?' : lag + 'мс'), 'канал=' + src, gap !== null && gap > LIST_STALE_MS ? 'перед этим список не приходил ' + Math.round(gap / 1000) + ' с' : '', 'ждущих=' + _listWaiters.length);
             flushListWaiters();
-            try { recoveryOnList(); } catch (er3) {}
             try { tgtRefreshFromList(); } catch (er2) {}
         } else if (!second) {
             tr('LIST/ОШИБКА', 'прислал данные неизвестной формы', tstr(e).slice(0, 160));
@@ -569,7 +527,6 @@ function capturePlayers(e, src) {
 }
 
 // ── Запрос списка у движка ──
-// refreshPlayers — сразу, без проверки MIN_GAP (открытие меню, старт, восстановление). Каждый запрос = updatePlayerList() + updatePlayers()
 function refreshPlayers() {
     if (_dead) return;
     ensureRosterHooks();
@@ -577,16 +534,26 @@ function refreshPlayers() {
     var has = (typeof window.updatePlayerList === 'function');
     if (!has) tr('LIST/запрос', 'window.updatePlayerList НЕ функция — запросить список нечем!');
     else if (OPTS.TRACE_LIST && rmActive()) tr('LIST/запрос', 'updatePlayerList() вызван', 'возраст прошлого списка=' + (_listAt ? (_reqAt - _listAt) + 'мс' : '—'));
-    try { if (has) window.updatePlayerList(); } catch (e) { tr('LIST/ИСКЛЮЧЕНИЕ', 'updatePlayerList бросил', e); }
-    try { if (typeof window.updatePlayers === 'function') window.updatePlayers(); } catch (e2) { tr('LIST/ИСКЛЮЧЕНИЕ', 'updatePlayers бросил', e2); }   // запасной канал, как меню паузы
+    try {
+        if (has) {
+            if ((_useBoth || (_rec.active && _rec.mode === 'both' && _rec.stage === 'probe')) && typeof window.updatePlayers === 'function') window.updatePlayers();   // как меню паузы: updatePlayers() + updatePlayerList()
+            window.updatePlayerList();
+        }
+    } catch (e) { tr('LIST/ИСКЛЮЧЕНИЕ', 'updatePlayerList бросил', e); }
 }
-// requestList — то же, но не чаще MIN_GAP_MS (опрос, ожидание свежего списка, запрос после переподключения)
-function requestList() {
-    if (_dead || Date.now() - _reqAt < ROSTER.MIN_GAP_MS) return;
-    refreshPlayers();
+// Внеочередной запрос (открытие меню игрока и т.п.), но не чаще MIN_GAP_MS после предыдущего и не во время паузы восстановления:
+// если запрос уже в пути (мы только что спросили) — просто ждём его ответ, второй не шлём.
+function requestSoon() {
+    if (_dead) return;
+    var now = Date.now();
+    if (now < _quietUntil) return;
+    var since = now - _reqAt;
+    if (since >= MIN_GAP_MS) { refreshPlayers(); return; }
+    if (_reqTimer) return;
+    _reqTimer = setTimeout(function () { _reqTimer = null; if (!_dead && Date.now() >= _quietUntil) refreshPlayers(); }, MIN_GAP_MS - since);
 }
-// cb(ok) — как только есть свежий список. Список моложе FRESH_MS — сразу; иначе просим движок и ждём его ответ событием.
-// Не пришёл за maxMs (по умолчанию ROSTER.FRESH_TIMEOUT_MS) — cb(false): тогда решает вызывающий.
+// cb(ok) — как только есть свежий список. Список моложе FRESH_MS (при опросе раз в 3 с почти всегда) — сразу;
+// иначе просим движок (с соблюдением MIN_GAP_MS) и ждём его ответ событием. Не пришёл за maxMs — cb(false): тогда решает вызывающий.
 function freshPlayers(cb, maxMs) {
     var done = false, t3, tf0 = Date.now();
     function fin(ok) {
@@ -597,27 +564,27 @@ function freshPlayers(cb, maxMs) {
         if (!ok || OPTS.TRACE_LIST || Date.now() - tf0 > 800) tr('LIST/fresh', ok ? 'ответ движка получен за ' + (Date.now() - tf0) + 'мс' : 'ТАЙМАУТ: движок молчит ' + (Date.now() - tf0) + 'мс', 'ждущих осталось=' + _listWaiters.length, rosterInfo());
         if (!_dead) { try { cb(!!ok); } catch (e) { warn('freshPlayers:', e); } }
     }
-    if (listFresh()) { setTimeout(function () { fin(true); }, 0); return; }
+    if (listAge() <= FRESH_MS) { setTimeout(function () { fin(true); }, 0); return; }
     _listWaiters.push(fin);
-    requestList();
-    t3 = setTimeout(function () { fin(false); }, maxMs || ROSTER.FRESH_TIMEOUT_MS);
+    requestSoon();
+    t3 = setTimeout(function () { fin(false); }, maxMs || 1500);
 }
-
-// ── Лесенка восстановления при молчании движка ──
-var REC_STEPS = [
-    { quiet: 10000, desc: 'тишина 10 с + запрос' },
-    { quiet: 0,     desc: 'принудительный запрос сразу' },
-    { quiet: 20000, desc: 'тишина 20 с + запрос' },
-    { quiet: 3000,  desc: 'пауза 3 с + updatePlayers/updatePlayerList (подмена статуса держится)' }
-];
 function rosterInfo() {
     var probe = '?', pr = '?';
     try { probe = (typeof window.getInterfaceStatus === 'function' && window.getInterfaceStatus('__code3probe') === RUN) ? 'в цепочке' : 'ВЫПАЛА'; } catch (e) {}
     try { var pi = (typeof window.interface === 'function') ? window.interface('PlayersOnline') : null; pr = (pi && pi.__code3iface === RUN) ? 'в цепочке' : 'ВЫПАЛ'; } catch (e) {}
     return 'ROSTER[подмена статуса=' + probe + ' прокси=' + pr + ' onUpdate-хук=' + !!(window.onUpdatePlayersList && window.onUpdatePlayersList.__code3 === RUN) +
         ' нужен=' + rosterWanted() + ' запросов=' + _calls.req + ' (без ответа подряд=' + _reqSinceAns + ') пришло: onUpdate=' + _calls.onUpdate + ' iface=' + _calls.iface + ' upd=' + _calls.upd +
-        ' режим=' + (_recActive ? 'восстановление, шаг ' + (_recStep + 1) + '/' + REC_STEPS.length : (Date.now() < _recCoolUntil ? 'покой после неудачного восстановления' : 'штатный')) + ']';
+        ' интервал=' + _pollMs + 'мс подмена=' + (spoofOff() ? 'ВЫКЛ' : 'вкл') + ' режим=' + (_rec.active ? 'восстановление «' + _rec.mode + '» (' + _rec.stage + ')' : (_rec.okMode ? 'после восстановления «' + _rec.okMode + '»' : 'штатный')) + ']';
 }
+// ── Опрос + самовосстановление ──
+// Опрос раз в _pollMs (3 с), пока помощник активен. Если движок замолчал (список старше SILENT_MS) — лесенка проб, по одной за раз:
+//   quiet15  — НЕ спрашивать 15 с, потом один запрос (проверка «слишком частые запросы душат движок»);
+//   nospoof  — один запрос с настоящим статусом PlayersOnline (проверка «подмена статуса мешает»);
+//   both     — один запрос updatePlayers()+updatePlayerList() (как меню паузы);
+//   quiet45  — тишина 45 с, потом один запрос.
+// Что сработало — запоминается (интервал растёт / подмена выключается / включается связка), результат пишется в трассу «RECOVER/…».
+var REC_STEPS = [{ mode: 'quiet15', quiet: 15000 }, { mode: 'nospoof', quiet: 4000 }, { mode: 'both', quiet: 4000 }, { mode: 'quiet45', quiet: 45000 }];
 function rosterCtx() {
     var o = [];
     try { o.push('Interactions=' + isOpen('Interactions')); } catch (e) {}
@@ -626,102 +593,60 @@ function rosterCtx() {
     try { o.push('скин=' + _skin + ' звание=' + JSON.stringify(_rank) + ' licensorReady=' + licensorReady()); } catch (e) {}
     return o.join(' ');
 }
-function recBegin(age) {
-    _recActive = true; _recStep = 0; _recLog = []; _recStartAt = Date.now();
-    tr('ROSTER/ДВИЖОК МОЛЧИТ', 'возраст списка=' + (age === Infinity ? 'ни разу' : age + 'мс' + ' (последний ответ в ' + new Date(_listAt).toLocaleTimeString() + ')'), 'запросов без ответа подряд=' + _reqSinceAns, rosterCtx(), rosterInfo());
-    recNext();
+function recStep(now) {
+    var st = REC_STEPS[_rec.n % REC_STEPS.length];
+    _rec.mode = st.mode; _rec.stage = 'quiet'; _rec.probeAt = 0; _quietUntil = now + st.quiet;
+    tr('RECOVER/шаг ' + (_rec.n % REC_STEPS.length + 1) + '/' + REC_STEPS.length, 'режим «' + st.mode + '»', 'тишина ' + Math.round(st.quiet / 1000) + ' с, потом пробный запрос');
 }
-function recNext() {
-    if (_dead || !_recActive) return;
-    if (_recStep >= REC_STEPS.length) {
-        tr('RECOVER/лесенка пройдена', 'ничего не помогло: ' + _recLog.join(' → '), 'покой 60 с, дальше обычный опрос', rosterCtx());
-        _recActive = false; _recStep = 0; _silentSince = 0; _recCoolUntil = Date.now() + 60000;
+function recBegin(age, now) {
+    _rec.log = [];
+    tr('ROSTER/ДВИЖОК МОЛЧИТ', 'возраст списка=' + (age === Infinity ? 'ни разу' : age + 'мс' + ' (последний ответ в ' + new Date(_listAt).toLocaleTimeString() + ')'), 'запросов без ответа подряд=' + _reqSinceAns, 'интервал опроса=' + _pollMs + 'мс', rosterCtx(), rosterInfo());
+    _rec.active = true;
+    recStep(now);
+}
+function recTick(now) {
+    if (_rec.stage === 'quiet' && now >= _quietUntil) {
+        _rec.stage = 'probe'; _rec.probeAt = now; _rec.waitUntil = now + 4500;
+        refreshPlayers();
         return;
     }
-    var st = REC_STEPS[_recStep];
-    tr('RECOVER/шаг ' + (_recStep + 1) + '/' + REC_STEPS.length, st.desc);
-    var fire = function () {
-        if (_dead || !_recActive) return;
-        refreshPlayers();
-        _recTimer = setTimeout(function () {
-            if (_dead || !_recActive) return;
-            _recLog.push('шаг ' + (_recStep + 1) + ': нет ответа');
-            tr('RECOVER/нет ответа', 'шаг ' + (_recStep + 1) + '/' + REC_STEPS.length + ' не помог за 4 с');
-            _recStep++;
-            recNext();
-        }, 4000);
-    };
-    if (st.quiet > 0) _recTimer = setTimeout(fire, st.quiet); else fire();
-}
-function recoveryOnList() {
-    if (!_recActive) return;
-    var st = REC_STEPS[_recStep];
-    tr('RECOVER/УСПЕХ', 'шаг ' + (_recStep + 1) + '/' + REC_STEPS.length + (st ? ' («' + st.desc + '»)' : ''), 'список пришёл через ' + (_recStartAt ? Date.now() - _recStartAt : '?') + 'мс после старта восстановления', 'пройдено: ' + (_recLog.join(' → ') || '—'));
-    clearTimeout(_recTimer); _recTimer = null;
-    _recActive = false; _recStep = 0; _silentSince = 0;
-}
-function recTick() {   // из опроса: молчание дольше SILENT_MS, потом ещё SILENT_MS подтверждения → лесенка
-    if (_dead || _recActive) return;
-    var now = Date.now(), age = listAge();
-    if (now < _recCoolUntil) return;
-    if (age === Infinity || age > ROSTER.SILENT_MS) {
-        if (!_silentSince) _silentSince = now;
-        if (now - _silentSince > ROSTER.SILENT_MS) recBegin(age);
+    if (_rec.stage === 'probe' && now >= _rec.waitUntil) {
+        _rec.log.push(_rec.mode + ':нет ответа');
+        tr('RECOVER/нет ответа', 'режим «' + _rec.mode + '» не помог за 4.5 с');
+        _rec.n++;
+        if (_rec.n % REC_STEPS.length === 0) {   // вся лесенка пройдена впустую — минута обычного опроса, потом заново
+            _rec.active = false; _rec.stage = ''; _recCoolUntil = now + 60000;
+            tr('RECOVER/лесенка пройдена', 'ничего не помогло: ' + _rec.log.join(' → '), 'следующая попытка через 60 с', rosterCtx());
+        } else recStep(now);
     }
 }
-
-// ── Опрос ──
+function recoveryOnList() {
+    if (!_rec.active) return;
+    var m = _rec.mode, probe = (_rec.stage === 'probe'), took = probe ? Date.now() - _rec.probeAt : null;
+    _rec.active = false; _rec.stage = ''; _quietUntil = 0;
+    if (!probe) { tr('RECOVER/список пришёл сам', 'во время паузы режима «' + m + '» (кто-то другой дёрнул updatePlayerList)', 'настройки не меняем'); return; }
+    _rec.okMode = m;
+    if (m === 'nospoof') _noSpoof = true;
+    else if (m === 'both') _useBoth = true;
+    else _pollMs = Math.min(15000, Math.round(_pollMs * 1.5));   // ожил после тишины → опрос был слишком частым
+    tr('RECOVER/УСПЕХ', 'режим «' + m + '» → список пришёл через ' + took + 'мс после пробного запроса', 'дальше: подмена=' + (_noSpoof ? 'ВЫКЛ' : 'вкл') + ' updatePlayers+List=' + _useBoth + ' интервал=' + _pollMs + 'мс', 'пробы: ' + (_rec.log.concat([m + ':ОК']).join(' → ')));
+}
 var _pollId = null;
 function startRosterPoll() {
     if (_pollId || _dead) return;
     _pollId = setInterval(function () {
         if (_dead || !rosterWanted()) return;
-        recTick();
-        if (_recActive) return;   // пока идёт восстановление — обычный опрос на паузе
-        if (listAge() >= ROSTER.POLL_MS - 200) requestList();
+        var now = Date.now(), age = listAge();
+        var silent = (age === Infinity ? now - _bootAt > 6000 : age > SILENT_MS);
+        if (silent && !_rec.active && now >= _recCoolUntil) recBegin(age, now);
+        if (_rec.active) { recTick(now); return; }
+        if (now < _quietUntil) return;
+        if (now - _reqAt >= _pollMs - 50) refreshPlayers();
     }, 500);
-    onUndo(function () { if (_pollId) { clearInterval(_pollId); _pollId = null; } if (_recTimer) { clearTimeout(_recTimer); _recTimer = null; } });
-}
-// Открытие меню игрока: список просим сразу, не дожидаясь опроса (вызывается из хука openInterface)
-function rosterOnMenuOpen() {
-    if (_dead || !ROSTER.FORCE_ON_OPEN || !rosterWanted()) return;
-    tr('MENU_OPEN', 'PlayerInteraction → принудительный запрос списка (мимо MIN_GAP)');
-    refreshPlayers();
+    onUndo(function () { if (_pollId) { clearInterval(_pollId); _pollId = null; } if (_reqTimer) { clearTimeout(_reqTimer); _reqTimer = null; } });
 }
 
-// ── Публичный API для консоли (раньше __rosterV3) ──
-var ROSTER_TAG_RE = /ROSTER|RECOVER|RECONNECT|MENU_OPEN|LIST\/|HOOK\/|ID\/|IDCMD/;
-function rosterState() {
-    var l = plist();
-    return {
-        ageMs: _listAt ? Date.now() - _listAt : null,
-        count: l && Array.isArray(l.players) ? l.players.length : 0,
-        local: l && l.local ? l.local : null,
-        src: _listSrc,
-        trusted: listTrusted(),
-        fresh: listFresh(),
-        requests: _calls.req,
-        answers: _calls.onUpdate + _calls.iface + _calls.upd,
-        reconnectAt: _reconnectAt,
-        reconnectNames: _reconnectNames,
-        recovery: _recActive ? 'шаг ' + (_recStep + 1) + '/' + REC_STEPS.length : (Date.now() < _recCoolUntil ? 'покой до ' + new Date(_recCoolUntil).toLocaleTimeString() : 'нет')
-    };
-}
-var ROSTER_API = {
-    version: ROSTER.VERSION,
-    cfg: ROSTER,
-    state: rosterState,
-    trace: function (n) { var a = _trBuf.filter(function (s) { return ROSTER_TAG_RE.test(s); }); return n ? a.slice(-n) : a; },
-    traceText: function (n) { return ROSTER_API.trace(n).join('\n'); },
-    force: refreshPlayers,
-    waitForFresh: freshPlayers,
-    getNickById: nickById,
-    getIdByNick: idByNick
-};
-window.__rosterV3 = ROSTER_API;
-onUndo(function () { if (window.__rosterV3 === ROSTER_API) { try { delete window.__rosterV3; } catch (e) { window.__rosterV3 = undefined; } } });
-
-// Определяет ID по нику. Список живёт в движке и обновляется опросом раз в ~2,5 с, поэтому:
+// Определяет ID по нику. Список живёт в движке и обновляется опросом раз в ~3 с, поэтому:
 //  • список моложе CACHE_OK_MS — берём сразу (свежий запрос идёт в фоне);
 //  • иначе ждём ответ движка событием (без таймера «через 250 мс»), ID всегда из свежего списка;
 //  • игрока нет даже в свежем списке (только что вошёл) — до 3 попыток подряд; null только если его правда нет;
@@ -757,7 +682,7 @@ function noteResolve(nick, id, how) {
 // Сервер шлёт в меню только ник (GetPlayerNameEx), ID приходит лишь из списка игроков движка.
 // При открытии меню сразу берём/просим свежий список (primeTarget); пока меню открыто, ID пересчитывается
 // по каждому приходящему списку. Клик берёт готовый ID без повторных проверок и ожидания.
-var STALE_OK_MS = ROSTER.STALE_MS;   // только для диагностики
+var STALE_OK_MS = 10000;   // только для диагностики
 var _tgt = { nick: '', id: null, sid: 0, state: 'idle', waiters: [], stale: false, src: '' };   // state: idle | wait | ok | fail; stale — движок молчит, список устарел
 function tgtFlush() { var w = _tgt.waiters; _tgt.waiters = []; for (var i = 0; i < w.length; i++) { try { w[i](_tgt.id); } catch (e) {} } }
 function tgtRefreshFromList() {   // каждый новый список пока меню открыто → ID актуализируется
@@ -768,95 +693,12 @@ function tgtRefreshFromList() {   // каждый новый список пок
         _tgt.id = id; _tgt.state = 'ok'; _tgt.stale = false; _tgt.src = 'список'; tgtFlush();
     }
 }
-var CACHE_OK_MS = ROSTER.FRESH_MS;   // список моложе — берём ID мгновенно (список и так опрашивается раз в ~2,5 с), свежий запрос идёт в фоне
-
-// ══════════ ЗАПАСНОЙ ИСТОЧНИК: серверная команда /id (v1.19) ══════════
-// Список игроков живёт в движке клиента и может замолчать на минуты (трасса: «ID/СПИСОК УСТАРЕЛ», возраст 49 с и 215 с — после перезахода
-// игрока; ни quiet15, ни nospoof, ни both, ни quiet45 его не будили). А сервер ВСЕГДА знает ID: в моде есть CMD:id — «/id <часть ника или ID>»
-// отвечает строкой «Ник, ID: 260, уровень: 12, PING: 41, клиент: ... (Mobile|PC)» (до 5 совпадений; «Совпадений не найдено» / «Такого игрока нет»).
-// Ответ приходит ОТ СЕРВЕРА, поэтому устаревшим не бывает (ID после перезахода другой — сервер скажет новый).
-// Используется только когда список не может ответить (молчит / устарел / в нём нет ника). Расход антифлуда — одна команда на открытие меню.
-var ID_CMD_TIMEOUT = 2500;   // мс ждём ответ сервера после отправки
-var ID_CMD_CACHE_MS = 6000;  // один и тот же запрос не повторяем чаще (дальше — заново: игрок мог перезайти и получить другой ID)
-var ID_CMD_MAX_WAIT = 2500;  // если антифлуд заставляет ждать дольше — не ждём вообще
-var _idq = null;             // запрос в пути: { query, key, num, nick, cb:[], at, timer, seen:[], done }
-var _idCache = {};           // key → { r: {id, name}, at }
-// «Ник, ID: 260, уровень: 12, PING: 41, ...»; в начале может быть «1. » (при нескольких совпадениях). Имя без пробелов.
-var ID_LINE_RE = /^(?:\d+\.\s*)?(\S+),\s*ID:\s*(\d+),\s*уровень:\s*\d+/;
-function srvLookup(query, cb) {   // cb({id:Number, name:String}|null)
-    query = String(query == null ? '' : query).trim();
-    if (_dead || !query) return cb(null);
-    var num = /^\d+$/.test(query), key = num ? '#' + query : norm(query), now = Date.now();
-    var c = _idCache[key];
-    if (c && now - c.at < ID_CMD_CACHE_MS) { tr('IDCMD/кэш', '«' + query + '»', c.r ? c.r.name + '[' + c.r.id + ']' : 'нет', 'возраст ' + (now - c.at) + 'мс'); return cb(c.r); }
-    if (_idq && !_idq.done && _idq.key === key) { _idq.cb.push(cb); return; }   // тот же запрос уже в пути
-    if (_idq && !_idq.done) idqFinish(_idq, null, 'заменён новым запросом «' + query + '»');
-    var q = _idq = { query: query, key: key, num: num, cb: [cb], at: 0, timer: null, seen: [], done: false };
-    var w = floodWait(1);
-    if (w > ID_CMD_MAX_WAIT) { tr('IDCMD/антифлуд', 'ждать ' + w + 'мс — /id не отправляем'); return idqFinish(q, null, 'антифлуд'); }
-    function fire() {
-        if (_dead || _idq !== q || q.done) return;
-        q.at = Date.now();
-        tr('IDCMD/отправка', '/id ' + query, 'список: возраст ' + (listAge() === Infinity ? '—' : listAge() + 'мс'), 'антифлуд-ожидание ' + w + 'мс');
-        q.timer = setTimeout(function () { idqFinish(q, null, 'таймаут ' + ID_CMD_TIMEOUT + 'мс: сервер не ответил на /id'); }, ID_CMD_TIMEOUT);
-        rawSend('/id ' + query);
-    }
-    if (w > 0) setTimeout(fire, w + 5); else fire();
-}
-function idqFinish(q, r, why) {
-    if (q.done) return;
-    q.done = true; clearTimeout(q.timer);
-    if (_idq === q) _idq = null;
-    if (r) _idCache[q.key] = { r: r, at: Date.now() };
-    tr(r ? 'IDCMD/НАЙДЕН' : 'IDCMD/НЕТ', '«' + q.query + '»', r ? r.name + ' → ID ' + r.id : 'не определён', why, 'за ' + (q.at ? Date.now() - q.at : 0) + 'мс');
-    var cbs = q.cb; q.cb = [];
-    for (var i = 0; i < cbs.length; i++) { try { cbs[i](r); } catch (e) { warn('srvLookup cb:', e); } }
-}
-// Строка чата (без цветовых кодов). Чужой чат вида «текст (Ник)[id]» / «Ник[id]: текст» за ответ сервера не принимается.
-function idqOnChat(clean) {
-    var q = _idq;
-    if (!q || q.done || !q.at) return;
-    var t = String(clean).trim();
-    if (!t || /\)\[\d+\]\s*$/.test(t)) return;
-    var m = ID_LINE_RE.exec(t);
-    if (m) {
-        q.seen.push(m[1] + '[' + m[2] + ']');
-        if (q.num ? m[2] === q.query : norm(m[1]) === q.key) idqFinish(q, { id: Number(m[2]), name: m[1] }, 'ответ сервера: ' + t.slice(0, 90));
-        return;
-    }
-    if (t.indexOf('Совпадений не найдено') !== -1 || t.indexOf('Такого игрока нет') !== -1) return idqFinish(q, null, 'сервер: «' + t + '»');
-    if (t.indexOf('Показаны первые 5 совпадений') !== -1) return idqFinish(q, null, 'в первых 5 совпадениях нужного нет: ' + q.seen.join(', '));
-    if (t.indexOf('Не флудите') !== -1 || t.indexOf('Пожалуйста, подождите несколько секунд') !== -1) return idqFinish(q, null, 'антифлуд сервера');
-}
-
+var CACHE_OK_MS = 4000;   // список моложе — берём ID мгновенно (список и так опрашивается раз в ~3 с), свежий запрос идёт в фоне
 function primeTarget(nick) {
-    var t = _tgt = { nick: nick, id: null, sid: _rmSid, state: 'wait', waiters: [], stale: false, src: '', cmd: '', listDone: false };
+    var t = _tgt = { nick: nick, id: null, sid: _rmSid, state: 'wait', waiters: [], stale: false, src: '' };
     var cached = idByNick(nick), age = _listAt ? Date.now() - _listAt : null;
     var instant = cached !== null && age !== null && age < CACHE_OK_MS;
     if (instant) { t.id = cached; t.state = 'ok'; t.src = 'список'; noteResolve(nick, cached, 'мгновенно из списка (возраст ' + age + 'мс), фоновое обновление'); }
-    // Итог «не определили»: список устарел (движок молчит) → t.stale; список свежий, но ника нет → обычный провал
-    function finalFail() {
-        if (_dead || _tgt !== t || t.state === 'ok') return;
-        if (!listTrusted()) {
-            t.stale = true; t.state = 'fail';
-            tr('ID/СПИСОК УСТАРЕЛ', nickInfo(nick), 'возраст списка ' + (listAge() === Infinity ? '—' : listAge() + 'мс'), 'старый список назвал бы ' + (idByNick(nick) === null ? '—' : idByNick(nick)) + ' — НЕ используем; /id тоже не помог — нужен ручной ввод', rosterInfo());
-        } else { t.state = 'fail'; noteResolve(nick, null, ''); }
-        tgtFlush();
-    }
-    // /id параллельно со списком: кто ответит первым (список — если свежий; иначе сервер). Список, пришедший позже, всё равно уточнит ID (tgtRefreshFromList)
-    function viaCmd(why) {
-        if (t.cmd) return;
-        t.cmd = 'wait';
-        tr('ID/запасной путь', 'серверная /id', nickInfo(nick), why);
-        srvLookup(nick, function (r) {
-            if (_dead || _tgt !== t) return;
-            t.cmd = r ? 'ok' : 'fail';
-            if (t.state === 'ok') return;   // список уже дал ID — он главнее
-            if (r) { t.id = r.id; t.state = 'ok'; t.stale = false; t.src = '/id'; noteResolve(nick, r.id, 'серверная /id (' + why + ')'); tgtFlush(); return; }
-            if (t.listDone) finalFail();    // список к этому моменту тоже сдался — итог
-        });
-    }
-    if (!instant && !listTrusted()) viaCmd('список игроков устарел ещё до открытия меню');
     var tries = 0;
     (function go() {
         if (_dead || _tgt !== t) return;
@@ -865,25 +707,21 @@ function primeTarget(nick) {
             var trusted = ok || listTrusted();
             var id = trusted ? idByNick(nick) : null;
             if (!trusted && !instant) {   // движок не ответил, а список старый: ID из него мог бы принадлежать уже другому игроку
-                t.listDone = true;
-                if (t.cmd === 'wait') return;                  // /id уже спрашивает сервер — итог придёт оттуда
-                if (t.cmd === 'fail') return finalFail();
-                return viaCmd('движок молчит ' + (listAge() === Infinity ? '—' : listAge() + 'мс'));
+                t.stale = true; t.state = 'fail';
+                tr('ID/СПИСОК УСТАРЕЛ', nickInfo(nick), 'возраст списка ' + (listAge() === Infinity ? '—' : listAge() + 'мс'), 'старый список назвал бы ' + (idByNick(nick) === null ? '—' : idByNick(nick)) + ' — НЕ используем, нужен ручной ввод', rosterInfo());
+                tgtFlush(); return;
             }
-            if (id !== null) { var changed = (t.id !== id); t.id = id; t.state = 'ok'; t.stale = false; t.src = 'список'; if (!instant) noteResolve(nick, id, 'свежий список при открытии меню'); else if (changed) tr('ID/обновлён', nickInfo(nick), 'фоновый запрос → ID ' + id); tgtFlush(); return; }
+            if (id !== null) { var changed = (t.id !== id); t.id = id; t.state = 'ok'; t.src = 'список'; if (!instant) noteResolve(nick, id, 'свежий список при открытии меню'); else if (changed) tr('ID/обновлён', nickInfo(nick), 'фоновый запрос → ID ' + id); tgtFlush(); return; }
             if (instant) return;   // ID уже есть из списка — фоновый ответ без ника не страшен
             if (++tries < 3) return go();   // без пауз: каждая попытка и так ждёт ответ движка
-            t.listDone = true;   // в свежем списке ника нет (только вошёл / маска / фейк-ник) — спросим сервер
-            if (t.cmd === 'wait') return;
-            if (t.cmd === 'fail') return finalFail();
-            viaCmd('в свежем списке нет ника');
-        });   // таймаут по умолчанию — ROSTER.FRESH_TIMEOUT_MS (3,5 с, было 1,5 с: после переподключения движок отвечает медленнее)
+            t.state = 'fail'; noteResolve(nick, null, ''); tgtFlush();
+        }, 1500);
     })();
 }
 function resolveId(nick, cb) {
     var t = _tgt;
     if (t.nick === nick && t.sid === _rmSid) {
-        if (t.state === 'ok') { var cur = listTrusted() ? idByNick(nick) : null; if (cur !== null) t.id = cur; return cb(t.id); }   // устаревший список ID не перезаписывает (ID переиспользуются)
+        if (t.state === 'ok') { var cur = idByNick(nick); if (cur !== null) t.id = cur; return cb(t.id); }
         if (t.state === 'wait') { t.waiters.push(cb); return; }
         if (t.state === 'fail' && t.stale) {   // движок молчал — но с тех пор мог прийти список
             var fresh = idByNick(nick);
@@ -1495,11 +1333,11 @@ function circleShowNormal(params, nick, why) {
 }
 function circleHandle(nick, params) {
     circle.pending = true;
-    tr('CIRCLE/старт', nickInfo(nick), 'страховочный таймер 5000мс');
+    tr('CIRCLE/старт', nickInfo(nick), 'страховочный таймер 3000мс');
     if (circle.timer) clearTimeout(circle.timer);
     circle.timer = setTimeout(function () {
-        if (circle.pending && !_dead) { tr('CIRCLE/ТАЙМЕР 5с', 'resolveId не ответил вовремя'); trFail('КРУГОВОЕ МЕНЮ: сработала страховка 5с', 'ник: ' + nickInfo(nick)); circleShowNormal(params, nick, 'сработала страховка 5с'); }
-    }, 5000);   // страховка (список ≤1.5 с + /id ≤2.5 с)
+        if (circle.pending && !_dead) { tr('CIRCLE/ТАЙМЕР 3с', 'resolveId не ответил вовремя'); trFail('КРУГОВОЕ МЕНЮ: сработала страховка 3с', 'ник: ' + nickInfo(nick)); circleShowNormal(params, nick, 'сработала страховка 3с'); }
+    }, 3000);   // страховка
     resolveId(nick, function (id) {
         if (!circle.pending || _dead) { tr('CIRCLE/ответ resolveId ПРОИГНОРИРОВАН', 'pending=' + circle.pending, '_dead=' + _dead, 'id=' + id); return; }
         if (id === null) { var st = !!_tgt.stale; circleShowNormal(params, nick, st ? 'список игроков устарел' : 'ID не определён'); gtAdd(st ? '~y~Список игроков не обновился~n~~w~ID не определён — откроется обычное меню' : '~r~Круговое меню~n~~w~Не удалось определить ID (маска/фейк-ник?)', 3000, 3); tr('CIRCLE/уведомление', st ? 'список устарел — обычное меню, без диалога' : 'показано «Не удалось определить ID»'); return; }
@@ -2215,7 +2053,6 @@ function onChat(message) {
     var now = Date.now();
     if (msg === _lastChat.msg && now - _lastChat.at < 150) return;
     _lastChat.msg = msg; _lastChat.at = now;
-    try { if (_idq) idqOnChat(msg.replace(/\{[0-9a-fA-F]{6}\}/g, '')); } catch (e) {}   // ответ сервера на нашу /id
     if (!licensorReady()) return;   // не правительственный скин или не Лицензёр — ничего не делаем
 
     // Сервер сказал «Не флудите» — подтягиваем нашу модель антифлуда к реальному счётчику
@@ -2937,7 +2774,6 @@ function ensureChatAddHook() {
                         return Promise.resolve();
                     }
                     rmBegin(params, nick);
-                    try { rosterOnMenuOpen(); } catch (e) { tr('OPEN/ОШИБКА', 'rosterOnMenuOpen', e); }   // ROSTER v3: свежий список просим сразу при открытии меню
                     try { if (nick && NICK_RE.test(nick) && licensorReady()) primeTarget(nick); } catch (e) { tr('OPEN/ОШИБКА', 'refreshPlayers', e); }   // список готов ещё до нажатия
                     var intercept = false;
                     try { intercept = !!nick && circleCanIntercept(nick); } catch (e) { tr('OPEN/ОШИБКА', 'circleCanIntercept', e); }
@@ -3005,9 +2841,10 @@ function ensureChatAddHook() {
 })();
 
 // ══════════════════════════ ЗАПУСК ══════════════════════════
-// Список игроков нужен для ник ↔ ID. ROSTER v3: опрос раз в 2,5 с (не чаще 1,8 с между запросами), пока помощник активен
-// (лицензёр в форме или роль ещё выясняется), подмена «Онлайн открыт» постоянно, восстановление при молчании движка
-startRosterPoll();
+// Список игроков нужен для ник ↔ ID: обновляем раз в 30 с, пока мы лицензёр в правительственном скине
+// как в pravo.js: обновляем безусловно (раньше — только когда уже известно звание, и до этого список ников был пустой/старый)
+// Частота: пока открыто меню игрока — раз в секунду, лицензёр в форме — раз в 4 с, иначе раз в 30 с (запрос к движку лёгкий)
+startRosterPoll();   // опрос раз в секунду + подмена «Онлайн открыт» (ROSTER v2, как слежка в Code2)
 setTimeout(function () { if (!_dead) refreshPlayers(); }, 300);
 // Звание могло смениться (повышение/понижение): раз в минуту перечитываем уже загруженный профиль (без запросов к серверу)
 every(function () { if (isGovSkin() && _rank) pullRank(); }, 60000);
@@ -3017,7 +2854,6 @@ setTimeout(function () { if (!_dead) { ensureRank(); updatePanel(); } }, 1500);
 window.__code3 = {
     version: VERSION,
     opts: OPTS,
-    roster: ROSTER_API,   // ROSTER v3: .state() · .trace(30) · .force() · .cfg
     state: function () { return { skin: _skin, gov: isGovSkin(), rank: _rank, licensor: isLicensor(), ready: licensorReady(), last: STATE.last, tea: STATE.tea, circle: STATE.circle, panel: intOpen }; },
     menu: showLicMenu,
     verbose: function (v) { if (v !== undefined) OPTS.TRACE_LIST = !!v; return !!OPTS.TRACE_LIST; },   // __code3.verbose(true) — писать каждый запрос/ответ списка
@@ -3621,7 +3457,7 @@ try { (function () {
     function cleanMsg(s) {
         return String(s).replace(/\{btn:[^}]*\}/g, '').replace(/\{v:([^}]*)\}/g, '$1').replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\s+/g, ' ').trim();
     }
-    function listStale() { const at = window.__code3PlayerListAt; return !at || Date.now() - at > 15000; }   // = ROSTER.STALE_MS в основном модуле (v3: 15 с, было 12)
+    function listStale() { const at = window.__code3PlayerListAt; return !at || Date.now() - at > 12000; }
     function lastGive() { try { return (api() && api().last && api().last()) || null; } catch (e) { return null; } }
     function nickOf(id) {
         try {
@@ -3780,3 +3616,66 @@ try { (function () {
     c3Dbg('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
 })(); } catch (e) { try { console.error('[CODE3] ошибка Telegram-вкладки «Лицензёр»:', e); } catch (e2) {} }
 // END LICENSOR TG MODULE //
+// ═══════════════════════════════════════════════════════════╗
+// ║  ID-FIX v2: фикс потери ID после переподключений       ║
+// ║  Работает поверх любой версии скрипта, без конфликтов  ║
+// ╚══════════════════════════════════════════════════════════╝
+try { (function () {
+    'use strict';
+
+    // Защита от двойной установки
+    if (window.__idfixV2) return;
+    window.__idfixV2 = true;
+
+    var _lastReq = 0;
+    var GAP = 1700;
+
+    function req() {
+        var n = Date.now();
+        if (n - _lastReq < GAP) return;
+        _lastReq = n;
+        try { window.updatePlayerList && window.updatePlayerList(); } catch (e) {}
+    }
+
+    function reqBoth() {
+        var n = Date.now();
+        if (n - _lastReq < GAP) return;
+        _lastReq = n;
+        try { window.updatePlayers && window.updatePlayers(); } catch (e) {}
+        try { window.updatePlayerList && window.updatePlayerList(); } catch (e) {}
+    }
+
+    // Перехват открытия меню игрока — серия запросов с задержками
+    var _open = window.openInterface;
+    if (typeof _open === 'function') {
+        window.openInterface = function (name) {
+            if (name === 'PlayerInteraction') {
+                reqBoth();
+                setTimeout(req, 400);
+                setTimeout(req, 850);
+                setTimeout(reqBoth, 1300);
+            }
+            return _open.apply(this, arguments);
+        };
+    }
+
+    // Перехват закрытия меню игрока — обновляем список на будущее
+    var _close = window.closeInterface;
+    if (typeof _close === 'function') {
+        window.closeInterface = function (name) {
+            var r = _close.apply(this, arguments);
+            if (name === 'PlayerInteraction') setTimeout(req, 400);
+            return r;
+        };
+    }
+
+    // Фоновый мониторинг свежести списка
+    setInterval(function () {
+        var t = window.__code3PlayerListAt;
+        var age = t ? Date.now() - t : Infinity;
+        if (age > 5500 && age < 11000) req();
+        else if (age >= 11000) reqBoth();
+    }, 2800);
+
+})(); } catch (e) {}
+// ═══ END ID-FIX v2 ═══
