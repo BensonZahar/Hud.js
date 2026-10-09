@@ -34,7 +34,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.11';
+var VERSION = 'code3 v1.12';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -370,6 +370,7 @@ function capturePlayers(e) {
         if (typeof e === 'string') { try { e = JSON.parse(e); } catch (er) { tr('LIST/ОШИБКА', 'onUpdatePlayersList: строка не парсится', String(rawE).slice(0, 120)); return; } }
         if (e && (e.local || Array.isArray(e.players))) {
             window.__code3PlayerList = e;
+            if (_wdEp > 0) { tr('WATCHDOG/список ожил', 'молчал ~' + (Date.now() - Math.max(_listAt, _wdStart)) + 'мс', 'срабатываний в этот раз=' + _wdEp); _wdEp = 0; }
             _listAt = Date.now();
             if (rmActive()) tr('LIST/получен', 'игроков=' + (Array.isArray(e.players) ? e.players.length : 'нет массива') + ' local=' + (e.local ? e.local.name + '[' + e.local.id + ']' : '—'),
                 'ответ на запрос через ' + (_reqAt ? (_listAt - _reqAt) + 'мс' : '?'), 'ждущих=' + _listWaiters.length);
@@ -388,21 +389,29 @@ function capturePlayers(e) {
 // по 2 слоя в секунду и со временем список переставал доходить / падал по переполнению стека).
 // Состояние живёт в window.__code3Hook и переживает перезагрузку скрипта: новый запуск лишь подставляет свой capture.
 var HK = window.__code3Hook || (window.__code3Hook = { top: null, cur: null, depth: 0, dispatch: null, getter: null, capture: null, installs: 0 });
+var HK_VER = 2;   // версия диспетчера: после обновления скрипта без перезагрузки страницы старый диспетчер заменяется новым (со счётчиками)
+if (HK.calls === undefined) { HK.calls = 0; HK.lastCallAt = 0; HK.errs = 0; }
 var HK_MAX_LAYERS = 16;
 function hookAlive() {
     try { var d = Object.getOwnPropertyDescriptor(window, 'onUpdatePlayersList'); return !!(d && HK.getter && d.get === HK.getter); } catch (e) { return false; }
 }
 function hookInfo() {
     var n = 0, p = HK.top; while (p && n < 100) { n++; p = p.below; }
-    return 'аксессор=' + hookAlive() + ' владелец=' + (HK.capture === capturePlayers) + ' слоёв=' + n + ' установок=' + HK.installs;
+    return 'аксессор=' + hookAlive() + ' владелец=' + (HK.capture === capturePlayers) + ' слоёв=' + n + ' установок=' + HK.installs +
+        ' | движок вызывал обработчик ' + (HK.calls || 0) + ' раз, последний ' + (HK.lastCallAt ? (Date.now() - HK.lastCallAt) + 'мс назад' : 'никогда') +
+        ' | глубина=' + HK.depth + ' исключений в цепочке=' + (HK.errs || 0);
 }
 function ensurePlayersHook(force) {
     if (_dead) return;
     HK.capture = capturePlayers;                 // последний запущенный Code3 — владелец перехвата
+    HK.onErr = function (er) { if (!_dead) tr('HOOK/ИСКЛЮЧЕНИЕ в цепочке onUpdatePlayersList', er); };   // обработчик ошибок текущего запуска (диспетчер живёт дольше скрипта)
+    var oldDispatch = HK.dispatch;
+    if (HK.ver !== HK_VER) { HK.dispatch = null; HK.getter = null; HK.ver = HK_VER; HK.depth = 0; HK.cur = null; force = true; }   // старый диспетчер (без счётчиков) заменяем
     if (!force && hookAlive()) return;
     var cur = window.onUpdatePlayersList;        // обычное свойство (первый запуск) или чужая подмена аксессора
     if (!HK.dispatch) {
         HK.dispatch = function () {
+            HK.calls++; HK.lastCallAt = Date.now();
             var top = (HK.depth === 0), node = top ? HK.top : HK.cur;
             if (top && HK.capture) { try { HK.capture(arguments[0]); } catch (er) {} }
             while (node && typeof node.fn !== 'function') node = node.below;
@@ -410,12 +419,21 @@ function ensurePlayersHook(force) {
             var sd = HK.depth, sc = HK.cur;
             HK.depth = sd + 1; HK.cur = node.below;   // повторный вход (prev из чужой обёртки) пойдёт к следующему звену
             try { return node.fn.apply(this, arguments); }
+            catch (er) {
+                // Исключение в родном обработчике движка / чужой обёртке (Code2, MainMenu, PlayersOnline) — возможная причина «движок замолк».
+                // Раньше оно уходило молча; теперь пишем в трассу (не чаще 5 раз) и пробрасываем дальше как и раньше.
+                if (sd === 0) {   // считаем один раз на вызов движка, а не на каждый слой цепочки
+                    HK.errs = (HK.errs || 0) + 1;
+                    if (HK.errs <= 5 && HK.onErr) { try { HK.onErr(er); } catch (e2) {} }
+                }
+                throw er;
+            }
             finally { HK.depth = sd; HK.cur = sc; }
         };
         HK.dispatch.__code3 = true;
         HK.getter = function () { return HK.dispatch; };
     }
-    if (typeof cur === 'function' && cur !== HK.dispatch) HK.top = { fn: cur, below: HK.top };
+    if (typeof cur === 'function' && cur !== HK.dispatch && cur !== oldDispatch) HK.top = { fn: cur, below: HK.top };
     try {
         Object.defineProperty(window, 'onUpdatePlayersList', {
             configurable: true, enumerable: true,
@@ -449,7 +467,9 @@ function ensurePlayersHook(force) {
 }
 
 // Прямой запрос списка у движка (то же, что делает window.updatePlayerList), если обёртка пропала/сломана
-var _wdCount = 0;   // сколько раз сторож канала срабатывал
+var _wdCount = 0;   // сколько раз сторож канала срабатывал (всего)
+var _wdEp = 0;      // срабатываний в текущем «молчании» движка (обнуляется, когда список снова пришёл)
+var _wdStart = Date.now();
 function engineRequest(why) {
     try {
         if (window.App && window.App.developmentMode) return false;
@@ -2638,23 +2658,44 @@ function ensureChatAddHook() {
 // Частота: пока открыто меню игрока — раз в секунду, лицензёр в форме — раз в 4 с, иначе раз в 30 с (запрос к движку лёгкий)
 every(function () {
     var gap = isOpen('PlayerInteraction') ? 1000 : (licensorReady() ? 4000 : 30000);
+    // Движок молчит больше 30 с — частые запросы бессмысленны (только забивают очередь); спрашиваем реже, ответ всё равно заметим сразу
+    if (Date.now() - Math.max(_listAt, _wdStart) > 30000) gap = Math.max(gap, 15000);
     if (Date.now() - _reqAt >= gap) refreshPlayers();
 }, 400);
 setTimeout(function () { if (!_dead) refreshPlayers(); }, 1000);
 // Сторож канала: запросы уходят, а список не приходит (хук сорван/движок завис на запросе) →
 // пере-ставим хук принудительно и спросим у движка напрямую. Раньше после этого «ID не определён» держалось до перезагрузки.
-var _wdAt = 0, _wdStart = Date.now();
+var _wdAt = 0;
+// Ошибки окна, похожие на поломку цепочки списка игроков (TypeError в PlayersOnline/MainMenu/Proxy Code2 и т.п.)
+var _winErr = '', _winErrN = 0;
+function onWinErr(ev) {
+    try {
+        var m = String((ev && ev.message) || '');
+        if (m && m !== _winErr && /PlayersOnline|MainMenu|UpdatePlayers|setInterfaceParams|setCurrentOnline|updatePlayerList|interface is not|reading 'set/i.test(m)) {
+            _winErr = m;
+            if (_winErrN++ < 5) tr('WINERR/ошибка окна', m.slice(0, 160), String((ev && ev.filename) || '').slice(-40) + ':' + (ev && ev.lineno));
+        }
+    } catch (e) {}
+}
+try { window.addEventListener('error', onWinErr); onUndo(function () { window.removeEventListener('error', onWinErr); }); } catch (e) {}
 every(function () {
     if (_dead) return;
     var watch = isOpen('PlayerInteraction') || licensorReady();
     var age = Date.now() - Math.max(_listAt, _wdStart);   // сколько молчит движок (от последнего ПРИШЕДШЕГО списка, а не от нашего запроса)
     if (!watch || age < 12000 || Date.now() - _wdAt < 10000) return;
-    _wdAt = Date.now(); _wdCount++;
-    tr('WATCHDOG/список молчит', 'возраст=' + age + 'мс', 'срабатывание №' + _wdCount, hookInfo());
-    if (_wdCount <= 3 && licensorReady()) trFail('СТОРОЖ: список игроков не приходит ' + age + 'мс', 'пере-ставлю хук и спрашиваю движок напрямую');
-    ensurePlayersHook(true);
-    engineRequest('сторож: список не приходил ' + age + 'мс');
-    refreshPlayers();
+    _wdAt = Date.now(); _wdCount++; _wdEp++;
+    var engineSilent = !HK.lastCallAt || HK.lastCallAt <= _listAt + 100;   // после последнего принятого списка движок ни разу не вызвал onUpdatePlayersList (хук тут ни при чём)
+    tr('WATCHDOG/список молчит', 'возраст=' + age + 'мс', 'срабатывание №' + _wdCount + ' (в этот раз №' + _wdEp + ')', hookInfo(),
+       engineSilent ? 'ДВИЖОК НЕ ВЫЗЫВАЕТ обработчик' : 'обработчик вызывался', _winErr ? 'ошибка окна: ' + _winErr.slice(0, 100) : '');
+    if (HK.depth !== 0) { tr('WATCHDOG/глубина диспетчера зависла', 'depth=' + HK.depth + ' → сброс в 0'); HK.depth = 0; HK.cur = null; }
+    // Одно уведомление на одно «молчание» (раньше уходило до трёх подряд — выглядело как серия ошибок)
+    if (_wdEp === 1 && licensorReady()) {
+        trFail('СТОРОЖ: список игроков не приходит ' + age + 'мс',
+            engineSilent ? 'движок не вызывает onUpdatePlayersList (хук цел) — ник по ID не обновится; выдача по ID работает' : 'обработчик вызывался, но список не принят — см. трассу');
+    }
+    // Хук трогаем, только если он реально сорван/чужой; при целом хуке переустановка ничего не даёт
+    if (_wdEp === 1 || !hookAlive() || HK.capture !== capturePlayers) ensurePlayersHook(true);
+    if (_wdEp <= 3 || _wdEp % 6 === 0) engineRequest('сторож: список не приходил ' + age + 'мс');
 }, 2000);
 // Звание могло смениться (повышение/понижение): раз в минуту перечитываем уже загруженный профиль (без запросов к серверу)
 every(function () { if (isGovSkin() && _rank) pullRank(); }, 60000);
