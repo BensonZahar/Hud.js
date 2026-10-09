@@ -28,6 +28,8 @@
 // ║   • v1.20 (тест): внизу файла блок TAB TEST — /tab открывает         ║
 // ║     PlayersOnline, читает ВЕСЬ список игроков и шлёт его в Telegram, ║
 // ║     пишет, удалось ли; поверх окна есть кнопка ✕ (закрыть с телефона)║
+// ║     /tab quiet — без окна; кнопка «Скрыть»; ID по нику сверяется со  ║
+// ║     списком игроков, совпадение → Telegram                           ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
@@ -319,7 +321,11 @@ function resolveId(nick, cb) {
     lookupIdByNick(nick, function (res) {
         if (_dead) return;
         var id = null;
-        if (res.ok === true && res.id !== undefined && res.id !== null) { id = String(res.id); noteResolve(nick, id, 'сервер /id (' + (res.name || '') + ')'); }
+        if (res.ok === true && res.id !== undefined && res.id !== null) {
+            id = String(res.id); noteResolve(nick, id, 'сервер /id (' + (res.name || '') + ')');
+            // сверка со списком игроков (блок TAB TEST внизу файла): ничего не ждём и не шлём в игру; совпало → пишем в Telegram
+            try { if (window.__code3tab && typeof window.__code3tab.crossCheck === 'function') window.__code3tab.crossCheck(nick, id, res.name || ''); } catch (e) {}
+        }
         else {
             _idWhy = res.reason || 'timeout';
             tr('ID/НЕ НАЙДЕН', nickInfo(nick), 'сервер /id: ' + _idWhy);
@@ -3339,7 +3345,14 @@ try { (function () {
 // ║  Окно рисует только видимые строки (виртуальный скролл), поэтому     ║
 // ║  читаем данные из хука, а не из DOM. DOM — только запасной вариант.  ║
 // ║                                                                      ║
-// ║  Команды: /tab · /tab tg · /tab close   (алиасы: /таб, /ефи)         ║
+// ║  Команды: /tab · /tab quiet · /tab tg · /tab hide|show · /tab close  ║
+// ║  (алиасы: /таб, /ефи). quiet — прочитать список БЕЗ открытия окна.   ║
+// ║                                                                      ║
+// ║  Сверка ID: когда Code3 узнаёт ID по нику через серверный /id, список║
+// ║  игроков сверяется с ответом сервера (окно не открывается). Совпало →║
+// ║  сообщение в Telegram; не совпало → предупреждение в Telegram.       ║
+// ║  Свежесть: пока окно открыто, игра сама обновляет список раз в 3 с;  ║
+// ║  закрыто — список запрашивается по требованию (AUTO_REFRESH_S — фон).║
 // ║  Отладка: __code3tab.run() · .close() · .last() · .state()           ║
 // ║  Настройки: CODE3_OPTS = { TAB: { CLOSE_POS: 'tl', ... } }, ключи в O║
 // ╚══════════════════════════════════════════════════════════════════════╝
@@ -3348,7 +3361,7 @@ try { (function () {
 'use strict';
 
 if (typeof window.__code3TabCleanup === 'function') { try { window.__code3TabCleanup(); } catch (e) {} }
-var TVER = 'tab-test v1.0';
+var TVER = 'tab-test v1.1';
 var dead = false, undo = [], MYID = String(Date.now()) + '_' + Math.random();
 function onUndo(fn) { undo.push(fn); }
 window.__code3TabCleanup = function () {
@@ -3381,7 +3394,12 @@ var O = (function () {
         TG_CHUNK: 3500,       // размер части списка в символах (лимит Telegram 4096)
         TG_MAX_MSGS: 15,      // не больше стольких сообщений со списком за раз
         TG_GAP_MS: 1200,      // пауза между сообщениями (у Telegram лимит ~1 сообщение/сек в чат)
-        TG_SILENT_PARTS: true // части списка — без звука (со звуком только заголовок)
+        TG_SILENT_PARTS: true,// части списка — без звука (со звуком только заголовок)
+        XCHECK: true,         // сверять ID, найденный через /id, со списком игроков
+        XCHECK_MAX_AGE_MS: 3000, // список моложе этого возраста считается свежим; старше — запрашиваем заново
+        XCHECK_WAIT_MS: 2500, // сколько ждать свежий список для сверки
+        XCHECK_TG_MISS: false,// true — писать в Telegram и когда игрока нет в списке / список не получен (по умолчанию только в консоль)
+        AUTO_REFRESH_S: 0     // >0 — запрашивать список в фоне каждые N с, пока окно закрыто (открытое окно обновляется само раз в 3 с)
     };
     try { var g = window.CODE3_OPTS && window.CODE3_OPTS.TAB; if (g) for (var k in g) o[k] = g[k]; } catch (e) {}
     try {
@@ -3454,6 +3472,21 @@ function onEngineList(e) {
     if (!s) { hookInfo.lastErr = 'неожиданный формат данных: ' + typeof e; return; }
     hookInfo.lastErr = '';
     snap = s;
+    flushWaiters();
+}
+var waiters = [], lastReqAt = 0;
+function flushWaiters() {
+    var w = waiters; waiters = [];
+    for (var i = 0; i < w.length; i++) { if (w[i].done) continue; w[i].done = true; try { w[i].cb(snap, 'fresh'); } catch (e) { tlog('ошибка сверки: ' + (e && e.message || e)); } }
+}
+// cb(снимок|null, 'cache'|'fresh'|'timeout'): список без открытия окна. Не чаще одного запроса к движку в 1.2 с.
+function refresh(maxAge, cb) {
+    var now = Date.now();
+    if (snap && snap.src === 'engine' && now - snap.at <= maxAge) { cb(snap, 'cache'); return; }
+    var w = { cb: cb, done: false };
+    waiters.push(w);
+    if (now - lastReqAt >= 1200) { lastReqAt = now; requestList(); }
+    later(function () { if (w.done) return; w.done = true; cb(snap && snap.src === 'engine' ? snap : null, 'timeout'); }, O.XCHECK_WAIT_MS);
 }
 
 // Игра присваивает window.onUpdatePlayersList один раз и зовёт его по имени — оборачиваем. Если кто-то переприсвоил — ставим заново.
@@ -3591,8 +3624,65 @@ function tgLine(job) {
     return { t: base + '⚠️ отправлено ' + job.sent + '/' + job.total + ', подтверждения от Telegram нет', c: 'warn' };
 }
 
+// ══════════════════════════ СВЕРКА ID: /id ↔ СПИСОК ИГРОКОВ ══════════════════════════
+// Вызывается из resolveId (первый модуль) сразу после ответа сервера на «/id <ник>». Сервер остаётся источником истины,
+// список — вторая пара глаз: ID в SA-MP переиспользуются, и совпадение двух независимых источников — хорошая страховка.
+function nrm(x) {
+    return String(x === undefined || x === null ? '' : x).replace(/^\s*(?:\[\d{1,2}:\d{2}(?::\d{2})?\]\s*)?(?:\d+\s*[.)]\s*)?/, '').trim().split(' ').join('_').toLowerCase();
+}
+function devIcon(p) { return p.mobile ? '📱' : '💻'; }
+var xcSeen = {};
+function crossCheck(nickRaw, id, srvName) {
+    if (dead || !O.XCHECK) return;
+    var sid = String(id), want = nrm(srvName || nickRaw);
+    if (!want || !/^\d+$/.test(sid)) return;
+    var key = want + '|' + sid, now = Date.now();
+    if (xcSeen[key] && now - xcSeen[key] < 20000) return;   // та же пара — не спамим
+    xcSeen[key] = now;
+    refresh(O.XCHECK_MAX_AGE_MS, function (s, how) {
+        var shown = String(srvName || nickRaw).replace(/^\s*(?:\[\d{1,2}:\d{2}(?::\d{2})?\]\s*)?(?:\d+\s*[.)]\s*)?/, '').trim();
+        var dn = nick();
+        if (!s || (how === 'timeout' && Date.now() - s.at > O.XCHECK_MAX_AGE_MS * 3)) {
+            tlog('сверка ID: ' + shown + ' → ' + sid + ' — список не получен (' + how + '), сверить нечем');
+            if (O.XCHECK_TG_MISS) tgOnce('ℹ️ <b>Сверка ID: список игроков не получен</b>' + (dn ? ' (' + esc(dn) + ')' : '') + '\n👤 <code>' + esc(shown) + '</code> → ID <code>' + esc(sid) + '</code> (только /id)', true);
+            return;
+        }
+        var byId = null, byNick = [];
+        for (var i = 0; i < s.list.length; i++) {
+            var p = s.list[i];
+            if (String(p.id) === sid) byId = p;
+            if (nrm(p.name) === want) byNick.push(p);
+        }
+        var age = Math.round((Date.now() - s.at) / 100) / 10;
+        if (byId && nrm(byId.name) === want) {
+            tlog('сверка ID: ✅ ' + shown + ' → ' + sid + ' — /id и список совпали (возраст списка ' + age + ' с, ' + how + ')');
+            tgOnce('🔎 <b>Сверка ID: /id и /tab совпали ✅</b>' + (dn ? ' (' + esc(dn) + ')' : '') + '\n👤 <code>' + esc(shown) + '</code> → ID <code>' + esc(sid) + '</code>\n' +
+                '📊 ур. ' + byId.level + ' · пинг ' + byId.ping + ' · ' + devIcon(byId) + '\n🕒 ' + stamp(Date.now()) + ' · список ' + age + ' с назад', true);
+            return;
+        }
+        if (byNick.length || byId) {
+            var tabSays = byNick.length ? 'ник у ID ' + byNick.map(function (q) { return q.id; }).join(', ') : 'такого ника нет';
+            var idSays = byId ? 'ID ' + sid + ' у «' + byId.name + '»' : 'ID ' + sid + ' в списке нет';
+            tlog('сверка ID: ⚠️ НЕ СОВПАЛО: /id: ' + shown + ' → ' + sid + ' · список: ' + tabSays + '; ' + idSays);
+            tgOnce('⚠️ <b>Сверка ID: /id и /tab НЕ совпали</b>' + (dn ? ' (' + esc(dn) + ')' : '') + '\n' +
+                '🖥 /id: <code>' + esc(shown) + '</code> → ID <code>' + esc(sid) + '</code>\n' +
+                '📋 /tab: ' + esc(tabSays) + '; ' + esc(idSays) + '\n' +
+                'Возможно, игрок только что зашёл/вышел или ID переиспользован — список мог устареть (' + age + ' с).', false);
+            return;
+        }
+        tlog('сверка ID: ' + shown + ' → ' + sid + ' — в списке игроков не найден (ни ник, ни ID); список ' + age + ' с');
+        if (O.XCHECK_TG_MISS) tgOnce('ℹ️ <b>Сверка ID: игрока нет в списке</b>' + (dn ? ' (' + esc(dn) + ')' : '') + '\n👤 <code>' + esc(shown) + '</code> → ID <code>' + esc(sid) + '</code> (только /id)', true);
+    });
+}
+function tgOnce(text, silent) {
+    var send = tgFn();
+    if (!send) { tlog('Telegram недоступен — сверка только в консоли'); return false; }
+    try { send(text, !!silent, null); return true; } catch (e) { tlog('Telegram: ' + (e && e.message || e)); return false; }
+}
+
 // ══════════════════════════ ПАНЕЛЬ (✕ / В ТГ / статус) ══════════════════════════
-var UI = { el: null, bar: null, bTg: null, bX: null };
+var UI = { el: null, bar: null, bTg: null, bX: null, bHide: null, abs: false };
+var hidden = false;            // окно списка скрыто (visibility:hidden), панель остаётся
 var LINES = [];                 // [{t, c}] — строки статуса
 var lastTap = 0;
 var STYLE_ID = 'code3-tab-style';
@@ -3614,6 +3704,9 @@ function ensureStyle() {
             'display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer;' +
             'user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}' +
         '#c3tab-ui .c3tab-b:active{filter:brightness(1.7)}' +
+        '#c3tab-ui.c3tab-nobtn .c3tab-btns{display:none}' +
+        // скрытое окно: ничего не рисует и не ловит касания (игра под ним доступна), наша панель остаётся
+        '.players-online.c3tab-hidden .players-online__wrapper{visibility:hidden!important;pointer-events:none!important}' +
         // крестик рисуем границами/полосками — без глифов (в шрифте игры их может не быть)
         '#c3tab-ui #c3tab-x{padding:0;width:8.4vh}' +
         '#c3tab-ui #c3tab-x:before,#c3tab-ui #c3tab-x:after{content:"";position:absolute;left:50%;top:50%;width:4vh;height:.6vh;margin:-.3vh 0 0 -2vh;background:#fff;border-radius:.3vh;transform:rotate(45deg)}' +
@@ -3630,7 +3723,18 @@ function ensureStyle() {
     onUndo(function () { var n = document.getElementById(STYLE_ID); if (n && n.parentNode) n.parentNode.removeChild(n); });
 }
 function posCls() { var p = String(O.CLOSE_POS || 'tr').toLowerCase(); return (p === 'tl' || p === 'br' || p === 'bl') ? p : 'tr'; }
-function setMode(abs) { if (UI.el) UI.el.className = 'c3tab-' + posCls() + (abs ? ' c3tab-abs' : ''); }
+function applyCls() {
+    if (!UI.el) return;
+    var c = 'c3tab-' + posCls() + (UI.abs ? ' c3tab-abs' : '') + (isOpen() ? '' : ' c3tab-nobtn');   // окно закрыто (тихий режим) — кнопки не нужны, только статус
+    if (UI.el.className !== c) UI.el.className = c;
+}
+function setMode(abs) { UI.abs = !!abs; applyCls(); }
+function applyHidden() {
+    var h = hostEl();
+    if (h && h.classList) { if (hidden) h.classList.add('c3tab-hidden'); else h.classList.remove('c3tab-hidden'); }
+    if (UI.bHide) UI.bHide.textContent = hidden ? 'Показать' : 'Скрыть';
+}
+function setHidden(v) { hidden = !!v; applyHidden(); tlog(hidden ? 'окно списка скрыто' : 'окно списка показано'); }
 
 // Один тап = одно действие (touchend + click не должны срабатывать оба)
 function tap(el, fn) {
@@ -3650,18 +3754,21 @@ function buildUi() {
     var btns = document.createElement('div'); btns.className = 'c3tab-btns';
     var bX = document.createElement('div'); bX.id = 'c3tab-x'; bX.className = 'c3tab-b';
     var bTg = document.createElement('div'); bTg.id = 'c3tab-tg'; bTg.className = 'c3tab-b'; bTg.textContent = 'В ТГ';
+    var bHide = document.createElement('div'); bHide.id = 'c3tab-hide'; bHide.className = 'c3tab-b'; bHide.textContent = 'Скрыть';
     var bar = document.createElement('div'); bar.className = 'c3tab-bar'; bar.style.display = 'none';
     tap(bX, function () { closeAll('кнопка ✕'); });
     tap(bTg, function () { run({ fromButton: true }); });
-    btns.appendChild(bX); btns.appendChild(bTg);
+    tap(bHide, function () { setHidden(!hidden); });
+    btns.appendChild(bX); btns.appendChild(bHide); btns.appendChild(bTg);
     el.appendChild(btns); el.appendChild(bar);
-    UI.el = el; UI.bar = bar; UI.bTg = bTg; UI.bX = bX;
+    UI.el = el; UI.bar = bar; UI.bTg = bTg; UI.bX = bX; UI.bHide = bHide;
     setMode(false);
+    applyHidden();
     renderBar();
 }
 function removeUi() {
     if (UI.el && UI.el.parentNode) UI.el.parentNode.removeChild(UI.el);
-    UI.el = UI.bar = UI.bTg = UI.bX = null;
+    UI.el = UI.bar = UI.bTg = UI.bX = UI.bHide = null;
 }
 function renderBar() {
     if (!UI.bar) return;
@@ -3685,18 +3792,22 @@ function tick() {
         var host = hostEl();
         if (host) { if (UI.el.parentNode !== host) { host.appendChild(UI.el); setMode(true); } }
         else if (UI.el.parentNode !== document.body) { document.body.appendChild(UI.el); setMode(false); }
+        applyCls(); applyHidden();
         return;
     }
+    if (hidden) hidden = false;   // окно закрыли — при следующем открытии оно снова видно
     if (UI.el) {
         var keep = RUN && (RUN.active || (RUN.doneAt && now - RUN.doneAt < 7000));
         if (!keep) { removeUi(); if (!(RUN && RUN.active)) LINES = []; }
         else if (UI.el.parentNode !== document.body) { document.body.appendChild(UI.el); setMode(false); }
+        applyCls();
     }
 }
 
 function closeAll(why) {
     var was = isOpen();
     if (was) { try { window.closeInterface(UI_NAME); } catch (e) {} }
+    hidden = false;
     removeUi();
     tlog('закрыто: ' + why + (was ? ' (окно списка закрыто)' : ''));
     if (was) later(function () {
@@ -3707,8 +3818,8 @@ function closeAll(why) {
 // ══════════════════════════ ЗАПУСК /tab ══════════════════════════
 var RUN = null, runN = 0;
 
-function openUi(r) {
-    if (!O.OPEN_UI) { r.uiOpen = 'skip'; return; }
+function openUi(r, quiet) {
+    if (!O.OPEN_UI || quiet) { r.uiOpen = 'skip'; return; }
     if (isOpen()) { r.uiOpen = true; return; }
     // чат после отправки команды ещё закрывается — открываем чуть позже
     later(function () {
@@ -3734,11 +3845,11 @@ function run(opt) {
     var r = RUN = { n: ++runN, t0: Date.now(), active: true, uiOpen: null, list: null, tg: null, doneAt: 0, lastReq: 0 };
     LINES = [{ t: 'Список: ⏳ запрашиваю у движка…', c: 'wait' }];
     installHook();
-    openUi(r);
+    openUi(r, !!(opt && opt.quiet));
     // мгновенно сделать ✕, не дожидаясь окна (если окно не откроется — панель всё равно покажет итог в body)
     if (!UI.el) { buildUi(); (hostEl() || document.body).appendChild(UI.el); setMode(!!hostEl()); }
     renderBar();
-    tlog('запуск #' + r.n + (opt && opt.fromButton ? ' (кнопка «В ТГ»)' : '') + ' · updatePlayerList: ' + (typeof window.updatePlayerList === 'function' ? 'есть' : 'нет') + ' · хук: ' + (hookInfo.installed ? 'стоит' : 'не встал'));
+    tlog('запуск #' + r.n + (opt && opt.fromButton ? ' (кнопка «В ТГ»)' : '') + (opt && opt.quiet ? ' (тихо, без окна)' : '') + ' · updatePlayerList: ' + (typeof window.updatePlayerList === 'function' ? 'есть' : 'нет') + ' · хук: ' + (hookInfo.installed ? 'стоит' : 'не встал'));
 
     (function poll() {
         if (dead || !r.active) return;
@@ -3796,6 +3907,9 @@ function finish(r, l1, tl) {
 function onTabCmd(arg) {
     if (arg === 'close' || arg === 'off' || arg === 'x') { closeAll('/tab close'); return; }
     if (arg === 'tg') { run({}); return; }
+    if (arg === 'quiet' || arg === 'q' || arg === 'silent' || arg === 'тихо') { run({ quiet: true }); return; }
+    if (arg === 'hide' || arg === 'скрыть') { if (isOpen()) setHidden(true); return; }
+    if (arg === 'show' || arg === 'показать') { if (isOpen()) setHidden(false); return; }
     if (isOpen() && !(RUN && RUN.active)) { closeAll('/tab (повторно)'); return; }   // /tab как переключатель
     run({});
 }
@@ -3825,6 +3939,7 @@ function onTabCmd(arg) {
 installHook();
 every(installHook, 3000);   // страховка: если кто-то переприсвоил window.onUpdatePlayersList
 every(tick, 250);
+if (O.AUTO_REFRESH_S > 0) every(function () { if (!isOpen()) { lastReqAt = Date.now(); requestList(); } }, Math.max(2, O.AUTO_REFRESH_S) * 1000);   // открытое окно обновляется само раз в 3 с
 onUndo(function () { removeUi(); });
 
 var api = {
@@ -3834,6 +3949,9 @@ var api = {
     close: function () { closeAll('api'); },
     last: function () { return snap; },
     scrape: scrapeDom,
+    refresh: refresh,                 // refresh(maxAgeMs, cb(снимок, 'cache'|'fresh'|'timeout')) — список без окна
+    crossCheck: crossCheck,           // crossCheck(ник, id, ник_от_сервера) — сверка с ответом /id
+    find: function (q) { if (!snap) return []; var w = nrm(q), n = /^\d+$/.test(String(q)); return snap.list.filter(function (p) { return n ? String(p.id) === String(q) : nrm(p.name) === w; }); },
     state: function () { return { version: TVER, open: isOpen(), hook: hookInfo, snap: snap ? { src: snap.src, got: snap.list.length, online: snap.online, ageMs: Date.now() - snap.at } : null, run: RUN ? { n: RUN.n, active: RUN.active, uiOpen: RUN.uiOpen } : null, tg: !!tgFn() }; }
 };
 window.__code3tab = api;
