@@ -25,6 +25,10 @@
 // ║   • v1.19: список игроков (PlayersOnline) УДАЛЁН полностью —         ║
 // ║     ID по нику и проверка идут только через серверный /id            ║
 // ║                                                                      ║
+// ║   • v1.20 (тест): внизу файла блок TAB TEST — /tab открывает         ║
+// ║     PlayersOnline, читает ВЕСЬ список игроков и шлёт его в Telegram, ║
+// ║     пишет, удалось ли; поверх окна есть кнопка ✕ (закрыть с телефона)║
+// ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
 // ║                                                                      ║
@@ -3316,3 +3320,525 @@ try { (function () {
     c3Dbg('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
 })(); } catch (e) { try { console.error('[CODE3] ошибка Telegram-вкладки «Лицензёр»:', e); } catch (e2) {} }
 // END LICENSOR TG MODULE //
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  MODULE: TAB TEST (тестовый блок) — /tab                             ║
+// ║  Открывает окно PlayersOnline, читает ПОЛНЫЙ список игроков и шлёт   ║
+// ║  его в Telegram, а потом честно пишет, что получилось:               ║
+// ║   • «Список» — получен ли список (и полный ли он);                   ║
+// ║   • «Telegram» — сколько сообщений ушло и сколько подтвердил ТГ.     ║
+// ║  Итог — в панели поверх окна, в GameText и в консоли «[CODE3][TAB]»; ║
+// ║  если список получить не удалось — причина уходит и в Telegram.      ║
+// ║                                                                      ║
+// ║  Закрытие с телефона: пока открыт PlayersOnline (как бы его ни       ║
+// ║  открыли), поверх него висит большая кнопка ✕ (+ кнопка «В ТГ»).     ║
+// ║  Также: /tab ещё раз — закрыть, /tab close — закрыть.                ║
+// ║                                                                      ║
+// ║  Как это устроено: игра сама зовёт window.onUpdatePlayersList(данные)║
+// ║  после engine.trigger('UpdatePlayersList') (window.updatePlayerList).║
+// ║  Окно рисует только видимые строки (виртуальный скролл), поэтому     ║
+// ║  читаем данные из хука, а не из DOM. DOM — только запасной вариант.  ║
+// ║                                                                      ║
+// ║  Команды: /tab · /tab tg · /tab close   (алиасы: /таб, /ефи)         ║
+// ║  Отладка: __code3tab.run() · .close() · .last() · .state()           ║
+// ║  Настройки: CODE3_OPTS = { TAB: { CLOSE_POS: 'tl', ... } }, ключи в O║
+// ╚══════════════════════════════════════════════════════════════════════╝
+// START TAB TEST MODULE //
+try { (function () {
+'use strict';
+
+if (typeof window.__code3TabCleanup === 'function') { try { window.__code3TabCleanup(); } catch (e) {} }
+var TVER = 'tab-test v1.0';
+var dead = false, undo = [], MYID = String(Date.now()) + '_' + Math.random();
+function onUndo(fn) { undo.push(fn); }
+window.__code3TabCleanup = function () {
+    dead = true;
+    while (undo.length) { try { undo.pop()(); } catch (e) {} }
+    window.__code3TabCleanup = null;
+};
+
+// Логи под /code3 не скрываются: первый аргумент начинается с «[CODE3]»
+function tlog(m) { try { console.log('[CODE3][TAB] ' + m); } catch (e) {} }
+function every(fn, ms) {
+    var id = setInterval(function () { if (dead) return; try { fn(); } catch (e) { tlog('ошибка: ' + (e && e.message || e)); } }, ms);
+    onUndo(function () { clearInterval(id); });
+    return id;
+}
+function later(fn, ms) {
+    var id = setTimeout(function () { if (dead) return; try { fn(); } catch (e) { tlog('ошибка: ' + (e && e.message || e)); } }, ms);
+    onUndo(function () { clearTimeout(id); });
+    return id;
+}
+
+// ══════════════════════════ НАСТРОЙКИ ══════════════════════════
+var O = (function () {
+    var o = {
+        OPEN_UI: true,        // /tab открывает окно PlayersOnline (false — читать список, не открывая окно)
+        CLOSE_POS: 'tr',      // угол кнопок ✕ / «В ТГ»: 'tr' · 'tl' · 'br' · 'bl'
+        AUTO_CLOSE_S: 0,      // >0 — через столько секунд после итога закрыть окно само
+        WAIT_LIST_MS: 8000,   // сколько ждать список от движка
+        WAIT_TG_MS: 15000,    // сколько ждать подтверждения Telegram после последней отправки
+        TG_CHUNK: 3500,       // размер части списка в символах (лимит Telegram 4096)
+        TG_MAX_MSGS: 15,      // не больше стольких сообщений со списком за раз
+        TG_GAP_MS: 1200,      // пауза между сообщениями (у Telegram лимит ~1 сообщение/сек в чат)
+        TG_SILENT_PARTS: true // части списка — без звука (со звуком только заголовок)
+    };
+    try { var g = window.CODE3_OPTS && window.CODE3_OPTS.TAB; if (g) for (var k in g) o[k] = g[k]; } catch (e) {}
+    try {
+        var u = window.USER_CONFIGS && window.USER_CONFIGS[window.CURRENT_USER];
+        var uo = u && u.CODE3 && u.CODE3.TAB;
+        if (uo) for (var k2 in uo) o[k2] = uo[k2];
+    } catch (e) {}
+    return o;
+})();
+
+// ══════════════════════════ ОБЩЕЕ ══════════════════════════
+var UI_NAME = 'PlayersOnline';
+function iface(name) { try { return (window.interface && window.interface(name)) || null; } catch (e) { return null; } }
+function isOpen() { try { return !!window.getInterfaceStatus(UI_NAME); } catch (e) { return false; } }
+function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function padL(s, n) { s = String(s); while (s.length < n) s = ' ' + s; return s; }
+function padR(s, n) { s = String(s); while (s.length < n) s += ' '; return s; }
+function p2(n) { return (n < 10 ? '0' : '') + n; }
+function stamp(t) { var d = new Date(t); return p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + '.' + d.getFullYear() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()); }
+function nick() { try { return (typeof displayName !== 'undefined' && displayName) ? String(displayName) : ''; } catch (e) { return ''; } }
+function tgFn() { try { return (typeof sendToTelegram === 'function') ? sendToTelegram : null; } catch (e) { return null; } }
+
+// GameText-уведомление (низ экрана), как gtAdd выше: ~g~ ~r~ ~y~ ~w~ — цвета
+function toast(text, ms) {
+    try {
+        var gt = iface('GameText');
+        if (gt && typeof gt.add === 'function') gt.add(JSON.stringify([3, text, ms || 4000, 0, 0, true, false, 2.0]));
+    } catch (e) {}
+}
+
+// ══════════════════════════ ДАННЫЕ ОТ ДВИЖКА ══════════════════════════
+// Формат (по PlayersOnline.js): { count, serverName, local:{id,name,level,ping,...}, players:[{id,name,level,ping,mobile,admin,vip,muted,color}] }
+// count — без нас самих (игра показывает count + 1), local — это мы; в players нас может не быть.
+var snap = null;   // последний полученный снимок: { at, src:'engine', serverName, online, list:[...] }
+var hookInfo = { installed: false, calls: 0, lastAt: 0, lastErr: '' };
+
+function rec(p, me) {
+    return {
+        id: Number(p.id) || 0,
+        name: String(p.name === undefined || p.name === null ? '' : p.name),
+        level: Number(p.level) || 0,
+        ping: Number(p.ping) || 0,
+        mobile: !!(p.mobile && Number(p.mobile) !== 0),
+        admin: !!Number(p.admin),
+        vip: !!Number(p.vip),
+        muted: !!Number(p.muted),
+        me: !!me
+    };
+}
+function parseEngine(e) {
+    if (typeof e === 'string') { try { e = JSON.parse(e); } catch (x) { return null; } }
+    if (!e || typeof e !== 'object' || !Array.isArray(e.players)) return null;
+    var list = [], seen = {};
+    var loc = (e.local && typeof e.local === 'object') ? e.local : null;
+    if (loc && loc.id !== undefined) { list.push(rec(loc, true)); seen[String(loc.id)] = 1; }
+    for (var i = 0; i < e.players.length; i++) {
+        var p = e.players[i];
+        if (!p || typeof p !== 'object') continue;
+        var key = String(p.id);
+        if (seen[key]) continue;
+        seen[key] = 1;
+        list.push(rec(p, false));
+    }
+    var cnt = (e.count !== undefined && e.count !== null) ? Number(e.count) : e.players.length;
+    return { at: Date.now(), src: 'engine', serverName: String(e.serverName === undefined || e.serverName === null ? '' : e.serverName), online: (isNaN(cnt) ? e.players.length : cnt) + 1, list: list };
+}
+function onEngineList(e) {
+    var s = parseEngine(e);
+    hookInfo.calls++; hookInfo.lastAt = Date.now();
+    if (!s) { hookInfo.lastErr = 'неожиданный формат данных: ' + typeof e; return; }
+    hookInfo.lastErr = '';
+    snap = s;
+}
+
+// Игра присваивает window.onUpdatePlayersList один раз и зовёт его по имени — оборачиваем. Если кто-то переприсвоил — ставим заново.
+function installHook() {
+    var cur = window.onUpdatePlayersList;
+    if (typeof cur !== 'function') { hookInfo.installed = false; return false; }
+    if (cur.__c3tab === MYID) { hookInfo.installed = true; return true; }
+    var prev = cur;
+    var mine = function (e) {
+        if (!dead) { try { onEngineList(e); } catch (x) { hookInfo.lastErr = String(x && x.message || x); } }
+        return prev.apply(this, arguments);
+    };
+    mine.__c3tab = MYID;
+    window.onUpdatePlayersList = mine;
+    onUndo(function () { if (window.onUpdatePlayersList === mine) window.onUpdatePlayersList = prev; });
+    hookInfo.installed = true;
+    tlog('хук onUpdatePlayersList установлен');
+    return true;
+}
+
+function requestList() {
+    try {
+        if (typeof window.updatePlayerList === 'function') { window.updatePlayerList(); return true; }
+    } catch (e) {}
+    return false;
+}
+
+// Запасной вариант: читаем то, что нарисовано в окне. Окно рисует только видимые строки (виртуальный скролл) — список НЕПОЛНЫЙ.
+function scrapeDom() {
+    var P = '.players-online__content__table__players__player';
+    var rows = document.querySelectorAll(P);
+    if (!rows || !rows.length) return null;
+    var list = [];
+    for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var t = function (sel) { var n = r.querySelector(sel); return n ? String(n.textContent || '').trim() : ''; };
+        var id = t(P + '__item_id'), name = t(P + '__item_name ' + P + '__item__text');
+        if (!id && !name) continue;
+        list.push({ id: Number(id) || 0, name: name, level: Number(t(P + '__item_level')) || 0, ping: Number(t(P + '__item_ping')) || 0, mobile: false, admin: false, vip: false, muted: false, me: false });
+    }
+    if (!list.length) return null;
+    var cntEl = document.querySelector('.players-online__content__header__info__players__count');
+    var srvEl = document.querySelector('.players-online__content__header__info__server__number');
+    return { at: Date.now(), src: 'dom', serverName: srvEl ? String(srvEl.textContent || '').trim() : '', online: cntEl ? (Number(String(cntEl.textContent).replace(/\D/g, '')) || list.length) : list.length, list: list };
+}
+
+// ══════════════════════════ TELEGRAM ══════════════════════════
+function fmtRow(p) {
+    return padL(p.id, 4) + ' ' + padR(p.name, 24) + ' ' + padL(p.level, 3) + ' ' + padL(p.ping, 4) + ' ' + (p.mobile ? '📱' : '💻') + (p.admin ? '👑' : '') + (p.vip ? '💎' : '') + (p.muted ? '🔇' : '') + (p.me ? ' ←я' : '');
+}
+function buildOk(s, complete) {
+    var rows = s.list.slice().sort(function (a, b) { return a.id - b.id; }).map(fmtRow);
+    var parts = [], cur = '';
+    for (var i = 0; i < rows.length; i++) {
+        if (cur && cur.length + rows[i].length + 1 > O.TG_CHUNK) { parts.push(cur); cur = ''; }
+        cur += (cur ? '\n' : '') + rows[i];
+    }
+    if (cur) parts.push(cur);
+    var cut = 0;
+    if (parts.length > O.TG_MAX_MSGS) { cut = parts.length - O.TG_MAX_MSGS; parts = parts.slice(0, O.TG_MAX_MSGS); }
+    var got = s.list.length, dn = nick();
+    var sentRows = 0;
+    for (var q = 0; q < parts.length; q++) sentRows += parts[q].split('\n').length;
+    var head = '📋 <b>/tab — список игроков</b>' + (dn ? ' (' + esc(dn) + ')' : '') + '\n' +
+        '🌐 Сервер: ' + esc(s.serverName || '—') + '\n' +
+        '👥 Онлайн: <b>' + s.online + '</b> · получено: <b>' + got + '</b> ' + (got >= s.online ? '✅' : '⚠️') + '\n' +
+        '🔎 Источник: ' + (s.src === 'engine' ? 'движок (полный список)' : 'окно (только видимые строки — неполный)') + '\n' +
+        '🕒 ' + stamp(s.at) + '\n' +
+        '📨 Частей со списком: ' + parts.length + (cut ? ' (ещё ' + cut + ' не отправлено: лимит TG_MAX_MSGS)' : '') + '\n' +
+        'ID · Ник · Ур. · Пинг · 📱моб/💻пк · 👑адм 💎vip 🔇мут';
+    var msgs = [{ text: head, silent: false }];
+    for (var j = 0; j < parts.length; j++) {
+        msgs.push({ text: '<b>Часть ' + (j + 1) + '/' + parts.length + '</b>\n<pre>' + esc(parts[j]) + '</pre>', silent: !!O.TG_SILENT_PARTS });
+    }
+    msgs.rowsSent = sentRows; msgs.rowsAll = got;
+    return msgs;
+}
+function buildFail(why, diag) {
+    var dn = nick();
+    return [{ text: '❌ <b>/tab — не удалось получить список игроков</b>' + (dn ? ' (' + esc(dn) + ')' : '') + '\n' +
+        'Причина: ' + esc(why) + '\n' + esc(diag) + '\n🕒 ' + stamp(Date.now()), silent: false }];
+}
+
+// Отправляет сообщения по одному с паузой. Сообщение «подтверждено», когда сработал onMessageSent (его зовёт Code.js после ответа Telegram).
+function tgSend(msgs, onChange) {
+    var job = { rowsSent: msgs.rowsSent, rowsAll: msgs.rowsAll, total: msgs.length, sent: 0, ok: 0, soft: 0, err: 0, done: false, lastErr: '', lastSendAt: 0, items: [], unavailable: false };
+    var send = tgFn();
+    if (!send) { job.unavailable = true; job.done = true; onChange(job); return job; }
+    var i = 0;
+    function mark(it, st, why) {
+        if (it.st === 'ok' || it.st === 'err') return;       // итог уже есть
+        if (it.st === 'soft' && st === 'soft') return;
+        if (it.st === 'soft') job.soft--;
+        it.st = st;
+        if (st === 'ok') job.ok++; else if (st === 'soft') job.soft++; else { job.err++; job.lastErr = why || ''; }
+        onChange(job);
+    }
+    function next() {
+        if (dead) return;
+        if (i >= msgs.length) { waitDone(); return; }
+        var m = msgs[i++], it = { st: '' };
+        job.items.push(it);
+        var s = tgFn();
+        try {
+            var ret = s(m.text, m.silent, null, function () { mark(it, 'ok'); });
+            job.sent++; job.lastSendAt = Date.now();
+            if (ret && typeof ret.then === 'function') {
+                ret.then(function (res) { mark(it, res === false ? 'err' : 'soft', res === false ? 'sendToTelegram вернул false' : ''); },
+                         function (er) { mark(it, 'err', String(er && er.message || er)); });
+            }
+        } catch (e) { job.sent++; mark(it, 'err', String(e && e.message || e)); }
+        onChange(job);
+        later(next, O.TG_GAP_MS);
+    }
+    function waitDone() {
+        var t0 = Date.now();
+        (function chk() {
+            if (dead) return;
+            var settled = job.ok + job.err >= job.total;
+            if (settled || Date.now() - t0 >= O.WAIT_TG_MS) { job.done = true; onChange(job); return; }
+            later(chk, 300);
+        })();
+    }
+    next();
+    return job;
+}
+function tgLine(job) {
+    if (job.unavailable) return { t: 'Telegram: ❌ недоступен (sendToTelegram не найден — Code3 запущен без Code.js?)', c: 'err' };
+    var base = 'Telegram: ';
+    if (!job.done) return { t: base + '⏳ ' + job.sent + '/' + job.total + ' отправлено, подтверждено ' + job.ok, c: 'wait' };
+    if (job.err) return { t: base + '❌ ошибка отправки (' + job.err + ' из ' + job.total + ')' + (job.lastErr ? ': ' + job.lastErr : '') + (job.ok ? ' · подтверждено ' + job.ok : ''), c: 'err' };
+    var cutNote = (job.rowsAll && job.rowsSent < job.rowsAll) ? ' · ⚠️ игроков в ТГ: ' + job.rowsSent + ' из ' + job.rowsAll + ' (лимит TG_MAX_MSGS)' : '';
+    if (job.ok >= job.total) return { t: base + '✅ сохранено ' + job.ok + '/' + job.total + cutNote, c: cutNote ? 'warn' : 'ok' };
+    if (job.ok > 0) return { t: base + '⚠️ подтверждено ' + job.ok + ' из ' + job.total, c: 'warn' };
+    return { t: base + '⚠️ отправлено ' + job.sent + '/' + job.total + ', подтверждения от Telegram нет', c: 'warn' };
+}
+
+// ══════════════════════════ ПАНЕЛЬ (✕ / В ТГ / статус) ══════════════════════════
+var UI = { el: null, bar: null, bTg: null, bX: null };
+var LINES = [];                 // [{t, c}] — строки статуса
+var lastTap = 0;
+var STYLE_ID = 'code3-tab-style';
+
+function ensureStyle() {
+    if (document.getElementById(STYLE_ID)) return;
+    var s = document.createElement('style');
+    s.id = STYLE_ID;
+    s.textContent =
+        '#c3tab-ui{position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:2147483000;font-family:"Open Sans",Arial,sans-serif}' +
+        '#c3tab-ui.c3tab-abs{position:absolute;width:100%;height:100%}' +
+        '#c3tab-ui .c3tab-btns{position:absolute;display:flex;align-items:center;gap:1.4vh;pointer-events:none}' +
+        '#c3tab-ui.c3tab-tr .c3tab-btns{top:2vh;right:2vh;flex-direction:row-reverse}' +
+        '#c3tab-ui.c3tab-tl .c3tab-btns{top:2vh;left:2vh}' +
+        '#c3tab-ui.c3tab-br .c3tab-btns{bottom:2vh;right:2vh;flex-direction:row-reverse}' +
+        '#c3tab-ui.c3tab-bl .c3tab-btns{bottom:2vh;left:2vh}' +
+        '#c3tab-ui .c3tab-b{pointer-events:auto;box-sizing:border-box;height:8.4vh;min-width:8.4vh;padding:0 2.4vh;border-radius:4.2vh;' +
+            'background:rgba(18,18,18,.92);border:.3vh solid rgba(255,255,255,.65);color:#fff;font-weight:700;font-size:2.8vh;' +
+            'display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer;' +
+            'user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}' +
+        '#c3tab-ui .c3tab-b:active{filter:brightness(1.7)}' +
+        // крестик рисуем границами/полосками — без глифов (в шрифте игры их может не быть)
+        '#c3tab-ui #c3tab-x{padding:0;width:8.4vh}' +
+        '#c3tab-ui #c3tab-x:before,#c3tab-ui #c3tab-x:after{content:"";position:absolute;left:50%;top:50%;width:4vh;height:.6vh;margin:-.3vh 0 0 -2vh;background:#fff;border-radius:.3vh;transform:rotate(45deg)}' +
+        '#c3tab-ui #c3tab-x:after{transform:rotate(-45deg)}' +
+        '#c3tab-ui .c3tab-bar{position:absolute;max-width:62vw;box-sizing:border-box;padding:1.1vh 1.6vh;border-radius:1.2vh;background:rgba(0,0,0,.74);' +
+            'color:#fff;font-size:2.2vh;line-height:1.4;pointer-events:none}' +
+        '#c3tab-ui.c3tab-tr .c3tab-bar,#c3tab-ui.c3tab-br .c3tab-bar{left:2vh}' +
+        '#c3tab-ui.c3tab-tl .c3tab-bar,#c3tab-ui.c3tab-bl .c3tab-bar{right:2vh}' +
+        '#c3tab-ui.c3tab-tr .c3tab-bar,#c3tab-ui.c3tab-tl .c3tab-bar{bottom:2vh}' +
+        '#c3tab-ui.c3tab-br .c3tab-bar,#c3tab-ui.c3tab-bl .c3tab-bar{top:2vh}' +
+        '#c3tab-ui .c3tab-bar div{margin:.2vh 0}' +
+        '#c3tab-ui .c3tab-bar .ok{color:#8dff9a}#c3tab-ui .c3tab-bar .err{color:#ff8a8a}#c3tab-ui .c3tab-bar .warn{color:#ffd37a}#c3tab-ui .c3tab-bar .wait{color:#cfd8ff}';
+    (document.head || document.documentElement).appendChild(s);
+    onUndo(function () { var n = document.getElementById(STYLE_ID); if (n && n.parentNode) n.parentNode.removeChild(n); });
+}
+function posCls() { var p = String(O.CLOSE_POS || 'tr').toLowerCase(); return (p === 'tl' || p === 'br' || p === 'bl') ? p : 'tr'; }
+function setMode(abs) { if (UI.el) UI.el.className = 'c3tab-' + posCls() + (abs ? ' c3tab-abs' : ''); }
+
+// Один тап = одно действие (touchend + click не должны срабатывать оба)
+function tap(el, fn) {
+    var h = function (ev) {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch (e) {}
+        var n = Date.now();
+        if (n - lastTap < 350) return;
+        lastTap = n;
+        try { fn(); } catch (e) { tlog('ошибка кнопки: ' + (e && e.message || e)); }
+    };
+    el.addEventListener('click', h);
+    el.addEventListener('touchend', h);
+}
+function buildUi() {
+    ensureStyle();
+    var el = document.createElement('div'); el.id = 'c3tab-ui';
+    var btns = document.createElement('div'); btns.className = 'c3tab-btns';
+    var bX = document.createElement('div'); bX.id = 'c3tab-x'; bX.className = 'c3tab-b';
+    var bTg = document.createElement('div'); bTg.id = 'c3tab-tg'; bTg.className = 'c3tab-b'; bTg.textContent = 'В ТГ';
+    var bar = document.createElement('div'); bar.className = 'c3tab-bar'; bar.style.display = 'none';
+    tap(bX, function () { closeAll('кнопка ✕'); });
+    tap(bTg, function () { run({ fromButton: true }); });
+    btns.appendChild(bX); btns.appendChild(bTg);
+    el.appendChild(btns); el.appendChild(bar);
+    UI.el = el; UI.bar = bar; UI.bTg = bTg; UI.bX = bX;
+    setMode(false);
+    renderBar();
+}
+function removeUi() {
+    if (UI.el && UI.el.parentNode) UI.el.parentNode.removeChild(UI.el);
+    UI.el = UI.bar = UI.bTg = UI.bX = null;
+}
+function renderBar() {
+    if (!UI.bar) return;
+    while (UI.bar.firstChild) UI.bar.removeChild(UI.bar.firstChild);
+    for (var i = 0; i < LINES.length; i++) {
+        var d = document.createElement('div'); d.className = LINES[i].c || ''; d.textContent = LINES[i].t;
+        UI.bar.appendChild(d);
+    }
+    UI.bar.style.display = LINES.length ? 'block' : 'none';
+    if (UI.bTg) UI.bTg.textContent = (RUN && RUN.active) ? '…' : 'В ТГ';
+}
+function setLines(arr) { LINES = arr.filter(function (x) { return !!x; }); renderBar(); }
+
+// Держим панель над окном списка: внутри .players-online (там касания точно доходят — как у кнопок самого окна), иначе в body.
+// Окно закрылось (✕, повторный TAB, игра) — панель убираем, когда закончилась работа.
+function hostEl() { try { return document.querySelector('.players-online'); } catch (e) { return null; } }
+function tick() {
+    var open = isOpen(), now = Date.now();
+    if (open) {
+        if (!UI.el) buildUi();
+        var host = hostEl();
+        if (host) { if (UI.el.parentNode !== host) { host.appendChild(UI.el); setMode(true); } }
+        else if (UI.el.parentNode !== document.body) { document.body.appendChild(UI.el); setMode(false); }
+        return;
+    }
+    if (UI.el) {
+        var keep = RUN && (RUN.active || (RUN.doneAt && now - RUN.doneAt < 7000));
+        if (!keep) { removeUi(); if (!(RUN && RUN.active)) LINES = []; }
+        else if (UI.el.parentNode !== document.body) { document.body.appendChild(UI.el); setMode(false); }
+    }
+}
+
+function closeAll(why) {
+    var was = isOpen();
+    if (was) { try { window.closeInterface(UI_NAME); } catch (e) {} }
+    removeUi();
+    tlog('закрыто: ' + why + (was ? ' (окно списка закрыто)' : ''));
+    if (was) later(function () {
+        if (isOpen()) { try { window.closeInterface(UI_NAME); } catch (e) {} tlog('окно не закрылось с первого раза — закрываю повторно'); }
+    }, 400);
+}
+
+// ══════════════════════════ ЗАПУСК /tab ══════════════════════════
+var RUN = null, runN = 0;
+
+function openUi(r) {
+    if (!O.OPEN_UI) { r.uiOpen = 'skip'; return; }
+    if (isOpen()) { r.uiOpen = true; return; }
+    // чат после отправки команды ещё закрывается — открываем чуть позже
+    later(function () {
+        try { window.openInterface(UI_NAME); } catch (e) { tlog('openInterface: ' + (e && e.message || e)); }
+    }, 250);
+    later(function () {
+        if (isOpen()) { r.uiOpen = true; return; }
+        try { window.openInterface(UI_NAME); } catch (e) {}
+    }, 900);
+    later(function () { r.uiOpen = isOpen(); if (!r.uiOpen) tlog('окно PlayersOnline не открылось'); }, 1700);
+}
+
+function diagText(r) {
+    return 'Окно списка: ' + (r.uiOpen === 'skip' ? 'не открывалось (OPEN_UI=false)' : (isOpen() ? 'открыто' : 'не открылось')) +
+        ' · updatePlayerList: ' + (typeof window.updatePlayerList === 'function' ? 'есть' : 'нет') +
+        ' · хук: ' + (hookInfo.installed ? 'стоит' : 'не встал') + ', вызовов ' + hookInfo.calls +
+        (hookInfo.lastErr ? ' · ' + hookInfo.lastErr : '') +
+        (window.App && window.App.developmentMode ? ' · developmentMode (движок не отвечает)' : '');
+}
+
+function run(opt) {
+    if (RUN && RUN.active) { tlog('уже идёт, подожди итог'); return false; }
+    var r = RUN = { n: ++runN, t0: Date.now(), active: true, uiOpen: null, list: null, tg: null, doneAt: 0, lastReq: 0 };
+    LINES = [{ t: 'Список: ⏳ запрашиваю у движка…', c: 'wait' }];
+    installHook();
+    openUi(r);
+    // мгновенно сделать ✕, не дожидаясь окна (если окно не откроется — панель всё равно покажет итог в body)
+    if (!UI.el) { buildUi(); (hostEl() || document.body).appendChild(UI.el); setMode(!!hostEl()); }
+    renderBar();
+    tlog('запуск #' + r.n + (opt && opt.fromButton ? ' (кнопка «В ТГ»)' : '') + ' · updatePlayerList: ' + (typeof window.updatePlayerList === 'function' ? 'есть' : 'нет') + ' · хук: ' + (hookInfo.installed ? 'стоит' : 'не встал'));
+
+    (function poll() {
+        if (dead || !r.active) return;
+        var now = Date.now();
+        if (snap && snap.at >= r.t0 && snap.src === 'engine') { return gotList(r, snap); }
+        if (now - r.lastReq >= 1000) { r.lastReq = now; requestList(); }
+        if (now - r.t0 >= O.WAIT_LIST_MS) {
+            var d = scrapeDom();
+            if (d) { tlog('движок не ответил за ' + O.WAIT_LIST_MS + ' мс — беру то, что нарисовано в окне (неполный список)'); return gotList(r, d); }
+            return failList(r, 'движок не прислал список за ' + (O.WAIT_LIST_MS / 1000) + ' с');
+        }
+        later(poll, 400);
+    })();
+    return true;
+}
+
+function gotList(r, s) {
+    r.list = s;
+    var complete = s.src === 'engine' && s.list.length >= s.online;
+    var l1 = s.src === 'engine'
+        ? { t: 'Список: ' + (complete ? '✅ ' : '⚠️ ') + s.list.length + ' из ' + s.online + ' игроков (движок' + (complete ? ', полный' : ', неполный') + ')', c: complete ? 'ok' : 'warn' }
+        : { t: 'Список: ⚠️ ' + s.list.length + ' из ' + s.online + ' (только видимые строки окна — неполный)', c: 'warn' };
+    tlog(l1.t + ' · сервер: ' + (s.serverName || '—'));
+    setLines([l1, { t: 'Telegram: ⏳ готовлю отправку…', c: 'wait' }]);
+    var msgs = buildOk(s, complete);
+    r.tg = tgSend(msgs, function (job) {
+        if (!r.active) return;
+        setLines([l1, tgLine(job)]);
+        if (job.done) finish(r, l1, tgLine(job));
+    });
+}
+function failList(r, why) {
+    var l1 = { t: 'Список: ❌ не получен — ' + why, c: 'err' };
+    var diag = diagText(r);
+    tlog(l1.t + ' · ' + diag);
+    setLines([l1, { t: diag, c: 'warn' }, { t: 'Telegram: ⏳ отправляю отчёт об ошибке…', c: 'wait' }]);
+    r.tg = tgSend(buildFail(why, diag), function (job) {
+        if (!r.active) return;
+        var tl = tgLine(job);
+        setLines([l1, { t: diag, c: 'warn' }, tl]);
+        if (job.done) finish(r, l1, tl);
+    });
+}
+function finish(r, l1, tl) {
+    if (!r.active) return;
+    r.active = false; r.doneAt = Date.now();
+    renderBar();
+    tlog(tl.t);
+    var okT = tl.c === 'ok';
+    toast('~y~/tab: ~w~' + (r.list ? 'список ' + (l1.c === 'ok' ? '~g~' : '~y~') + r.list.list.length : '~r~список не получен') + ' ~w~· Telegram ' + (okT ? '~g~сохранено' : (tl.c === 'err' ? '~r~ошибка' : '~y~не подтверждено')), 5000);
+    if (O.AUTO_CLOSE_S > 0) later(function () { if (isOpen()) closeAll('автозакрытие'); }, O.AUTO_CLOSE_S * 1000);
+}
+
+// ══════════════════════════ КОМАНДА /tab ══════════════════════════
+function onTabCmd(arg) {
+    if (arg === 'close' || arg === 'off' || arg === 'x') { closeAll('/tab close'); return; }
+    if (arg === 'tg') { run({}); return; }
+    if (isOpen() && !(RUN && RUN.active)) { closeAll('/tab (повторно)'); return; }   // /tab как переключатель
+    run({});
+}
+(function installChat() {
+    var origWin = window.sendChatInputCustom, origVar = null;
+    try { if (typeof sendChatInput === 'function') origVar = sendChatInput; } catch (e) {}
+    var prev = origWin || origVar;
+    var myChat = function (e) {
+        if (!dead && typeof e === 'string') {
+            var a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
+            if (cmd === '/tab' || cmd === '/таб' || cmd === '/ефи') {
+                try { onTabCmd((a[1] || '').toLowerCase()); } catch (x) { tlog('ошибка /tab: ' + (x && x.message || x)); }
+                return;   // серверу не отправляем
+            }
+        }
+        if (typeof prev === 'function') return prev.apply(this, arguments);
+    };
+    window.sendChatInputCustom = myChat;
+    try { sendChatInput = myChat; } catch (e) {}
+    onUndo(function () {
+        if (window.sendChatInputCustom === myChat) window.sendChatInputCustom = origWin;
+        try { if (sendChatInput === myChat) sendChatInput = origVar || origWin; } catch (e) {}
+    });
+})();
+
+// ══════════════════════════ СТАРТ ══════════════════════════
+installHook();
+every(installHook, 3000);   // страховка: если кто-то переприсвоил window.onUpdatePlayersList
+every(tick, 250);
+onUndo(function () { removeUi(); });
+
+var api = {
+    version: TVER,
+    opts: O,
+    run: function () { return run({}); },
+    close: function () { closeAll('api'); },
+    last: function () { return snap; },
+    scrape: scrapeDom,
+    state: function () { return { version: TVER, open: isOpen(), hook: hookInfo, snap: snap ? { src: snap.src, got: snap.list.length, online: snap.online, ageMs: Date.now() - snap.at } : null, run: RUN ? { n: RUN.n, active: RUN.active, uiOpen: RUN.uiOpen } : null, tg: !!tgFn() }; }
+};
+window.__code3tab = api;
+onUndo(function () { if (window.__code3tab === api) window.__code3tab = null; });
+tlog(TVER + ' загружен. /tab — открыть список и отправить в Telegram, ✕ — закрыть.');
+
+})(); } catch (e) { try { console.error('[CODE3] ошибка блока TAB TEST:', e); } catch (e2) {} }
+// END TAB TEST MODULE //
