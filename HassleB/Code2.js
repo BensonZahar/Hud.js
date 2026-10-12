@@ -3547,3 +3547,613 @@ if (document.readyState === 'loading') {
              ' | Предложения: ' + (config.offerNotifications ? 'ВКЛ' : 'ВЫКЛ'));
 })();
 // END PHONE & OFFERS MODULE //
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: ITEMS TRADE (обмен предметами из Telegram)      ║
+// ║  Клиент: TradeItems.js (Vue-компонент window.interface    ║
+// ║  ('TradeItems')), сервер: ItemsTrade:* в new.pwn.        ║
+// ║  Как работает:                                           ║
+// ║  • Предложение «… предлагает Вам начать обмен            ║
+// ║    предметами» уже приходит кнопками «Принять/Отклонить» ║
+// ║    (модуль PHONE & OFFERS). После принятия сервер        ║
+// ║    открывает интерфейс TradeItems — модуль видит это и   ║
+// ║    присылает карточку обмена с кнопками.                 ║
+// ║  • Карточка сама обновляется (предметы, доплата,         ║
+// ║    готовность обеих сторон); о действиях партнёра        ║
+// ║    приходит отдельное уведомление.                       ║
+// ║  • Кнопки: ➕ Положить предмет (в т.ч. «Деньги» из       ║
+// ║    инвентаря) · ➖ Забрать предмет · 💰 Доплата (ответом  ║
+// ║    числом: 50000, 50к, 2кк) · 🧹 Убрать доплату ·        ║
+// ║    ✅ Готов / ❌ Снять готовность · 🤝 Совершить обмен   ║
+// ║    (с подтверждением) · 🚫 Прекратить обмен              ║
+// ║  События — те же, что шлёт сам интерфейс:                ║
+// ║    OnTradeItemsMove(из_конт, из_слот, в_конт, в_слот, N) ║
+// ║    OnTradeItemsSetReady(0|1, доплата)                    ║
+// ║    OnTradeItemsStart(доплата) · OnTradeItemsCancel()     ║
+// ║  Контейнеры: 0 — инвентарь, 1 — «Вы отдаёте» (12 слотов),║
+// ║              2 — «Вы получаете» (только чтение).         ║
+// ║  Вставляется в КОНЕЦ Code2.js (после PHONE & OFFERS).    ║
+// ╚══════════════════════════════════════════════════════════╝
+// START ITEMS TRADE MODULE //
+(function () {
+    'use strict';
+
+    if (config.tradeControl === undefined) config.tradeControl = true;
+
+    const C_INV = 0, C_MY = 1, C_THEM = 2;
+    const MY_SLOTS = 12;                 // TradeItems.js: slots:12 у «Вы отдаёте»
+    const INV_SLOTS = 20;                // slots:20 у «Инвентаря» (если мало — ищем дальше)
+    const PAGE_SIZE = 8;
+    const POLL_MS = 700;
+    const EDIT_MIN_MS = 1000;
+    const CLOSE_MISSES = 3;              // сколько тиков подряд окно должно отсутствовать, чтобы считать обмен завершённым
+
+    // ── утилиты ─────────────────────────────────────────────────
+    function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function btn(text, data) { return { text: text, callback_data: data }; }
+    function cb(action) { return 'trd_' + action + '_' + uniqueId; }
+    function fmt(n) { return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+    function sessionLog(s) { try { if (typeof addSessionLog === 'function') addSessionLog(s); } catch (e) {} }
+    function log(s) { try { debugLog('[TRADE] ' + s); } catch (e) {} }
+    function short(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+    function sendRaw(html, keyboard, silent) {
+        const rec = { html: html, kb: keyboard || null, msgs: [] };
+        config.chatIds.forEach(function (chatId) {
+            const p = { chat_id: chatId, text: html, parse_mode: 'HTML', disable_notification: !!silent };
+            if (keyboard) p.reply_markup = JSON.stringify(keyboard);
+            tgApi('sendMessage', p, function (data) {
+                if (data && data.result) rec.msgs.push({ chatId: chatId, messageId: data.result.message_id });
+            });
+        });
+        return rec;
+    }
+    function editRec(rec, html, keyboard) {
+        if (!rec) return;
+        rec.html = html; rec.kb = keyboard || null;
+        rec.msgs.forEach(function (m) { editMessageText(m.chatId, m.messageId, html, keyboard || null); });
+    }
+    function deleteRec(rec) {
+        if (!rec) return;
+        rec.msgs.forEach(function (m) { try { deleteMessage(m.chatId, m.messageId); } catch (e) {} });
+        rec.msgs = [];
+    }
+    function say(html, silent) { sendToTelegram(html, silent !== false, null); }
+
+    // отправка события серверу «сырым» способом — игровой sendClientEvent молча теряет события при открытом чате
+    function srv(name) {
+        const args = Array.prototype.slice.call(arguments, 1);
+        const evt = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined) ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
+        log('→ ' + name + '(' + args.join(', ') + ')');
+        try {
+            if (typeof window.sendClientEventHandle === 'function') {
+                window.sendClientEventHandle.apply(window, [evt, name].concat(args));
+                return true;
+            }
+        } catch (e) { log('sendClientEventHandle: ' + e.message); }
+        try {
+            if (typeof window.sendClientEvent === 'function') {
+                window.sendClientEvent.apply(window, [evt, { ignoreChat: true }, name].concat(args));
+                return true;
+            }
+        } catch (e) { log('sendClientEvent: ' + e.message); }
+        return false;
+    }
+
+    // ── доступ к интерфейсу обмена ──────────────────────────────
+    // window.interface(name) вернёт компонент, только если окно открыто (иначе false) — вызываем лишь при открытом.
+    function getComp() {
+        try {
+            if (typeof window.getInterfaceStatus !== 'function' || !window.getInterfaceStatus('TradeItems')) return null;
+            const c = window.interface('TradeItems');
+            return (c && c.items && c.params) ? c : null;
+        } catch (e) { return null; }
+    }
+    function cnt(it) { return (it.count === undefined || it.count === null) ? 1 : Number(it.count) || 0; }
+
+    const FISH = ['Красноперка', 'Щука', 'Сом', 'Карась', 'Тунец', 'Лосось', 'Карп', 'Мальма', 'Осетр', 'Угорь'];
+    const BAIT = ['Кусочки хлеба', 'Лягушка', 'Кузнечик', 'Червь', 'Мотыль', 'Опарыш'];
+    const LINE = ['Леска 0.15мм', 'Леска 0.3мм', 'Леска 0.85мм'];
+
+    // то же, что getItemName() в PressButton.js
+    function itemName(comp, it) {
+        const T = comp.itemTypes || {}, info = comp.itemInfo || [];
+        const id = Number(it.id), inf = info[id] || {};
+        const ex = (it.extraName === undefined || it.extraName === null) ? '' : it.extraName;
+        const eid = Number(it.extraID);
+        try {
+            if (id === T.ITEM_TYPE_SKIN) return 'Одежда (ID: ' + it.extraID + ')';
+            const typeKey = Object.keys(T).find(function (k) { return T[k] === id; }) || '';
+            if (/^ITEM_TYPE_CASES_/.test(typeKey) || id === T.ITEM_TYPE_NY_2026 || id === T.ITEM_TYPE_CIRCUS) return 'Кейс ' + inf.name;
+            if (id === T.ITEM_TYPE_FERTILIZER) return ex + ' удобрение';
+            if (id === T.ITEM_TYPE_SEEDS) return 'Семена ' + ex;
+            if (id === T.ITEM_TYPE_HARVEST) return String(ex);
+            if (id === T.ITEM_TYPE_WATER_CANISTER) return 'Канистра воды (' + ex + 'л)';
+            if (id === T.ITEM_TYPE_DRINKS) return "Напиток '" + ex + "'";
+            if (id === T.ITEM_TYPE_MEDICAMENT) return "Лекарство '" + ex + "'";
+            if (id === T.ITEM_TYPE_CERTIFICATES) return "Сертификат '" + ex + "'";
+            if (id === T.ITEM_TYPE_STOLEN_DEVICE) return 'Украденная техника: ' + ex;
+            if (id === T.ITEM_TYPE_FISH && FISH[eid] !== undefined) return FISH[eid];
+            if (id === T.ITEM_TYPE_FISHING_BAIT && BAIT[eid] !== undefined) return BAIT[eid];
+            if (id === T.ITEM_TYPE_FISHING_LINE && LINE[eid] !== undefined) return LINE[eid];
+            if (typeof inf.name === 'function') return String(inf.name(ex));
+            if (typeof inf.name === 'string') {
+                const parts = inf.name.split('{name}');
+                return parts.length > 1 ? parts.join(String(ex)) : inf.name;
+            }
+        } catch (e) {}
+        return 'Предмет #' + id;
+    }
+    function isCombinable(comp, it) {
+        const inf = (comp.itemInfo || [])[Number(it.id)] || {};
+        return !!inf.combination;
+    }
+    function itemLine(comp, it) {
+        const n = cnt(it);
+        let s = '<b>' + esc(itemName(comp, it)) + '</b>';
+        if (Number(it.id) === 0) s += ' — ' + fmt(n) + ' руб';
+        else if (n > 1) s += ' ×' + fmt(n);
+        if (it.wear) s += ' 🔧' + it.wear + '%';
+        if (it.tradeBanTime) s += ' 🔒';
+        return s;
+    }
+
+    // ── снимок состояния обмена ─────────────────────────────────
+    function listContainer(comp, c) {
+        const o = (comp.items && comp.items[c]) || {};
+        return Object.keys(o).map(Number).sort(function (a, b) { return a - b; }).map(function (s) {
+            const it = o[s];
+            return { slot: s, id: Number(it.id), name: itemName(comp, it), count: cnt(it), line: itemLine(comp, it) };
+        });
+    }
+    function snapshot(comp) {
+        const P = comp.params || {}, cur = P.currentPlayer || {}, tg = P.targetPlayer || {};
+        return {
+            who: String(comp.playerName || '').replace(/_/g, ' '),
+            mine: listContainer(comp, C_MY),
+            theirs: listContainer(comp, C_THEM),
+            myCost: Number(cur.cost) || 0, myReady: !!cur.isReady,
+            tCost: Number(tg.cost) || 0, tReady: !!tg.isReady,
+            limit: Number(comp.amountLimit) || 0
+        };
+    }
+
+    // ── карточка обмена ─────────────────────────────────────────
+    let session = null;   // { rec, aux, pending, snap, key, lastEdit, lastLine, lastLineAt, confirmGo, misses, startedByMe }
+
+    function cardHtml(snap, note) {
+        const L = [];
+        L.push('🔄 <b>Обмен предметами (' + esc(displayName) + ')</b>');
+        L.push('👤 Партнёр: <b>' + esc(snap.who || '—') + '</b>');
+        L.push('');
+        L.push('📤 <b>Вы отдаёте</b>');
+        if (snap.mine.length) snap.mine.forEach(function (x, i) { L.push((i + 1) + '. ' + x.line); });
+        else L.push('<i>пока пусто</i>');
+        L.push('💰 Ваша доплата: ' + (snap.myCost ? '<b>' + fmt(snap.myCost) + ' руб</b>' : '<i>нет</i>'));
+        L.push(snap.myReady ? '✅ Вы готовы' : '⏳ Вы не готовы');
+        L.push('');
+        L.push('📥 <b>Вы получаете</b>');
+        if (snap.theirs.length) snap.theirs.forEach(function (x, i) { L.push((i + 1) + '. ' + x.line); });
+        else L.push('<i>пока пусто</i>');
+        L.push('💰 Доплата партнёра: ' + (snap.tCost ? '<b>' + fmt(snap.tCost) + ' руб</b>' : '<i>нет</i>'));
+        L.push(snap.tReady ? '✅ Партнёр готов' : '⏳ Партнёр не готов');
+        if (snap.myReady && snap.tReady) {
+            L.push('');
+            L.push('🟢 <b>Оба готовы — можно совершить обмен</b>');
+        }
+        if (session && session.confirmGo && snap.myReady && snap.tReady) {
+            L.push('');
+            L.push('⚠️ <b>Подтвердите обмен</b> — после этого предметы и деньги перейдут сразу.');
+        }
+        if (session && session.lastLine && Date.now() - session.lastLineAt < 60000) {
+            L.push('');
+            L.push('💬 Сервер: <i>' + esc(session.lastLine) + '</i>');
+        }
+        if (note) { L.push(''); L.push(note); }
+        return L.join('\n');
+    }
+    function cardKeyboard(snap) {
+        const both = snap.myReady && snap.tReady;
+        const rows = [];
+        rows.push([btn('➕ Положить предмет', cb('put')), btn('➖ Забрать предмет', cb('take'))]);
+        rows.push([btn('💰 Доплата', cb('cost')), btn('🧹 Убрать доплату', cb('nocost'))]);
+        rows.push([snap.myReady ? btn('❌ Снять готовность', cb('rdy')) : btn('✅ Готов', cb('rdy'))]);
+        if (both) {
+            if (session && session.confirmGo) rows.push([btn('✅ Да, обменяться', cb('go2')), btn('↩️ Нет', cb('goback'))]);
+            else rows.push([btn('🤝 Совершить обмен', cb('go'))]);
+        }
+        rows.push([btn('🚫 Прекратить обмен', cb('stop')), btn('🔄 Обновить', cb('ref'))]);
+        return { inline_keyboard: rows };
+    }
+
+    function refreshCard(force) {
+        if (!session) return;
+        const comp = getComp();
+        if (!comp) return;
+        const snap = snapshot(comp);
+        if (!(snap.myReady && snap.tReady)) session.confirmGo = false;
+        const html = cardHtml(snap), kb = cardKeyboard(snap);
+        const key = html + JSON.stringify(kb);
+        if (key === session.key) return;
+        if (!force && Date.now() - session.lastEdit < EDIT_MIN_MS) return;   // следующий тик повторит
+        session.key = key; session.lastEdit = Date.now();
+        editRec(session.rec, html, kb);
+    }
+    function refreshSoon() { setTimeout(function () { if (!__c2Stale()) refreshCard(true); }, 450); }
+
+    // уведомление о том, что сделал партнёр
+    function diffNotes(prev, snap) {
+        const out = [];
+        function toMap(a) { const m = {}; a.forEach(function (x) { m[x.slot] = x; }); return m; }
+        const pm = toMap(prev.theirs), nm = toMap(snap.theirs);
+        Object.keys(nm).forEach(function (s) {
+            const n = nm[s], p = pm[s];
+            if (!p || p.id !== n.id) out.push('📥 Партнёр положил: ' + n.line);
+            else if (p.count !== n.count) out.push('📥 Партнёр изменил количество: ' + n.line);
+        });
+        Object.keys(pm).forEach(function (s) {
+            if (!nm[s] || nm[s].id !== pm[s].id) out.push('↩️ Партнёр убрал: <b>' + esc(pm[s].name) + '</b>');
+        });
+        if (snap.tCost !== prev.tCost) out.push(snap.tCost ? '💰 Партнёр указал доплату: <b>' + fmt(snap.tCost) + ' руб</b>' : '💰 Партнёр убрал доплату');
+        if (snap.tReady !== prev.tReady) out.push(snap.tReady ? '✅ Партнёр готов к обмену' : '⏳ Партнёр снял готовность');
+        if (snap.myReady && snap.tReady && !(prev.myReady && prev.tReady)) out.push('🟢 Оба готовы — можно совершить обмен');
+        return out.slice(0, 8);
+    }
+
+    // ── жизненный цикл ──────────────────────────────────────────
+    function openSession(comp) {
+        const snap = snapshot(comp);
+        session = { rec: null, aux: null, pending: null, snap: snap, key: '', lastEdit: Date.now(), lastLine: '', lastLineAt: 0, confirmGo: false, misses: 0, startedByMe: false };
+        const html = cardHtml(snap), kb = cardKeyboard(snap);
+        session.key = html + JSON.stringify(kb);
+        session.rec = sendRaw(html, kb, false);
+        sessionLog('🔄 Обмен предметами с ' + snap.who);
+        log('обмен открыт: ' + snap.who);
+    }
+    function closeSession() {
+        const s = session;
+        if (!s) return;
+        session = null;
+        deleteRec(s.aux);
+        const recent = s.lastLine && Date.now() - s.lastLineAt < 8000;
+        let note = s.startedByMe
+            ? '🏁 <b>Обмен отправлен на завершение</b> — окно закрыто, проверьте инвентарь'
+            : '🔚 <b>Окно обмена закрыто</b>';
+        if (recent) note += '\n💬 <i>' + esc(s.lastLine) + '</i>';
+        editRec(s.rec, cardHtml(s.snap, note), null);
+        sessionLog('🔄 Обмен закрыт');
+        log('обмен закрыт');
+    }
+    function tick() {
+        if (__c2Stale() || !config.tradeControl) return;
+        let comp = null;
+        try { comp = getComp(); } catch (e) {}
+        if (comp) {
+            if (!session) { openSession(comp); return; }
+            session.misses = 0;
+            const snap = snapshot(comp);
+            const notes = diffNotes(session.snap, snap);
+            session.snap = snap;
+            if (notes.length) say('🔄 <b>Обмен (' + esc(displayName) + ')</b>\n' + notes.join('\n'), false);
+            refreshCard(false);
+        } else if (session) {
+            if (++session.misses >= CLOSE_MISSES) closeSession();
+        }
+    }
+    setInterval(tick, POLL_MS);
+
+    // ── действия ────────────────────────────────────────────────
+    function costOf(comp) { return Number((comp.params.currentPlayer || {}).cost) || 0; }
+
+    function setReady(comp, on) {
+        const cur = comp.params.currentPlayer;
+        cur.isReady = !!on;
+        return srv('OnTradeItemsSetReady', on ? 1 : 0, costOf(comp));
+    }
+
+    // перенос предмета — как drop в интерфейсе (onDrop → onItemChanged / окно количества → OnTradeItemsMove)
+    function moveItem(comp, fromC, fromS, toC, wantCount) {
+        const items = comp.items;
+        const src = items[fromC] && items[fromC][fromS];
+        if (!src) return { ok: false, err: 'предмета уже нет в этой ячейке' };
+        if (src.tradeBanTime) return { ok: false, err: 'предмет под запретом передачи 🔒' };
+        const total = cnt(src);
+        const combinable = isCombinable(comp, src);
+        let n = combinable ? Math.max(1, Math.min(Number(wantCount) || 1, total)) : total;
+        if (src.count === undefined || src.count === null) n = 1;
+
+        const tItems = items[toC] || (items[toC] = {});
+        let toS = -1;
+        if (combinable) {
+            Object.keys(tItems).forEach(function (k) {
+                const t = tItems[k];
+                if (toS < 0 && t && t.id === src.id && String(t.extraID) === String(src.extraID) && String(t.extraName) === String(src.extraName)) toS = Number(k);
+            });
+        }
+        if (toS < 0) {
+            const limit = toC === C_MY ? MY_SLOTS : INV_SLOTS + 40;
+            for (let s = 0; s < limit; s++) if (!tItems[s]) { toS = s; break; }
+        }
+        if (toS < 0) return { ok: false, err: toC === C_MY ? 'в «Вы отдаёте» нет свободных ячеек (максимум ' + MY_SLOTS + ')' : 'в инвентаре нет свободных ячеек' };
+
+        const wasReady = !!comp.params.currentPlayer.isReady;
+        const name = itemName(comp, src);
+        if (!srv('OnTradeItemsMove', fromC, fromS, toC, toS, n)) return { ok: false, err: 'не удалось отправить событие серверу' };
+
+        // локальное состояние — ровно как делает интерфейс
+        const dst = tItems[toS];
+        if (n >= total) {
+            delete items[fromC][fromS];
+            if (dst) dst.count = cnt(dst) + n; else tItems[toS] = src;
+        } else {
+            src.count = total - n;
+            if (dst) dst.count = cnt(dst) + n; else tItems[toS] = Object.assign({}, src, { count: n });
+        }
+        comp.items = Object.assign({}, comp.items);
+        comp.params.currentPlayer.isReady = false;
+        if (wasReady) srv('OnTradeItemsSetReady', 0, costOf(comp));
+        return { ok: true, name: name, n: n, toS: toS };
+    }
+
+    function setCost(comp, amount) {
+        const limit = Number(comp.amountLimit) || 0;
+        amount = Math.max(0, Math.floor(Number(amount) || 0));
+        if (limit && amount > limit) amount = limit;
+        const cur = comp.params.currentPlayer;
+        const wasReady = !!cur.isReady;
+        cur.cost = amount ? String(amount) : '';
+        if (wasReady) { cur.isReady = false; srv('OnTradeItemsSetReady', 0, amount); }
+        return { amount: amount, wasReady: wasReady };
+    }
+
+    function parseAmount(text) {
+        const m = String(text).toLowerCase().replace(/[\s_,.']/g, '').match(/^(\d+)(к{1,2}|k{1,2})?$/);
+        if (!m) return null;
+        let v = Number(m[1]);
+        if (m[2]) v *= Math.pow(1000, m[2].length);
+        return Number.isFinite(v) ? v : null;
+    }
+
+    // ── вспомогательное окно: выбор предмета / количества ──────
+    function closeAux() { if (session) { deleteRec(session.aux); session.aux = null; session.pending = null; } }
+    function showAux(html, kb) {
+        if (!session) return;
+        if (session.aux && session.aux.msgs.length) editRec(session.aux, html, kb);
+        else session.aux = sendRaw(html, kb, true);
+    }
+    function showPicker(mode, page) {
+        const comp = getComp();
+        if (!comp || !session) return;
+        const from = mode === 'put' ? C_INV : C_MY;
+        const items = (comp.items && comp.items[from]) || {};
+        const slots = Object.keys(items).map(Number).sort(function (a, b) { return a - b; });
+        if (!slots.length) {
+            closeAux();
+            say(mode === 'put' ? '⚠️ <b>В инвентаре нечего класть</b> (' + esc(displayName) + ')' : '⚠️ <b>В «Вы отдаёте» пусто</b> (' + esc(displayName) + ')');
+            return;
+        }
+        const pages = Math.ceil(slots.length / PAGE_SIZE);
+        page = Math.max(0, Math.min(page || 0, pages - 1));
+        const part = slots.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+        const map = {};
+        const rows = [];
+        part.forEach(function (s) {
+            const it = items[s];
+            map[s] = Number(it.id);
+            const n = cnt(it);
+            const label = (it.tradeBanTime ? '🔒 ' : '') + short(itemName(comp, it), 26) + (Number(it.id) === 0 ? ' — ' + fmt(n) : (n > 1 ? ' ×' + fmt(n) : ''));
+            rows.push([btn(label, cb('s' + s))]);
+        });
+        if (pages > 1) {
+            const nav = [];
+            if (page > 0) nav.push(btn('◀️', cb('pg' + (page - 1))));
+            nav.push(btn((page + 1) + '/' + pages, cb('ref')));
+            if (page < pages - 1) nav.push(btn('▶️', cb('pg' + (page + 1))));
+            rows.push(nav);
+        }
+        rows.push([btn('✖️ Закрыть', cb('x'))]);
+        session.pending = { mode: mode, page: page, map: map, stage: 'pick' };
+        showAux((mode === 'put' ? '➕ <b>Что положить в обмен?</b>' : '➖ <b>Что забрать из обмена?</b>') + ' (' + esc(displayName) + ')\n<i>Выберите предмет из списка</i>', { inline_keyboard: rows });
+    }
+    function showQty(slot) {
+        const comp = getComp();
+        if (!comp || !session || !session.pending) return;
+        const p = session.pending;
+        const from = p.mode === 'put' ? C_INV : C_MY;
+        const it = comp.items[from] && comp.items[from][slot];
+        if (!it || Number(it.id) !== p.map[slot]) { showPicker(p.mode, p.page); return; }
+        if (it.tradeBanTime) { say('⚠️ <b>Предмет под запретом передачи 🔒</b> (' + esc(displayName) + ')'); return; }
+        const total = cnt(it);
+        if (!isCombinable(comp, it) || total <= 1 || (it.count === undefined || it.count === null)) {
+            doMove(p.mode, slot, total);         // нельзя дробить — переносим целиком, как в игре
+            return;
+        }
+        p.stage = 'qty'; p.slot = slot; p.total = total;
+        const quick = [1, 5, 10, 50, 100, 1000, 10000].filter(function (q) { return q < total; });
+        const rows = [];
+        for (let i = 0; i < quick.length; i += 3) rows.push(quick.slice(i, i + 3).map(function (q) { return btn(String(fmt(q)), cb('q' + q)); }));
+        rows.push([btn('Все (' + fmt(total) + ')', cb('qall')), btn('✍️ Своё число', cb('qin'))]);
+        rows.push([btn('⬅️ К списку', cb('pg' + p.page)), btn('✖️ Закрыть', cb('x'))]);
+        showAux('🔢 <b>' + esc(itemName(comp, it)) + '</b>\nВсего: <b>' + fmt(total) + '</b>' + (Number(it.id) === 0 ? ' руб' : '') + '\nСколько ' + (p.mode === 'put' ? 'положить' : 'забрать') + '?', { inline_keyboard: rows });
+    }
+    function doMove(mode, slot, n) {
+        const comp = getComp();
+        if (!comp) { say('⌛ <b>Обмен уже закрыт</b>'); return; }
+        const from = mode === 'put' ? C_INV : C_MY;
+        const to = mode === 'put' ? C_MY : C_INV;
+        const r = moveItem(comp, from, slot, to, n);
+        closeAux();
+        if (!r.ok) { say('⚠️ <b>Не получилось (' + esc(displayName) + '):</b> ' + esc(r.err)); return; }
+        log((mode === 'put' ? 'положил ' : 'забрал ') + r.name + ' ×' + r.n);
+        say((mode === 'put' ? '📤 Положил: ' : '↩️ Забрал: ') + '<b>' + esc(r.name) + '</b> ×' + fmt(r.n) + ' (' + esc(displayName) + ')');
+        refreshSoon();
+    }
+
+    // ── кнопки ──────────────────────────────────────────────────
+    function handleButton(cq) {
+        const data = cq.data, chatId = cq.message.chat.id, messageId = cq.message.message_id;
+        answerCallbackQuery(cq.id);
+        const act = data.slice(4, data.length - uniqueId.length - 1);
+        const comp = getComp();
+        if (!session || !comp) {
+            editMessageText(chatId, messageId, '⌛ <b>Обмен уже закрыт</b> (' + esc(displayName) + ')', null);
+            return;
+        }
+        let m;
+        switch (act) {
+            case 'ref': refreshCard(true); if (session.pending && session.pending.stage === 'pick') showPicker(session.pending.mode, session.pending.page); return;
+            case 'put': case 'take': showPicker(act, 0); return;
+            case 'x': closeAux(); return;
+            case 'cost': {
+                const lim = Number(comp.amountLimit) || 0;
+                sendRaw('💰 <b>Доплата за обмен (' + esc(displayName) + ')</b>\nОтветьте числом' + (lim ? ' (до ' + fmt(lim) + ' руб)' : '') + ': <code>50000</code>, <code>50к</code>, <code>2кк</code>. <code>0</code> — убрать доплату.\n<i>Доплата уходит партнёру вместе с «Готов» (если вы уже были готовы — готовность снимется).</i>\n🔑 TRD_UID: ' + uniqueId + '\n🔑 TRD_MODE: cost',
+                    { force_reply: true }, false);
+                return;
+            }
+            case 'nocost': {
+                const r = setCost(comp, 0);
+                say('🧹 <b>Доплата убрана (' + esc(displayName) + ')</b>' + (r.wasReady ? '\n<i>Готовность снята — нажмите «Готов» снова</i>' : ''));
+                refreshSoon();
+                return;
+            }
+            case 'rdy': {
+                const on = !comp.params.currentPlayer.isReady;
+                setReady(comp, on);
+                log(on ? 'готов' : 'снял готовность');
+                refreshSoon();
+                return;
+            }
+            case 'go': {
+                if (!(comp.params.currentPlayer.isReady && comp.params.targetPlayer.isReady)) { say('⚠️ <b>Обмен невозможен — готовы не оба</b> (' + esc(displayName) + ')'); refreshCard(true); return; }
+                session.confirmGo = true; refreshCard(true); return;
+            }
+            case 'goback': session.confirmGo = false; refreshCard(true); return;
+            case 'go2': {
+                if (!(comp.params.currentPlayer.isReady && comp.params.targetPlayer.isReady)) { session.confirmGo = false; say('⚠️ <b>Обмен невозможен — готовы не оба</b> (' + esc(displayName) + ')'); refreshCard(true); return; }
+                session.confirmGo = false;
+                session.startedByMe = true;
+                srv('OnTradeItemsStart', costOf(comp));
+                say('🤝 <b>Обмен подтверждён (' + esc(displayName) + ')</b> — отправлено на сервер');
+                refreshSoon();
+                return;
+            }
+            case 'stop': {
+                session.startedByMe = false;
+                srv('OnTradeItemsCancel');
+                say('🚫 <b>Обмен прекращён (' + esc(displayName) + ')</b>');
+                return;
+            }
+            case 'qall': {
+                const p = session.pending;
+                if (p && p.stage === 'qty') doMove(p.mode, p.slot, p.total);
+                return;
+            }
+            case 'qin': {
+                const p = session.pending;
+                if (!p || p.stage !== 'qty') return;
+                sendRaw('🔢 <b>Сколько ' + (p.mode === 'put' ? 'положить' : 'забрать') + '? (' + esc(displayName) + ')</b>\nОтветьте числом от 1 до ' + fmt(p.total) + ' (можно <code>50к</code>, <code>2кк</code>).\n🔑 TRD_UID: ' + uniqueId + '\n🔑 TRD_MODE: qty',
+                    { force_reply: true }, false);
+                return;
+            }
+        }
+        if ((m = act.match(/^pg(\d+)$/))) { if (session.pending) showPicker(session.pending.mode, Number(m[1])); return; }
+        if ((m = act.match(/^s(\d+)$/))) { if (session.pending && session.pending.stage === 'pick') showQty(Number(m[1])); return; }
+        if ((m = act.match(/^q(\d+)$/))) {
+            const p = session.pending;
+            if (p && p.stage === 'qty') doMove(p.mode, p.slot, Number(m[1]));
+            return;
+        }
+    }
+
+    // ответ (reply) на запрос доплаты / количества
+    function handleReply(tm) {
+        const rt = tm.reply_to_message.text || '';
+        const text = String(tm.text || '').trim();
+        const comp = getComp();
+        if (!session || !comp) { say('⌛ <b>Обмен уже закрыт (' + esc(displayName) + ')</b> — ответ не принят'); return; }
+        const v = parseAmount(text);
+        if (v === null) { say('⚠️ <b>Не понял число (' + esc(displayName) + '):</b> <code>' + esc(short(text, 30)) + '</code> — нужно например 50000, 50к, 2кк'); return; }
+        if (rt.indexOf('TRD_MODE: cost') !== -1) {
+            const r = setCost(comp, v);
+            say(r.amount ? '💰 <b>Доплата ' + fmt(r.amount) + ' руб (' + esc(displayName) + ')</b>' + (r.wasReady ? '\n<i>Готовность снята — нажмите «Готов» (доплата уйдёт вместе с ней)</i>' : '\n<i>Уйдёт партнёру, когда нажмёте «Готов»</i>') : '🧹 <b>Доплата убрана (' + esc(displayName) + ')</b>');
+            if ((Number(comp.amountLimit) || 0) && v > Number(comp.amountLimit)) say('ℹ️ Ограничено лимитом: ' + fmt(comp.amountLimit) + ' руб');
+            refreshSoon();
+        } else if (rt.indexOf('TRD_MODE: qty') !== -1) {
+            const p = session.pending;
+            if (!p || p.stage !== 'qty') { say('⚠️ <b>Выбор предмета уже закрыт (' + esc(displayName) + ')</b> — откройте список заново'); return; }
+            if (v < 1) { say('⚠️ <b>Количество должно быть ≥ 1</b>'); return; }
+            doMove(p.mode, p.slot, Math.min(v, p.total));
+        }
+    }
+
+    // ── последняя строка сервера про обмен (показывается в карточке) ──
+    function onChat(raw) {
+        if (!session) return;
+        const msg = String(raw).replace(/\{btn:[^}]*\}/g, '').replace(/\{v:([^}]*)\}/g, '$1').replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\s+/g, ' ').trim();
+        if (msg.length > 200 || !/обмен|доплат|перевес|слот|нет места|нельзя/i.test(msg)) return;
+        if (/^\S+\s*\[\d+\]\s*:/.test(msg) || /^\[[^\]]+\]\s/.test(msg)) return;   // обычная речь игроков
+        session.lastLine = msg; session.lastLineAt = Date.now();
+        refreshSoon();
+    }
+    function installChatHook() {
+        const cur = window.OnChatAddMessage;
+        if (typeof cur === 'function' && !cur.__trdWrapped) {
+            const wrapped = function (e, colorArg, t) {
+                cur.call(this, e, colorArg, t);
+                if (!__c2Stale()) { try { onChat(String(e)); } catch (err) {} }
+            };
+            Object.keys(cur).forEach(function (k) { if (k.indexOf('__') === 0) wrapped[k] = cur[k]; });   // чтобы другие модули не обернули повторно
+            wrapped.__trdWrapped = true;
+            window.OnChatAddMessage = wrapped;
+        }
+    }
+    installChatHook();
+    if (typeof initializeChatMonitor === 'function' && !initializeChatMonitor.__trdPatched) {
+        const origInit = initializeChatMonitor;
+        const patched = function () {
+            const res = origInit.apply(this, arguments);
+            installChatHook();
+            return res;
+        };
+        patched.__trdPatched = true;
+        initializeChatMonitor = patched;
+    }
+
+    // ── processUpdates: наши кнопки и ответы ────────────────────
+    function isOurCallback(d) { return typeof d === 'string' && d.indexOf('trd_') === 0; }
+    function isMine(d) { return d.endsWith('_' + uniqueId); }
+    function isOurReply(tm) {
+        const rt = (tm.reply_to_message && tm.reply_to_message.text) || '';
+        return rt.split('\n').some(function (l) { return l.indexOf('TRD_UID: ') !== -1 && l.trim().endsWith('TRD_UID: ' + uniqueId); });
+    }
+    const origProcess = processUpdates;
+    processUpdates = function (updates) {
+        const rest = [];
+        for (const u of updates) {
+            const q = u.callback_query;
+            if (q && isOurCallback(q.data) && config.chatIds.includes(String(q.message.chat.id))) {
+                config.lastUpdateId = u.update_id;
+                setSharedLastUpdateId(config.lastUpdateId);
+                if (isMine(q.data) && !__c2Stale()) {
+                    try { handleButton(q); } catch (e) { log('callback error: ' + e.message); say('❌ <b>Ошибка обмена (' + esc(displayName) + '):</b>\n<code>' + esc(e.message) + '</code>'); }
+                } else {
+                    answerCallbackQuery(q.id);
+                }
+                continue;
+            }
+            const tm = u.message;
+            if (tm && tm.reply_to_message && tm.text && config.chatIds.includes(String(tm.chat.id)) && isOurReply(tm)) {
+                config.lastUpdateId = u.update_id;
+                setSharedLastUpdateId(config.lastUpdateId);
+                if (!__c2Stale()) {
+                    try { handleReply(tm); } catch (e) { log('reply error: ' + e.message); say('❌ <b>Ошибка обмена (' + esc(displayName) + '):</b>\n<code>' + esc(e.message) + '</code>'); }
+                }
+                continue;
+            }
+            rest.push(u);
+        }
+        if (rest.length) origProcess(rest);
+    };
+
+    debugLog('[TRADE] Загружен. Управление обменом из Telegram: ' + (config.tradeControl ? 'ВКЛ' : 'ВЫКЛ'));
+})();
+// END ITEMS TRADE MODULE //
