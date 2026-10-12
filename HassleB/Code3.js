@@ -20,6 +20,10 @@
 // ║     «Круговое меню» и                                                ║
 // ║     «Просьба о чае» в меню «Лицензёр» (как в игре)                   ║
 // ║                                                                      ║
+// ║   • v1.20: в игровом чате кнопка «Ответ» под репликами собеседника   ║
+// ║     «[Тел] Ник: текст» после ответа на звонок (вручную /p, кнопкой   ║
+// ║     или когда ответили на ваш) → «Место» / «Ценовая политика» —      ║
+// ║     текст уходит прямо в разговор, без /p. Опция TALK_BTN            ║
 // ║   • проверка ник ↔ ID через серверный /id перед /givelic (v1.17):    ║
 // ║     ID не тот / игрока нет → выдача отменяется, ник берётся с сервера ║
 // ║   • v1.19: список игроков (PlayersOnline) УДАЛЁН полностью —         ║
@@ -41,7 +45,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.19';
+var VERSION = 'code3 v1.20';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -74,6 +78,7 @@ var OPTS = (function () {
         RADIAL_ICON: '',         // своя иконка пункта: URL или data:image/...
         CHAT_UNDIM: true,        // чат поверх затемнения круга, пока раскрыт выбор лицензии
         SMS_BTN: true,           // кнопка «Ответ» у входящих SMS → «Место» / «Ценовая политика» (как в pravo.js)
+        TALK_BTN: true,          // кнопка «Ответ» у реплик собеседника «[Тел] Ник: текст» после ответа на звонок → «Место» / «Ценовая политика» (текст уходит прямо в разговор)
         SMS_TEXT: '',            // свой текст пункта «Место» (пусто = «Здравствуйте, нахожусь в правительстве [/gps - Правительство]»)
         SMS_TEXT_PRICE: '',      // свой текст «Ценовой политики» (пусто = собирается из цен лицензий)
         ID_CHECK: true,          // перед /givelic спрашиваем сервер «/id <ID>» и сверяем ник (false — как раньше, без проверки)
@@ -2065,6 +2070,8 @@ function _c3SmsPriceText() {
 // Входящее: "SMS: текст | Отправитель: {v:Ник} [т.333351]"; группа 1 = номер
 var SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
 var SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
+var TALK_ACTION = 9002; // действие кнопки «Ответ» у реплик собеседника в разговоре (value = номер собеседника или 0)
+var TALK_BTN_ENABLED = OPTS.TALK_BTN !== false;
 var SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
 var SMS_LABEL = 'Ответ'; // надпись на кнопке (закрыто: стрелка вниз = можно открыть)
 var SMS_LABEL_CLOSE = 'Закрыть'; // надпись, пока выбор раскрыт (стрелка вверх = можно закрыть)
@@ -2149,7 +2156,9 @@ function _c3MarkSmsBtns(root) {
             var btn = imgs[i].parentNode;
             if (!btn || !btn.classList || btn.classList.contains('code3-sms-btn')) continue;
             var p = btn.parentNode;
-            if (!p || String(p.textContent || '').indexOf('SMS:') === -1) continue;
+            if (!p) continue;
+            var ptxt = String(p.textContent || '');
+            if (ptxt.indexOf('SMS:') === -1 && ptxt.indexOf('[Тел]') === -1) continue;
             btn.classList.add('code3-sms-btn');
             if (mobile) btn.classList.add('code3-sms-btn--mobile');
         }
@@ -2278,7 +2287,7 @@ function _c3SmsFit(row, menu, btn) {
         if (full > 0 && w1 + 40 < full) row.classList.add('code3-sms-row--nowrap');
     } catch (e) { try { console.log('[CODE3][SMS] ошибка подгонки рамки', e); } catch (_) {} }
 }
-function _c3SmsExpand(btn, number) {
+function _c3SmsExpand(btn, number, kind) {
     try {
         if (!btn || !btn.parentNode) return false;
         // повторный клик по «Ответ» сворачивает выбор
@@ -2290,7 +2299,7 @@ function _c3SmsExpand(btn, number) {
         menu._c3Btn = btn;
         var opts = [
             { label: SMS_LABEL_PLACE, text: function () { return SMS_TEXT; } },
-            { label: SMS_LABEL_PRICE, text: _c3SmsPriceText }
+            { label: SMS_LABEL_PRICE, text: _c3SmsPriceText, price: true }
         ];
         opts.forEach(function (o) {
             var b = document.createElement('span');
@@ -2298,8 +2307,20 @@ function _c3SmsExpand(btn, number) {
             b.textContent = o.label;
             b.addEventListener('click', function (ev) {
                 try { ev.stopPropagation(); ev.preventDefault(); } catch (_) {}
-                try { _c3SmsSend(number, o.text()); } catch (e) {
-                    try { console.log('[CODE3] SMS: ошибка отправки', e); } catch (_) {}
+                if (kind === 'talk') {
+                    // реплика в разговоре: текст говорим прямо в звонок (без /p и без SMS)
+                    try {
+                        _c3CallSay(number, o.price ? 'price' : 'place', function (r) {
+                            if (!r || r.ok) return;
+                            gtAdd('~r~Ответ не отправлен~n~~w~' + (r.reason === 'not_ready' ? 'Доступно только лицензёру в правительстве' : 'Звонок уже завершён или сброшен'), 3500, 3);
+                        });
+                    } catch (e) {
+                        try { console.log('[CODE3] разговор: ошибка отправки', e); } catch (_) {}
+                    }
+                } else {
+                    try { _c3SmsSend(number, o.text()); } catch (e) {
+                        try { console.log('[CODE3] SMS: ошибка отправки', e); } catch (_) {}
+                    }
                 }
                 _c3SmsCollapse(menu); // отправили -> выбор убирается, остаётся одна кнопка «Ответ»
             });
@@ -2346,6 +2367,24 @@ function _c3AddSmsButton(message) {
     } catch (e) { return message; }
 }
 
+// Реплика собеседника в разговоре «[Тел] Ник: текст» (phone.pwn:2627) -> дописываем кнопку «Ответ».
+// Только если разговор уже принят (_c3CallActive) и пишет именно наш собеседник: свои реплики и «[Тел]» чужих звонков рядом остаются без кнопки.
+var TALK_RE = /^\s*\[Тел\]\s*(.+?):\s+\S/;
+function _c3AddTalkButton(message) {
+    try {
+        if (!TALK_BTN_ENABLED || !SMS_BTN_ENABLED || typeof message !== 'string') return message;
+        if (message.indexOf('[Тел]') === -1 || message.indexOf('{btn:') !== -1) return message;
+        if (!licensorReady()) return message;
+        var a = _c3CallActive;
+        if (!a || Date.now() - a.at > CALL_ACTIVE_TTL) return message;
+        var clean = message.replace(/\{[0-9a-fA-F]{6}\}/g, '').replace(/\{v:([^}]*)\}/g, '$1');
+        var m = clean.match(TALK_RE);
+        if (!m || _c3Norm(_c3CleanName(m[1])) !== _c3Norm(a.who)) return message;
+        var num = String(a.num || '').replace(/\D/g, '');
+        return message + ' {btn:' + SMS_ICON + ':' + TALK_ACTION + ':' + (num || '0') + '}';
+    } catch (e) { return message; }
+}
+
 (function _c3HookChatAction() {
     var tries = 0;
     (function hook() {
@@ -2356,6 +2395,13 @@ function _c3AddSmsButton(message) {
         }
         if (orig.__code3Sms) return;   // уже обёрнуто (повторный запуск после cleanup обёртку снимает)
         var wrapped = function (button, action, value) {
+            if (!_dead && String(action) === String(TALK_ACTION)) {
+                var _tb = _c3SmsLastBtn; _c3SmsLastBtn = null;
+                var _tv = String(value == null ? '' : value).replace(/\D/g, '');
+                if (_tv === '0') _tv = '';
+                if (!_c3SmsExpand(_tb, _tv, 'talk')) _c3CallSay(_tv, 'place', function () {});   // кнопку в DOM не нашли - шлём «Место» сразу
+                return;
+            }
             if (!_dead && String(action) === String(SMS_ACTION)) {
                 var _b = _c3SmsLastBtn; _c3SmsLastBtn = null;
                 // Раскрываем выбор «Место / Ценовая политика»; если кнопку в DOM не нашли - шлём «Место» как раньше
@@ -2386,7 +2432,7 @@ function ensureChatAddHook() {
             if (!_dead && typeof message === 'string') {
                 try { onChat(message); } catch (er) { warn('onChat:', er); }
                 try {
-                    var m2 = _c3AddSmsButton(message);
+                    var m2 = _c3AddTalkButton(_c3AddSmsButton(message));
                     if (m2 !== message) { args = [].slice.call(arguments); args[0] = m2; }
                 } catch (er2) {}
             }
