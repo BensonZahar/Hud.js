@@ -85,6 +85,7 @@ var OPTS = (function () {
         ID_CHECK_STRICT: false,  // true — если сервер на /id не ответил, выдачу отменяем; false — выдаём без проверки
         ID_CHECK_TTL: 15000,     // мс: подтверждённая пара ник↔ID не перепроверяется (перевыдача подряд)
         ID_CHECK_MS: 2500,       // мс: сколько ждать ответ сервера на /id
+        QUIET_INGAME: true,      // выдали лицензию / ответили на звонок В ИГРЕ → в Telegram об этом не пишем (из Telegram — как раньше)
         TRACE: true,             // полное логирование радиального меню / поиска ID (консоль + буфер: __code3.trace())
         DEBUG: false
     };
@@ -809,7 +810,7 @@ function showTypeDialogChecked(id) {
 
 // ══════════════════════════ ВЫДАЧА ЛИЦЕНЗИИ И ПЕРЕВЫДАЧА ══════════════════════════
 // Шлёт /givelic <ID> <тип> <цена>, запоминает данные для перевыдачи и авто-ответов
-function giveByIndex(targetId, idx, nickHint, exact) {
+function giveByIndex(targetId, idx, nickHint, exact, viaTg) {   // viaTg — выдача запущена кнопкой из Telegram
     var c = LIC_TYPES[idx];
     if (!c || targetId === null || targetId === undefined || targetId === '') return false;
     var tid = targetId;
@@ -826,7 +827,7 @@ function giveByIndex(targetId, idx, nickHint, exact) {
             log('отправка:', cmd, '| ник:', nk || '—');
             tr('GIVE/отправка', cmd, 'ID ' + tid, 'ник: ' + (nk || '—'), 'тип: ' + c.name, vn ? 'проверено /id' : 'без проверки');
             rawSend(cmd);
-            STATE.last = { targetId: tid, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [], hintRaw: hint || null, verifiedNick: vn };
+            STATE.last = { targetId: tid, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [], hintRaw: hint || null, verifiedNick: vn, viaTg: !!viaTg };
             refreshLastNick();
             setTimeout(updatePanel, 0);
         });
@@ -857,8 +858,9 @@ function reissueSend() {
     });
 }
 // Из «тишины» уходит мгновенно; если лимит исчерпан — одна отложенная перевыдача в первый допустимый момент
-function reissueLic() {
+function reissueLic(viaTg) {
     if (!STATE.last) return false;
+    STATE.last.viaTg = !!viaTg;   // откуда запущена перевыдача: из Telegram — отчёты в Telegram, из игры — тишина
     if (reissueTimer) return true;
     var wait = floodWait(2);
     if (wait <= 0) { reissueSend(); return true; }
@@ -2009,7 +2011,9 @@ function _c3CallOnChat(clean) {
                 if (nowT - kat <= CALL_IN_TTL && kn && _c3Norm(kn) === wn) anum = keys[ki];
             }
             if (!anum && keys.length === 1) anum = keys[0];
-            _c3CallActive = { num: anum, who: who, at: nowT, out: outAns };
+            var tgAns = false;
+            try { tgAns = !!_c3CallJob || (nowT - (window.__hassleTgAns || 0) < 15000); } catch (e) {}
+            _c3CallActive = { num: anum, who: who, at: nowT, out: outAns, quiet: !!OPTS.QUIET_INGAME && (outAns || !tgAns) };   // quiet — ответили/позвонили в игре
             _c3CallIn = {}; _c3CallWho = {}; _c3CallOut = {};
         }
         var j = _c3CallJob;
@@ -2040,6 +2044,7 @@ function _c3CallReply(number, kind, cb) {
     var job = { text: kind === 'price' ? _c3SmsPriceText() : SMS_TEXT, cb: cb, timer: 0 };
     job.timer = setTimeout(function () { if (_c3CallJob === job) _c3CallJobEnd({ ok: false, reason: 'timeout' }); }, CALL_ANS_WAIT);
     _c3CallJob = job;
+    try { window.__hassleTgAns = Date.now(); } catch (e) {}   // /p из Telegram: «Вы ответили на звонок» после этого — не ответ в игре
     sendCmdPaced('/p');
 }
 // Ответ в уже идущем разговоре: просто говорим текст (после /p обычный чат уходит собеседнику). kind: 'place' | 'price'
@@ -2621,8 +2626,8 @@ window.__code3 = {
     // API для Telegram-вкладки «Лицензёр» (Code2.js)
     types: LIC_TYPES,
     ready: licensorReady,
-    give: function (id, idx) { return licensorReady() && giveByIndex(String(id), idx); },
-    reissue: function () { if (!licensorReady() || !STATE.last) return false; reissueLic(); return true; },
+    give: function (id, idx) { return licensorReady() && giveByIndex(String(id), idx, undefined, undefined, true); },   // вызывается только из Telegram-вкладки
+    reissue: function () { if (!licensorReady() || !STATE.last) return false; reissueLic(true); return true; },   // вызывается только из Telegram-вкладки
     // Переключатели из меню лицензёра (то же, что пункты «Круговое меню» / «Просьба о чае» в игре); возвращают новое состояние или null
     toggleTea: function () { if (!licensorReady()) return null; toggleTea(); return !!STATE.tea; },
     toggleCircle: function () { if (!licensorReady()) return null; toggleCircle(); return !!STATE.circle; },
@@ -2637,7 +2642,7 @@ window.__code3 = {
     // Ответ на входящий звонок в разговоре: /p + текст «Место» / «Ценовая политика»; результат приходит в cb({ ok, text, reason })
     callReply: function (number, kind, cb) { _c3CallReply(number, kind, cb); },
     // Разговор, на который уже ответили: { num, who } или null (нужен Telegram-вкладке, чтобы узнать, чьи реплики пересылать)
-    callActive: function () { var a = _c3CallActive; return a && Date.now() - a.at <= CALL_ACTIVE_TTL ? { num: a.num, who: a.who } : null; },
+    callActive: function () { var a = _c3CallActive; return a && Date.now() - a.at <= CALL_ACTIVE_TTL ? { num: a.num, who: a.who, quiet: !!a.quiet } : null; },
     // Ответ текстом в идущем разговоре (без /p): cb({ ok, text, reason })
     callSay: function (number, kind, cb) { _c3CallSay(number, kind, cb); },
     last: function () { return STATE.last; },
@@ -2850,10 +2855,16 @@ try { (function () {
         ];
     }
     function arIsRow(r) { return r.some(function (b) { return b && typeof b.callback_data === 'string' && b.callback_data.indexOf(AR) === 0; }); }
-    function arMarkup(cq, num, kind, open) {   // клавиатура сообщения без наших строк + свёрнутая/раскрытая «Ответ»
-        let rows = [];
-        try { rows = ((cq.message && cq.message.reply_markup && cq.message.reply_markup.inline_keyboard) || []).filter(function (r) { return !arIsRow(r); }); } catch (e) {}
-        return { inline_keyboard: rows.concat(open ? arOptionRows(num, kind) : [arOpenRow(num, kind)]) };
+    function arMarkup(cq, num, kind, open) {   // клавиатура сообщения без наших строк + свёрнутая/раскрытая «Ответ» (на том же месте, где была)
+        let rows = [], at = -1;
+        try {
+            const all = (cq.message && cq.message.reply_markup && cq.message.reply_markup.inline_keyboard) || [];
+            at = all.findIndex(arIsRow);
+            rows = all.filter(function (r) { return !arIsRow(r); });
+        } catch (e) {}
+        const add = open ? arOptionRows(num, kind) : [arOpenRow(num, kind)];
+        if (at < 0 || at >= rows.length) return { inline_keyboard: rows.concat(add) };
+        return { inline_keyboard: rows.slice(0, at).concat(add, rows.slice(at)) };
     }
     const AR_FAIL = {
         no_call: 'Звонок уже завершён или сброшен — ответ не отправлен',
@@ -2881,10 +2892,32 @@ try { (function () {
     const CARD_CALL_RE = /^📞\s*<b>Входящий звонок[^\n]*<\/b>\n[\s\S]*?Номер:\s*<code>(\d+)<\/code>/;
     const CARD_SMS_RE = /^✉\uFE0F?\s*<b>SMS[^\n]*<\/b>\n[\s\S]*?📱\s*<code>(\d+)<\/code>/;
     const _cards = [];   // { num, kind, at } — карточки Code2, к которым «Ответ» уже дописан
+    // Карточка «Идёт разговор» (Code2: ответили на звонок кнопкой из Telegram) — сразу даём «Ответ» (Место / Ценовая политика), не дожидаясь реплики собеседника.
+    // Строка ставится под «Положить трубку»; текст уходит прямо в разговор (без /p).
+    const TALK_CARD_BTN = true;
+    const CARD_TALK_RE = /^📞\s*<b>(?:Звонок|Исходящий звонок)[^\n]*<\/b>[\s\S]*?Идёт разговор/;
     if (typeof tgApi === 'function' && !tgApi.__licApiWrapped) {
         const origApi = tgApi;
         const wrappedApi = function (method, payload, onSuccess, onError, retryCount) {
             try {
+                if ((method === 'sendMessage' || method === 'editMessageText') && !retryCount && TALK_CARD_BTN && payload && typeof payload.text === 'string' &&
+                    typeof payload.reply_markup === 'string' && CARD_TALK_RE.test(payload.text) && ready()) {
+                    const tkb = JSON.parse(payload.reply_markup);
+                    if (tkb && Array.isArray(tkb.inline_keyboard) && !tkb.inline_keyboard.some(arIsRow)) {
+                        const nm = payload.text.match(/Номер:\s*<code>(\d+)<\/code>/), tnum = nm ? nm[1] : '';
+                        tkb.inline_keyboard.splice(Math.min(1, tkb.inline_keyboard.length), 0, arOpenRow(tnum, 'talk'));
+                        payload = Object.assign({}, payload, { reply_markup: JSON.stringify(tkb) });
+                        const tcid = payload.chat_id, trec = { num: tnum, kind: 'talk', pos: 1 };
+                        if (method === 'editMessageText') _arMsgs[tcid + ':' + payload.message_id] = trec;
+                        else {
+                            const prevOkT = onSuccess;
+                            onSuccess = function (data) {
+                                try { if (data && data.result) _arMsgs[tcid + ':' + data.result.message_id] = trec; } catch (e) {}
+                                if (typeof prevOkT === 'function') prevOkT(data);
+                            };
+                        }
+                    }
+                }
                 if (method === 'sendMessage' && !retryCount && payload && typeof payload.text === 'string' && typeof payload.reply_markup === 'string' && ready()) {
                     const mc = CALL_CARD_BTN ? payload.text.match(CARD_CALL_RE) : null, ms = mc ? null : payload.text.match(CARD_SMS_RE);
                     if (mc || ms) {
@@ -2970,6 +3003,7 @@ try { (function () {
         let act = null;
         try { act = api().callActive && api().callActive(); } catch (e) {}
         if (!act || normNick(tm[1]) !== normNick(act.who)) return false;   // не наш собеседник
+        if (act.quiet) return true;                                          // разговор ведётся в игре — в Telegram не дублируем
         const who = tm[1].trim(), text = tm[2].trim(), num = act.num || '';
         if (!text) return true;
         if (!once('talk|' + num + '|' + text, 1500)) return true;   // дубль строки чата
@@ -3150,7 +3184,9 @@ try { (function () {
                 }
                 const ar = _arMsgs[chatId + ':' + messageId];   // уведомление о SMS/звонке: «Ответ» не пропадает после «Пауза» / «Движения» и т.п.
                 if (ar && markup && Array.isArray(markup.inline_keyboard) && ready() && !markup.inline_keyboard.some(arIsRow)) {
-                    markup = { inline_keyboard: markup.inline_keyboard.concat([arOpenRow(ar.num, ar.kind)]) };
+                    const rr = markup.inline_keyboard.slice(), arRow = arOpenRow(ar.num, ar.kind);
+                    if (typeof ar.pos === 'number') rr.splice(Math.min(ar.pos, rr.length), 0, arRow); else rr.push(arRow);
+                    markup = { inline_keyboard: rr };
                 }
             } catch (e) {}
             return origEditMarkup.call(this, chatId, messageId, markup);
@@ -3244,6 +3280,7 @@ try { (function () {
         if (!ready()) return false;
         const l = lastGive();
         if (!l || !l.at || Date.now() - l.at > EVENT_WINDOW) return false;
+        if (OPTS.QUIET_INGAME && !l.viaTg) return false;   // выдали сами в игре — ответ сервера вы и так видите в чате
         const ev = EVENTS.find(function (e) { return e.re.test(text); });
         if (!ev) return false;
         if (/^\s*-\s/.test(text) || PLAYER_MSG_RE.test(text)) return false;       // строки чата игроков — не события

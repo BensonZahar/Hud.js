@@ -3059,10 +3059,20 @@ if (document.readyState === 'loading') {
                 disable_notification: !!silent,
                 reply_markup: JSON.stringify(keyboard)
             }, function (data) {
-                if (data && data.result) rec.msgs.push({ chatId: chatId, messageId: data.result.message_id });
+                if (data && data.result) {
+                    if (rec.dropped) deleteMessage(chatId, data.result.message_id);   // ответили в игре раньше, чем Telegram вернул id
+                    else rec.msgs.push({ chatId: chatId, messageId: data.result.message_id });
+                }
             });
         });
         return rec;
+    }
+    // Действие сделано в игре → карточку из Telegram убираем без уведомления (как закрытие диалога в игре)
+    function dropCard(rec) {
+        if (!rec) return;
+        rec.done = true; rec.dropped = true;
+        rec.msgs.forEach(function (m) { deleteMessage(m.chatId, m.messageId); });
+        rec.msgs = [];
     }
     function finish(rec, note) {
         if (!rec || rec.done) return;
@@ -3081,6 +3091,14 @@ if (document.readyState === 'loading') {
     //  new.pwn:17552   пока идёт разговор, ЛЮБОЙ обычный текст из чата уходит собеседнику как «[Тел]»
     // activeCall = { rec, state:'ringing'|'talking', caller, number, outgoing, hanging, lines[], lastLine }
     let activeCall = null;
+
+    // true — если звонок принят / предложение решено В ИГРЕ, в Telegram ничего не шлём (карточку убираем): вы и так всё видите.
+    // Из Telegram по-прежнему работает: кнопка «Ответить (/p)» → реплики собеседника приходят сюда, ответ реплаем.
+    const TG_QUIET_INGAME = true;
+    const TG_ANS_WINDOW = 15000;   // мс: «Вы ответили на звонок» в течение этого времени после /p из Telegram = ответили из Telegram
+    let tgChatBusy = false;        // true, пока из Telegram уходит /yes или /no (чтобы не принять за ввод в игре)
+    function markTgAnswer() { try { window.__hassleTgAns = Date.now(); } catch (e) {} }   // общий флаг с Code3.js
+    function tgAnsweredRecently() { try { return Date.now() - (window.__hassleTgAns || 0) < TG_ANS_WINDOW; } catch (e) { return false; } }
     const TEL_COLOR = '0xFFFF00';
     const MAX_TEL_LEN = 83;            // new.pwn:17541 — длиннее сервер не принимает
 
@@ -3114,12 +3132,25 @@ if (document.readyState === 'loading') {
         if (!c) return;
         activeCall = null;
         if (c.timer) clearTimeout(c.timer);
+        if (c.quiet) return;   // разговор был принят в игре — в Telegram нечего обновлять
         stripButtons(c.lastLine);
         finish(c.rec, note);
     }
     // звонок принят → то же сообщение остаётся с кнопкой «Положить трубку»
-    function startTalking(name, outgoing) {
+    function startTalking(name, outgoing, inGame) {
         let c = activeCall;
+        if (inGame && TG_QUIET_INGAME) {   // ответили (или позвонили) в игре — Telegram не нужен
+            if (!c) {
+                activeCall = { rec: null, state: 'talking', caller: name, number: '', outgoing: !!outgoing, hanging: false, lines: [], lastLine: null, quiet: true };
+            } else {
+                c.state = 'talking'; c.hanging = false; c.quiet = true;
+                if (c.timer) { clearTimeout(c.timer); c.timer = null; }
+                if (name) c.caller = name;
+                dropCard(c.rec); c.rec = null;   // карточка «Входящий звонок» с кнопками больше не нужна
+            }
+            sessionLog('📞 Разговор с ' + (name || (c && c.caller) || '?') + ' (в игре, без Telegram)');
+            return;
+        }
         if (!c) {   // бот не видел начала звонка (перезапуск и т.п.) — создаём карточку разговора
             c = activeCall = { rec: null, state: 'talking', caller: name, number: '', outgoing: !!outgoing, hanging: false, lines: [], lastLine: null };
             sessionLog('📞 Разговор с ' + name);
@@ -3196,13 +3227,19 @@ if (document.readyState === 'loading') {
         // ответили (кнопкой в Telegram, /p или прямо в телефоне в игре) — сообщение остаётся, появляется «Положить трубку»
         if (normalizeColor(colorArg) === '0xDD90FF') {
             m = msg.match(/^Вы ответили на звонок (.+)$/);
-            if (m) { startTalking(m[1].trim(), false); return; }
+            if (m) { startTalking(m[1].trim(), false, !tgAnsweredRecently()); return; }   // не из Telegram → ответили в игре
             m = msg.match(/^(.+) ответил на Ваш звонок$/);
-            if (m) { startTalking(m[1].trim(), true); return; }
+            if (m) { startTalking(m[1].trim(), true, true); return; }                      // исходящий всегда набран в игре
         }
 
         // конец звонка: сбросил я (в игре или кнопкой), сбросил собеседник, отклонили
         if (activeCall && /^(Звонок окончен|Вы отклонили входящий вызов)/.test(msg)) {
+            if (TG_QUIET_INGAME && activeCall.state === 'ringing' && !activeCall.hanging && /^Вы отклонили/.test(msg)) {
+                const rc = activeCall; activeCall = null;   // сбросили в игре (кнопка в Telegram ставит hanging) — карточку убираем
+                if (rc.timer) clearTimeout(rc.timer);
+                dropCard(rc.rec);
+                return;
+            }
             endCall(activeCall.state === 'talking' ? '☎️ <i>Звонок окончен</i>' : '☎️ <i>' + esc(msg) + '</i>');
             return;
         }
@@ -3216,8 +3253,9 @@ if (document.readyState === 'loading') {
         if (m && normalizeColor(colorArg) === TEL_COLOR) {
             const sender = m[1].trim();
             if (sender.replace(/_/g, ' ').toLowerCase() === ownNick()) return;
-            if (!activeCall) startTalking(sender, false);
-            else if (activeCall.state !== 'talking') startTalking(activeCall.caller, activeCall.outgoing);
+            if (!activeCall) startTalking(sender, false, !tgAnsweredRecently());
+            else if (activeCall.state !== 'talking') startTalking(activeCall.caller, activeCall.outgoing, !tgAnsweredRecently());
+            if (TG_QUIET_INGAME && activeCall && activeCall.quiet) return;   // разговор ведётся в игре — реплики в Telegram не дублируем
             addLine(activeCall, sender, m[2]);
             return;
         }
@@ -3266,6 +3304,35 @@ if (document.readyState === 'loading') {
         if (p.timer) clearTimeout(p.timer);
         finish(p.rec, note);
     }
+
+    // Решение в игре: клавиши Y/N (Offer.js → sendClientEvent(..., 'OnOffersConfirm', 1|0)) или ввод /yes /no в чате.
+    // Из Telegram решение уходит чатом с флагом tgChatBusy, поэтому остальное — действие в игре: карточку убираем без уведомления.
+    function dropPendingOffer() {
+        const p = pendingOffer; if (!p) return;
+        pendingOffer = null;
+        if (p.timer) clearTimeout(p.timer);
+        dropCard(p.rec);
+    }
+    (function () {
+        const prevSCE = window.sendClientEventCustom;
+        const hookedSCE = function (event, ...args) {
+            try { if (TG_QUIET_INGAME && !__c2Stale() && args[0] === 'OnOffersConfirm') dropPendingOffer(); } catch (e) {}
+            if (typeof prevSCE === 'function') return prevSCE.call(this, event, ...args);
+            if (typeof _dlgOrigSendClientEvent === 'function') return _dlgOrigSendClientEvent.call(this, event, ...args);
+        };
+        window.sendClientEventCustom = hookedSCE;
+        try { sendClientEvent = hookedSCE; } catch (e) {}
+
+        const prevChat = (typeof sendChatInput === 'function') ? sendChatInput : window.sendChatInput;
+        const hookedChat = function (input) {
+            try {
+                if (TG_QUIET_INGAME && !__c2Stale() && !tgChatBusy && pendingOffer && typeof input === 'string' && /^\/(yes|no)\s*$/i.test(input.trim())) dropPendingOffer();
+            } catch (e) {}
+            return typeof prevChat === 'function' ? prevChat.apply(this, arguments) : undefined;
+        };
+        window.sendChatInput = hookedChat;
+        try { sendChatInput = hookedChat; } catch (e) {}
+    })();
 
     function showOffer(text) {
         if (!once('offer:' + text)) return;
@@ -3340,7 +3407,8 @@ if (document.readyState === 'loading') {
                 return;
             }
             const p = pendingOffer;
-            sendChatInput(accept ? '/yes' : '/no');
+            tgChatBusy = true;
+            try { sendChatInput(accept ? '/yes' : '/no'); } finally { tgChatBusy = false; }
             closeOffer(accept ? '✅ <b>Принято</b> — отправлено /yes' : '❌ <b>Отклонено</b> — отправлено /no');
             if (accept && OFFER_RISKY_RE.test(p.text)) {
                 sendToTelegram('ℹ️ <i>Если игра попросит подтверждение — диалог придёт отдельным сообщением (' + displayName + ')</i>', true, null);
@@ -3352,6 +3420,7 @@ if (document.readyState === 'loading') {
         if (data.indexOf('phn_p_') === 0 || data.indexOf('phn_h_') === 0) {
             const answer = data.indexOf('phn_p_') === 0;
             const c = activeCall;
+            if (answer) markTgAnswer();
             sendChatInput(answer ? '/p' : '/h');
             if (!c) {   // бот потерял состояние (перезапуск) — команда всё равно ушла
                 editMessageText(chatId, messageId, (answer ? '✅ Отправлено /p' : '📵 Отправлено /h') + ' (' + esc(displayName) + ')', null);
