@@ -20,10 +20,6 @@
 // ║     «Круговое меню» и                                                ║
 // ║     «Просьба о чае» в меню «Лицензёр» (как в игре)                   ║
 // ║                                                                      ║
-// ║   • v1.20: в игровом чате кнопка «Ответ» под репликами собеседника   ║
-// ║     «[Тел] Ник: текст» после ответа на звонок (вручную /p, кнопкой   ║
-// ║     или когда ответили на ваш) → «Место» / «Ценовая политика» —      ║
-// ║     текст уходит прямо в разговор, без /p. Опция TALK_BTN            ║
 // ║   • проверка ник ↔ ID через серверный /id перед /givelic (v1.17):    ║
 // ║     ID не тот / игрока нет → выдача отменяется, ник берётся с сервера ║
 // ║   • v1.19: список игроков (PlayersOnline) УДАЛЁН полностью —         ║
@@ -45,7 +41,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.20';
+var VERSION = 'code3 v1.19';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -78,14 +74,12 @@ var OPTS = (function () {
         RADIAL_ICON: '',         // своя иконка пункта: URL или data:image/...
         CHAT_UNDIM: true,        // чат поверх затемнения круга, пока раскрыт выбор лицензии
         SMS_BTN: true,           // кнопка «Ответ» у входящих SMS → «Место» / «Ценовая политика» (как в pravo.js)
-        TALK_BTN: true,          // кнопка «Ответ» у реплик собеседника «[Тел] Ник: текст» после ответа на звонок → «Место» / «Ценовая политика» (текст уходит прямо в разговор)
         SMS_TEXT: '',            // свой текст пункта «Место» (пусто = «Здравствуйте, нахожусь в правительстве [/gps - Правительство]»)
         SMS_TEXT_PRICE: '',      // свой текст «Ценовой политики» (пусто = собирается из цен лицензий)
         ID_CHECK: true,          // перед /givelic спрашиваем сервер «/id <ID>» и сверяем ник (false — как раньше, без проверки)
         ID_CHECK_STRICT: false,  // true — если сервер на /id не ответил, выдачу отменяем; false — выдаём без проверки
         ID_CHECK_TTL: 15000,     // мс: подтверждённая пара ник↔ID не перепроверяется (перевыдача подряд)
         ID_CHECK_MS: 2500,       // мс: сколько ждать ответ сервера на /id
-        QUIET_INGAME: true,      // выдали лицензию / ответили на звонок В ИГРЕ → в Telegram об этом не пишем (из Telegram — как раньше)
         TRACE: true,             // полное логирование радиального меню / поиска ID (консоль + буфер: __code3.trace())
         DEBUG: false
     };
@@ -810,7 +804,7 @@ function showTypeDialogChecked(id) {
 
 // ══════════════════════════ ВЫДАЧА ЛИЦЕНЗИИ И ПЕРЕВЫДАЧА ══════════════════════════
 // Шлёт /givelic <ID> <тип> <цена>, запоминает данные для перевыдачи и авто-ответов
-function giveByIndex(targetId, idx, nickHint, exact, viaTg) {   // viaTg — выдача запущена кнопкой из Telegram
+function giveByIndex(targetId, idx, nickHint, exact) {
     var c = LIC_TYPES[idx];
     if (!c || targetId === null || targetId === undefined || targetId === '') return false;
     var tid = targetId;
@@ -827,7 +821,7 @@ function giveByIndex(targetId, idx, nickHint, exact, viaTg) {   // viaTg — в�
             log('отправка:', cmd, '| ник:', nk || '—');
             tr('GIVE/отправка', cmd, 'ID ' + tid, 'ник: ' + (nk || '—'), 'тип: ' + c.name, vn ? 'проверено /id' : 'без проверки');
             rawSend(cmd);
-            STATE.last = { targetId: tid, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [], hintRaw: hint || null, verifiedNick: vn, viaTg: !!viaTg };
+            STATE.last = { targetId: tid, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [], hintRaw: hint || null, verifiedNick: vn };
             refreshLastNick();
             setTimeout(updatePanel, 0);
         });
@@ -858,9 +852,8 @@ function reissueSend() {
     });
 }
 // Из «тишины» уходит мгновенно; если лимит исчерпан — одна отложенная перевыдача в первый допустимый момент
-function reissueLic(viaTg) {
+function reissueLic() {
     if (!STATE.last) return false;
-    STATE.last.viaTg = !!viaTg;   // откуда запущена перевыдача: из Telegram — отчёты в Telegram, из игры — тишина
     if (reissueTimer) return true;
     var wait = floodWait(2);
     if (wait <= 0) { reissueSend(); return true; }
@@ -2011,9 +2004,7 @@ function _c3CallOnChat(clean) {
                 if (nowT - kat <= CALL_IN_TTL && kn && _c3Norm(kn) === wn) anum = keys[ki];
             }
             if (!anum && keys.length === 1) anum = keys[0];
-            var tgAns = false;
-            try { tgAns = !!_c3CallJob || (nowT - (window.__hassleTgAns || 0) < 15000); } catch (e) {}
-            _c3CallActive = { num: anum, who: who, at: nowT, out: outAns, quiet: !!OPTS.QUIET_INGAME && (outAns || !tgAns) };   // quiet — ответили/позвонили в игре
+            _c3CallActive = { num: anum, who: who, at: nowT, out: outAns };
             _c3CallIn = {}; _c3CallWho = {}; _c3CallOut = {};
         }
         var j = _c3CallJob;
@@ -2044,7 +2035,6 @@ function _c3CallReply(number, kind, cb) {
     var job = { text: kind === 'price' ? _c3SmsPriceText() : SMS_TEXT, cb: cb, timer: 0 };
     job.timer = setTimeout(function () { if (_c3CallJob === job) _c3CallJobEnd({ ok: false, reason: 'timeout' }); }, CALL_ANS_WAIT);
     _c3CallJob = job;
-    try { window.__hassleTgAns = Date.now(); } catch (e) {}   // /p из Telegram: «Вы ответили на звонок» после этого — не ответ в игре
     sendCmdPaced('/p');
 }
 // Ответ в уже идущем разговоре: просто говорим текст (после /p обычный чат уходит собеседнику). kind: 'place' | 'price'
@@ -2075,8 +2065,6 @@ function _c3SmsPriceText() {
 // Входящее: "SMS: текст | Отправитель: {v:Ник} [т.333351]"; группа 1 = номер
 var SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
 var SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
-var TALK_ACTION = 9002; // действие кнопки «Ответ» у реплик собеседника в разговоре (value = номер собеседника или 0)
-var TALK_BTN_ENABLED = OPTS.TALK_BTN !== false;
 var SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
 var SMS_LABEL = 'Ответ'; // надпись на кнопке (закрыто: стрелка вниз = можно открыть)
 var SMS_LABEL_CLOSE = 'Закрыть'; // надпись, пока выбор раскрыт (стрелка вверх = можно закрыть)
@@ -2161,9 +2149,7 @@ function _c3MarkSmsBtns(root) {
             var btn = imgs[i].parentNode;
             if (!btn || !btn.classList || btn.classList.contains('code3-sms-btn')) continue;
             var p = btn.parentNode;
-            if (!p) continue;
-            var ptxt = String(p.textContent || '');
-            if (ptxt.indexOf('SMS:') === -1 && ptxt.indexOf('[Тел]') === -1) continue;
+            if (!p || String(p.textContent || '').indexOf('SMS:') === -1) continue;
             btn.classList.add('code3-sms-btn');
             if (mobile) btn.classList.add('code3-sms-btn--mobile');
         }
@@ -2292,7 +2278,7 @@ function _c3SmsFit(row, menu, btn) {
         if (full > 0 && w1 + 40 < full) row.classList.add('code3-sms-row--nowrap');
     } catch (e) { try { console.log('[CODE3][SMS] ошибка подгонки рамки', e); } catch (_) {} }
 }
-function _c3SmsExpand(btn, number, kind) {
+function _c3SmsExpand(btn, number) {
     try {
         if (!btn || !btn.parentNode) return false;
         // повторный клик по «Ответ» сворачивает выбор
@@ -2304,7 +2290,7 @@ function _c3SmsExpand(btn, number, kind) {
         menu._c3Btn = btn;
         var opts = [
             { label: SMS_LABEL_PLACE, text: function () { return SMS_TEXT; } },
-            { label: SMS_LABEL_PRICE, text: _c3SmsPriceText, price: true }
+            { label: SMS_LABEL_PRICE, text: _c3SmsPriceText }
         ];
         opts.forEach(function (o) {
             var b = document.createElement('span');
@@ -2312,20 +2298,8 @@ function _c3SmsExpand(btn, number, kind) {
             b.textContent = o.label;
             b.addEventListener('click', function (ev) {
                 try { ev.stopPropagation(); ev.preventDefault(); } catch (_) {}
-                if (kind === 'talk') {
-                    // реплика в разговоре: текст говорим прямо в звонок (без /p и без SMS)
-                    try {
-                        _c3CallSay(number, o.price ? 'price' : 'place', function (r) {
-                            if (!r || r.ok) return;
-                            gtAdd('~r~Ответ не отправлен~n~~w~' + (r.reason === 'not_ready' ? 'Доступно только лицензёру в правительстве' : 'Звонок уже завершён или сброшен'), 3500, 3);
-                        });
-                    } catch (e) {
-                        try { console.log('[CODE3] разговор: ошибка отправки', e); } catch (_) {}
-                    }
-                } else {
-                    try { _c3SmsSend(number, o.text()); } catch (e) {
-                        try { console.log('[CODE3] SMS: ошибка отправки', e); } catch (_) {}
-                    }
+                try { _c3SmsSend(number, o.text()); } catch (e) {
+                    try { console.log('[CODE3] SMS: ошибка отправки', e); } catch (_) {}
                 }
                 _c3SmsCollapse(menu); // отправили -> выбор убирается, остаётся одна кнопка «Ответ»
             });
@@ -2372,24 +2346,6 @@ function _c3AddSmsButton(message) {
     } catch (e) { return message; }
 }
 
-// Реплика собеседника в разговоре «[Тел] Ник: текст» (phone.pwn:2627) -> дописываем кнопку «Ответ».
-// Только если разговор уже принят (_c3CallActive) и пишет именно наш собеседник: свои реплики и «[Тел]» чужих звонков рядом остаются без кнопки.
-var TALK_RE = /^\s*\[Тел\]\s*(.+?):\s+\S/;
-function _c3AddTalkButton(message) {
-    try {
-        if (!TALK_BTN_ENABLED || !SMS_BTN_ENABLED || typeof message !== 'string') return message;
-        if (message.indexOf('[Тел]') === -1 || message.indexOf('{btn:') !== -1) return message;
-        if (!licensorReady()) return message;
-        var a = _c3CallActive;
-        if (!a || Date.now() - a.at > CALL_ACTIVE_TTL) return message;
-        var clean = message.replace(/\{[0-9a-fA-F]{6}\}/g, '').replace(/\{v:([^}]*)\}/g, '$1');
-        var m = clean.match(TALK_RE);
-        if (!m || _c3Norm(_c3CleanName(m[1])) !== _c3Norm(a.who)) return message;
-        var num = String(a.num || '').replace(/\D/g, '');
-        return message + ' {btn:' + SMS_ICON + ':' + TALK_ACTION + ':' + (num || '0') + '}';
-    } catch (e) { return message; }
-}
-
 (function _c3HookChatAction() {
     var tries = 0;
     (function hook() {
@@ -2400,13 +2356,6 @@ function _c3AddTalkButton(message) {
         }
         if (orig.__code3Sms) return;   // уже обёрнуто (повторный запуск после cleanup обёртку снимает)
         var wrapped = function (button, action, value) {
-            if (!_dead && String(action) === String(TALK_ACTION)) {
-                var _tb = _c3SmsLastBtn; _c3SmsLastBtn = null;
-                var _tv = String(value == null ? '' : value).replace(/\D/g, '');
-                if (_tv === '0') _tv = '';
-                if (!_c3SmsExpand(_tb, _tv, 'talk')) _c3CallSay(_tv, 'place', function () {});   // кнопку в DOM не нашли - шлём «Место» сразу
-                return;
-            }
             if (!_dead && String(action) === String(SMS_ACTION)) {
                 var _b = _c3SmsLastBtn; _c3SmsLastBtn = null;
                 // Раскрываем выбор «Место / Ценовая политика»; если кнопку в DOM не нашли - шлём «Место» как раньше
@@ -2437,7 +2386,7 @@ function ensureChatAddHook() {
             if (!_dead && typeof message === 'string') {
                 try { onChat(message); } catch (er) { warn('onChat:', er); }
                 try {
-                    var m2 = _c3AddTalkButton(_c3AddSmsButton(message));
+                    var m2 = _c3AddSmsButton(message);
                     if (m2 !== message) { args = [].slice.call(arguments); args[0] = m2; }
                 } catch (er2) {}
             }
@@ -2626,8 +2575,8 @@ window.__code3 = {
     // API для Telegram-вкладки «Лицензёр» (Code2.js)
     types: LIC_TYPES,
     ready: licensorReady,
-    give: function (id, idx) { return licensorReady() && giveByIndex(String(id), idx, undefined, undefined, true); },   // вызывается только из Telegram-вкладки
-    reissue: function () { if (!licensorReady() || !STATE.last) return false; reissueLic(true); return true; },   // вызывается только из Telegram-вкладки
+    give: function (id, idx) { return licensorReady() && giveByIndex(String(id), idx); },
+    reissue: function () { if (!licensorReady() || !STATE.last) return false; reissueLic(); return true; },
     // Переключатели из меню лицензёра (то же, что пункты «Круговое меню» / «Просьба о чае» в игре); возвращают новое состояние или null
     toggleTea: function () { if (!licensorReady()) return null; toggleTea(); return !!STATE.tea; },
     toggleCircle: function () { if (!licensorReady()) return null; toggleCircle(); return !!STATE.circle; },
@@ -2642,7 +2591,7 @@ window.__code3 = {
     // Ответ на входящий звонок в разговоре: /p + текст «Место» / «Ценовая политика»; результат приходит в cb({ ok, text, reason })
     callReply: function (number, kind, cb) { _c3CallReply(number, kind, cb); },
     // Разговор, на который уже ответили: { num, who } или null (нужен Telegram-вкладке, чтобы узнать, чьи реплики пересылать)
-    callActive: function () { var a = _c3CallActive; return a && Date.now() - a.at <= CALL_ACTIVE_TTL ? { num: a.num, who: a.who, quiet: !!a.quiet } : null; },
+    callActive: function () { var a = _c3CallActive; return a && Date.now() - a.at <= CALL_ACTIVE_TTL ? { num: a.num, who: a.who } : null; },
     // Ответ текстом в идущем разговоре (без /p): cb({ ok, text, reason })
     callSay: function (number, kind, cb) { _c3CallSay(number, kind, cb); },
     last: function () { return STATE.last; },
@@ -2855,16 +2804,10 @@ try { (function () {
         ];
     }
     function arIsRow(r) { return r.some(function (b) { return b && typeof b.callback_data === 'string' && b.callback_data.indexOf(AR) === 0; }); }
-    function arMarkup(cq, num, kind, open) {   // клавиатура сообщения без наших строк + свёрнутая/раскрытая «Ответ» (на том же месте, где была)
-        let rows = [], at = -1;
-        try {
-            const all = (cq.message && cq.message.reply_markup && cq.message.reply_markup.inline_keyboard) || [];
-            at = all.findIndex(arIsRow);
-            rows = all.filter(function (r) { return !arIsRow(r); });
-        } catch (e) {}
-        const add = open ? arOptionRows(num, kind) : [arOpenRow(num, kind)];
-        if (at < 0 || at >= rows.length) return { inline_keyboard: rows.concat(add) };
-        return { inline_keyboard: rows.slice(0, at).concat(add, rows.slice(at)) };
+    function arMarkup(cq, num, kind, open) {   // клавиатура сообщения без наших строк + свёрнутая/раскрытая «Ответ»
+        let rows = [];
+        try { rows = ((cq.message && cq.message.reply_markup && cq.message.reply_markup.inline_keyboard) || []).filter(function (r) { return !arIsRow(r); }); } catch (e) {}
+        return { inline_keyboard: rows.concat(open ? arOptionRows(num, kind) : [arOpenRow(num, kind)]) };
     }
     const AR_FAIL = {
         no_call: 'Звонок уже завершён или сброшен — ответ не отправлен',
@@ -2892,32 +2835,10 @@ try { (function () {
     const CARD_CALL_RE = /^📞\s*<b>Входящий звонок[^\n]*<\/b>\n[\s\S]*?Номер:\s*<code>(\d+)<\/code>/;
     const CARD_SMS_RE = /^✉\uFE0F?\s*<b>SMS[^\n]*<\/b>\n[\s\S]*?📱\s*<code>(\d+)<\/code>/;
     const _cards = [];   // { num, kind, at } — карточки Code2, к которым «Ответ» уже дописан
-    // Карточка «Идёт разговор» (Code2: ответили на звонок кнопкой из Telegram) — сразу даём «Ответ» (Место / Ценовая политика), не дожидаясь реплики собеседника.
-    // Строка ставится под «Положить трубку»; текст уходит прямо в разговор (без /p).
-    const TALK_CARD_BTN = true;
-    const CARD_TALK_RE = /^📞\s*<b>(?:Звонок|Исходящий звонок)[^\n]*<\/b>[\s\S]*?Идёт разговор/;
     if (typeof tgApi === 'function' && !tgApi.__licApiWrapped) {
         const origApi = tgApi;
         const wrappedApi = function (method, payload, onSuccess, onError, retryCount) {
             try {
-                if ((method === 'sendMessage' || method === 'editMessageText') && !retryCount && TALK_CARD_BTN && payload && typeof payload.text === 'string' &&
-                    typeof payload.reply_markup === 'string' && CARD_TALK_RE.test(payload.text) && ready()) {
-                    const tkb = JSON.parse(payload.reply_markup);
-                    if (tkb && Array.isArray(tkb.inline_keyboard) && !tkb.inline_keyboard.some(arIsRow)) {
-                        const nm = payload.text.match(/Номер:\s*<code>(\d+)<\/code>/), tnum = nm ? nm[1] : '';
-                        tkb.inline_keyboard.splice(Math.min(1, tkb.inline_keyboard.length), 0, arOpenRow(tnum, 'talk'));
-                        payload = Object.assign({}, payload, { reply_markup: JSON.stringify(tkb) });
-                        const tcid = payload.chat_id, trec = { num: tnum, kind: 'talk', pos: 1 };
-                        if (method === 'editMessageText') _arMsgs[tcid + ':' + payload.message_id] = trec;
-                        else {
-                            const prevOkT = onSuccess;
-                            onSuccess = function (data) {
-                                try { if (data && data.result) _arMsgs[tcid + ':' + data.result.message_id] = trec; } catch (e) {}
-                                if (typeof prevOkT === 'function') prevOkT(data);
-                            };
-                        }
-                    }
-                }
                 if (method === 'sendMessage' && !retryCount && payload && typeof payload.text === 'string' && typeof payload.reply_markup === 'string' && ready()) {
                     const mc = CALL_CARD_BTN ? payload.text.match(CARD_CALL_RE) : null, ms = mc ? null : payload.text.match(CARD_SMS_RE);
                     if (mc || ms) {
@@ -3003,7 +2924,6 @@ try { (function () {
         let act = null;
         try { act = api().callActive && api().callActive(); } catch (e) {}
         if (!act || normNick(tm[1]) !== normNick(act.who)) return false;   // не наш собеседник
-        if (act.quiet) return true;                                          // разговор ведётся в игре — в Telegram не дублируем
         const who = tm[1].trim(), text = tm[2].trim(), num = act.num || '';
         if (!text) return true;
         if (!once('talk|' + num + '|' + text, 1500)) return true;   // дубль строки чата
@@ -3184,9 +3104,7 @@ try { (function () {
                 }
                 const ar = _arMsgs[chatId + ':' + messageId];   // уведомление о SMS/звонке: «Ответ» не пропадает после «Пауза» / «Движения» и т.п.
                 if (ar && markup && Array.isArray(markup.inline_keyboard) && ready() && !markup.inline_keyboard.some(arIsRow)) {
-                    const rr = markup.inline_keyboard.slice(), arRow = arOpenRow(ar.num, ar.kind);
-                    if (typeof ar.pos === 'number') rr.splice(Math.min(ar.pos, rr.length), 0, arRow); else rr.push(arRow);
-                    markup = { inline_keyboard: rr };
+                    markup = { inline_keyboard: markup.inline_keyboard.concat([arOpenRow(ar.num, ar.kind)]) };
                 }
             } catch (e) {}
             return origEditMarkup.call(this, chatId, messageId, markup);
@@ -3280,7 +3198,6 @@ try { (function () {
         if (!ready()) return false;
         const l = lastGive();
         if (!l || !l.at || Date.now() - l.at > EVENT_WINDOW) return false;
-        if (OPTS.QUIET_INGAME && !l.viaTg) return false;   // выдали сами в игре — ответ сервера вы и так видите в чате
         const ev = EVENTS.find(function (e) { return e.re.test(text); });
         if (!ev) return false;
         if (/^\s*-\s/.test(text) || PLAYER_MSG_RE.test(text)) return false;       // строки чата игроков — не события
