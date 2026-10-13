@@ -3105,8 +3105,8 @@ try { (function () {
     if (typeof showFunctionsMenu === 'function' && !showFunctionsMenu.__licPatched) {
         const origShow = showFunctionsMenu;
         const patched = function () {
-            const origEdit = editMessageReplyMarkup;
-            editMessageReplyMarkup = function (chatId, messageId, markup) {
+            const origEdit = editMessageReplyMarkup, origEditText = editMessageText;
+            const inject = function (markup) {
                 try {
                     if (ready() && markup && Array.isArray(markup.inline_keyboard)) {
                         const rows = markup.inline_keyboard;
@@ -3114,10 +3114,12 @@ try { (function () {
                             [btn('🪪 Лицензёр ' + (config.licAllMessages ? '🟢' : '🔴'), PFX + 'menu|' + uniqueId)]);
                     }
                 } catch (e) {}
-                return origEdit.apply(this, arguments);
             };
+            // меню «Функции» может уйти и через editMessageReplyMarkup, и через editMessageText (когда возвращается текст сообщения)
+            editMessageReplyMarkup = function (chatId, messageId, markup) { inject(markup); return origEdit.apply(this, arguments); };
+            editMessageText = function (chatId, messageId, text, markup) { inject(markup); return origEditText.apply(this, arguments); };
             try { return origShow.apply(this, arguments); }
-            finally { editMessageReplyMarkup = origEdit; }
+            finally { editMessageReplyMarkup = origEdit; editMessageText = origEditText; }
         };
         patched.__licPatched = true;
         showFunctionsMenu = patched;

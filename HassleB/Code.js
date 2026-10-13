@@ -3034,10 +3034,128 @@ function tgApi(method, payload, onSuccess, onError, _retryCount) {
 function deleteMessage(chatId, messageId) {
     tgApi('deleteMessage', { chat_id: chatId, message_id: messageId });
 }
+
+// ── CTL: «базовое» сообщение (текст + кнопки) — чтобы «Назад» из меню возвращал именно его ──
+// Уведомление/карточка с кнопкой «Управление» запоминается в момент нажатия; пока человек ходит по меню
+// (текст меню перезаписывает сообщение), «Назад» восстанавливает исходный текст и исходную клавиатуру.
+// Хранилище на window — переживает /reload.
+var _ctl = window.__hassleCtl = window.__hassleCtl || { snap: {}, dirty: {} };
+_ctl.restoring = false;
+_ctl.cur = null;   // {chatId, messageId} — сообщение, с которого пришла текущая кнопка (на время синхронной обработки)
+function _ctlKey(chatId, messageId) { return chatId + ':' + messageId; }
+function _ctlIsWelcome(chatId, messageId) {
+    try { const ids = window.__hassleWelcomeIds || {}; return ids[chatId] !== undefined && String(ids[chatId]) === String(messageId); } catch (e) { return false; }
+}
+// text + entities (как их отдаёт Telegram) → HTML для parse_mode=HTML
+function _ctlTgToHtml(text, ents) {
+    text = String(text == null ? '' : text);
+    const esc = function (s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    if (!ents || !ents.length) return esc(text);
+    const tags = function (e) {
+        switch (e.type) {
+            case 'bold': return ['<b>', '</b>'];
+            case 'italic': return ['<i>', '</i>'];
+            case 'underline': return ['<u>', '</u>'];
+            case 'strikethrough': return ['<s>', '</s>'];
+            case 'code': return ['<code>', '</code>'];
+            case 'pre': return ['<pre>', '</pre>'];
+            case 'spoiler': return ['<tg-spoiler>', '</tg-spoiler>'];
+            case 'blockquote': return ['<blockquote>', '</blockquote>'];
+            case 'text_link': return ['<a href="' + esc(String(e.url || '')).replace(/"/g, '&quot;') + '">', '</a>'];
+        }
+        return null;
+    };
+    const sorted = ents.slice().sort(function (a, b) { return a.offset - b.offset || b.length - a.length; });
+    const opens = {}, closes = {};
+    sorted.forEach(function (e) {
+        const t = tags(e);
+        if (!t) return;
+        (opens[e.offset] = opens[e.offset] || []).push(t[0]);
+        (closes[e.offset + e.length] = closes[e.offset + e.length] || []).unshift(t[1]);   // внутренний тег закрывается первым
+    });
+    let out = '';
+    for (let i = 0; i <= text.length; i++) {
+        if (closes[i]) out += closes[i].join('');
+        if (opens[i]) out += opens[i].join('');
+        if (i < text.length) out += esc(text[i]);
+    }
+    return out;
+}
+// Вызывается при каждом нашем callback'е (Code.js / Code2.js)
+function _ctlOnCallback(cq) {
+    try {
+        const m = cq && cq.message;
+        if (!m || !m.chat) return;
+        const chatId = m.chat.id, messageId = m.message_id, key = _ctlKey(chatId, messageId);
+        _ctl.cur = { chatId: chatId, messageId: messageId };
+        setTimeout(function () { _ctl.cur = null; }, 0);
+        const rows = (m.reply_markup && m.reply_markup.inline_keyboard) || [];
+        // «базовое» состояние — на клавиатуре есть «Управление» (уведомления, карточки, welcome)
+        const isBase = rows.some(function (r) { return r.some(function (b) { return b && typeof b.callback_data === 'string' && b.callback_data.indexOf('show_controls_') === 0; }); });
+        if (!isBase) return;
+        _ctl.dirty[key] = false;
+        if (_ctlIsWelcome(chatId, messageId)) return;
+        _ctl.snap[key] = {
+            html: _ctlTgToHtml(m.text != null ? m.text : (m.caption || ''), m.entities || m.caption_entities),
+            rows: rows.map(function (r) { return r.map(function (b) { return Object.assign({}, b); }); })
+        };
+        const keys = Object.keys(_ctl.snap);
+        if (keys.length > 300) keys.slice(0, 100).forEach(function (k) { delete _ctl.snap[k]; delete _ctl.dirty[k]; });
+    } catch (e) { try { debugLog('[CTL] ' + e.message); } catch (e2) {} }
+}
+// Базовая клавиатура: строки уведомления (Ответить/Пауза/Авторизация/Управление) обновляем свежими (статус паузы/автовхода),
+// остальные строки (быстрые кнопки лицензий, «Ответ ▾» и т.п.) оставляем как были
+function _ctlBaseMarkup(s) {
+    let fresh = null;
+    try { fresh = getNotificationReplyMarkup().inline_keyboard; } catch (e) {}
+    const has = function (row, p) { return row.some(function (b) { return b && typeof b.callback_data === 'string' && b.callback_data.indexOf(p) === 0; }); };
+    const out = s.rows.map(function (row) {
+        if (fresh) {
+            if (has(row, 'admin_reply_') && row.length === fresh[0].length) return fresh[0].slice();
+            if ((has(row, 'pause_enter_') || has(row, 'pause_exit_')) && row.length === fresh[1].length) return fresh[1].slice();
+            if (row.length === 1 && has(row, 'show_controls_')) return fresh[2].slice();
+        }
+        return row.map(function (b) { return Object.assign({}, b); });
+    });
+    return { inline_keyboard: out };
+}
+// Вернуть сообщение целиком (текст + кнопки) к исходному
+function _ctlRestoreBase(chatId, messageId) {
+    const key = _ctlKey(chatId, messageId), s = _ctl.snap[key];
+    if (!s || _ctlIsWelcome(chatId, messageId)) return false;
+    _ctl.restoring = true;
+    try { editMessageText(chatId, messageId, s.html, _ctlBaseMarkup(s)); } finally { _ctl.restoring = false; }
+    _ctl.dirty[key] = false;
+    return true;
+}
+// Показать меню (клавиатуру): если текст сообщения успел перезаписаться другим меню — возвращаем и текст
+function _ctlShowMenu(chatId, messageId, markup) {
+    const key = _ctlKey(chatId, messageId);
+    if (_ctl.dirty[key]) {
+        let text = null;
+        if (_ctlIsWelcome(chatId, messageId)) text = buildWelcomeText();
+        else if (_ctl.snap[key]) text = _ctl.snap[key].html;
+        if (text !== null) {
+            _ctl.restoring = true;
+            try { editMessageText(chatId, messageId, text, markup); } finally { _ctl.restoring = false; }
+            _ctl.dirty[key] = false;
+            return;
+        }
+    }
+    editMessageReplyMarkup(chatId, messageId, markup);
+}
+// «Назад» из движений / других подменю → клавиатура исходного сообщения
+function _ctlBackToBase(chatId, messageId) {
+    const key = _ctlKey(chatId, messageId), s = _ctl.snap[key];
+    if (s && _ctl.dirty[key] && _ctlRestoreBase(chatId, messageId)) return;
+    if (s) { editMessageReplyMarkup(chatId, messageId, _ctlBaseMarkup(s)); return; }
+    editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
+}
 function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
     tgApi('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined });
 }
 function editMessageText(chatId, messageId, text, replyMarkup = null) {
+    if (!_ctl.restoring) _ctl.dirty[_ctlKey(chatId, messageId)] = true;   // текст сообщения перезаписан меню — «Назад» должен его вернуть
     tgApi('editMessageText', {
         chat_id: chatId,
         message_id: messageId,
@@ -3464,7 +3582,9 @@ function sendWelcomeMessage(editOnly = false) {
         const existingId = globalState.welcomeMessageIds[chatId];
         if (existingId) {
             // Редактируем уже отправленное сообщение — не шлём новое
-            editMessageText(chatId, existingId, message, replyMarkup);
+            _ctl.restoring = true;
+            try { editMessageText(chatId, existingId, message, replyMarkup); } finally { _ctl.restoring = false; }
+            _ctl.dirty[_ctlKey(chatId, existingId)] = false;
         } else if (editOnly) {
             // Нет сохранённого ID — не создаём новое, просто пропускаем
             debugLog(`[WELCOME] Чат ${chatId}: welcome ещё не отправлен, пропускаем обновление`);
@@ -3494,6 +3614,11 @@ function sendWelcomeMessage(editOnly = false) {
             });
         }
     });
+    // Настройку переключили кнопкой под УВЕДОМЛЕНИЕМ (не под welcome) — возвращаем и его к исходному виду,
+    // иначе оно так и висело бы в подменю «ВКЛ/ВЫКЛ»
+    try {
+        if (editOnly && _ctl.cur && !_ctlIsWelcome(_ctl.cur.chatId, _ctl.cur.messageId)) _ctlRestoreBase(_ctl.cur.chatId, _ctl.cur.messageId);
+    } catch (e) {}
 }
 // END WELCOME MESSAGE MODULE //
 
@@ -3986,9 +4111,16 @@ function showControlsMenu(chatId, messageId) {
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
-    // editMessageText (а не editMessageReplyMarkup) — восстанавливает и текст, и клавиатуру.
-    // Это нужно для корректного возврата из меню, которые перезаписывали текст (например, настройки уведомлений).
-    editMessageText(chatId, messageId, buildWelcomeText(), replyMarkup);
+    if (_ctlIsWelcome(chatId, messageId)) {
+        // welcome: editMessageText (а не editMessageReplyMarkup) — восстанавливает и текст, и клавиатуру
+        // (нужно для возврата из меню, которые перезаписывали текст, например настройки уведомлений).
+        _ctl.restoring = true;
+        try { editMessageText(chatId, messageId, buildWelcomeText(), replyMarkup); } finally { _ctl.restoring = false; }
+        _ctl.dirty[_ctlKey(chatId, messageId)] = false;
+    } else {
+        // уведомление / карточка: текст НЕ заменяем welcome-текстом — остаётся исходный (при необходимости возвращаем его)
+        _ctlShowMenu(chatId, messageId, replyMarkup);
+    }
 }
 
 // ── Единое меню всех функций (заменяет showLocalFunctionsMenu + showGlobalFunctionsMenu) ──
@@ -4029,7 +4161,8 @@ function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
             [createButton("⬅️ Вернуться назад", `show_controls_${uid}`)]
         ]
     };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    // текст возвращается, если до этого его перезаписало другое меню (настройки/собес/отыгровка...)
+    _ctlShowMenu(chatId, messageId, replyMarkup);
 }
 
 // ── Выбор скоупа: "Для этого аккаунта" / "Для всех аккаунтов" ──
@@ -4322,13 +4455,15 @@ function showAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showAFKReconnectMenu(chatId, messageId, uniqueIdParam, selectedMode) {
+    // «Без пауз» пришли из выбора «С паузами / Без пауз», а не из подменю «5/5 / Рандом» — назад туда же
+    const _backTo = selectedMode === 'none' ? `global_afk_n_${uniqueIdParam}` : `afk_n_with_pauses_${uniqueIdParam}`;
     const replyMarkup = {
         inline_keyboard: [
             [
                 createButton("Реконнект 🟢", `afk_n_reconnect_on_${uniqueIdParam}_${selectedMode}`, 'success'),
                 createButton("Реконнект 🔴", `afk_n_reconnect_off_${uniqueIdParam}_${selectedMode}`, 'danger')
             ],
-            [createButton("⬅️ Вернуться назад", `afk_n_with_pauses_${uniqueIdParam}`)]
+            [createButton("⬅️ Вернуться назад", _backTo)]
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -4501,7 +4636,11 @@ function hideControlsMenu(chatId, messageId) {
         sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
         return;
     }
-    // Восстанавливаем полную welcome-клавиатуру (Управление + Инфо об аккаунте + Настройки уведомлений)
+    // welcome → полная welcome-клавиатура (Управление + Инфо об аккаунте + Настройки уведомлений)
+    if (_ctlIsWelcome(chatId, messageId)) { _ctlShowMenu(chatId, messageId, buildWelcomeKeyboard()); return; }
+    // уведомление / карточка → исходные текст и кнопки (как были до нажатия «Управление»)
+    const _s = _ctl.snap[_ctlKey(chatId, messageId)];
+    if (_s) { _ctlBackToBase(chatId, messageId); return; }
     editMessageReplyMarkup(chatId, messageId, buildWelcomeKeyboard());
 }
 // END MENU MODULE //
@@ -5088,6 +5227,7 @@ function processUpdates(updates) {
             }
             // Отвечаем только если кнопка наша — один бот, без конкуренции
             answerCallbackQuery(callbackQueryId);
+            _ctlOnCallback(update.callback_query);   // запоминаем исходное сообщение (текст + кнопки) для «Назад»
             // Обработка команд
             if (message.startsWith(`show_controls_`)) {
                 showControlsMenu(chatId, messageId);
@@ -5389,7 +5529,7 @@ function processUpdates(updates) {
                     sendToTelegram(errorMsg, false, null);
                 }
             } else if (message.startsWith("back_to_notification_")) {
-                editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
+                _ctlBackToBase(chatId, messageId);
             } else if (message.startsWith("pause_enter_")) {
                 // Уйти на паузу
                 try {

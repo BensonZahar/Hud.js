@@ -2446,7 +2446,9 @@ showFunctionsMenu = function (chatId, messageId, uniqueIdParam) {
             [createButton("⬅️ Вернуться назад", `show_controls_${uid}`)]
         ]
     };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    // текст возвращается, если до этого его перезаписало другое меню (собес, настройки, отыгровка...)
+    if (typeof _ctlShowMenu === 'function') _ctlShowMenu(chatId, messageId, replyMarkup);
+    else editMessageReplyMarkup(chatId, messageId, replyMarkup);
 };
 
 function showSobesScopeMenu(chatId, messageId, uid) {
@@ -2509,6 +2511,7 @@ function _sobesHandleCallback(cq) {
     const messageId = cq.message.message_id;
     const uid = _sobesParseUid(data);
     answerCallbackQuery(cq.id);
+    if (typeof _ctlOnCallback === 'function') _ctlOnCallback(cq);   // исходное сообщение для «Назад»
     if (data.startsWith('sobes_scope_')) { showSobesScopeMenu(chatId, messageId, uid); return; }
     if (data.startsWith('sobes_orgs_')) {
         showSobesOrgsMenu(chatId, messageId, data.startsWith('sobes_orgs_global_') ? 'global' : 'local', uid);
@@ -3331,6 +3334,7 @@ if (document.readyState === 'loading') {
     function handleButton(cq) {
         const data = cq.data, chatId = cq.message.chat.id, messageId = cq.message.message_id;
         answerCallbackQuery(cq.id);
+        if (typeof _ctlOnCallback === 'function') _ctlOnCallback(cq);   // исходное сообщение для «Назад»
 
         // предложения
         if (data.indexOf('offer_yes_') === 0 || data.indexOf('offer_no_') === 0) {
@@ -3453,8 +3457,8 @@ if (document.readyState === 'loading') {
     if (typeof showFunctionsMenu === 'function' && !showFunctionsMenu.__phnPatched) {
         const origShow = showFunctionsMenu;
         const patchedShow = function () {
-            const origEdit = editMessageReplyMarkup;
-            editMessageReplyMarkup = function (chatId, messageId, markup) {
+            const origEdit = editMessageReplyMarkup, origEditText = editMessageText;
+            const inject = function (markup) {
                 try {
                     if (markup && Array.isArray(markup.inline_keyboard)) {
                         const uid = uniqueId;
@@ -3466,10 +3470,12 @@ if (document.readyState === 'loading') {
                         rows.splice(Math.max(0, rows.length - 1), 0, ...add);
                     }
                 } catch (e) {}
-                return origEdit.apply(this, arguments);
             };
+            // меню «Функции» может уйти и через editMessageReplyMarkup, и через editMessageText (когда возвращается текст сообщения)
+            editMessageReplyMarkup = function (chatId, messageId, markup) { inject(markup); return origEdit.apply(this, arguments); };
+            editMessageText = function (chatId, messageId, text, markup) { inject(markup); return origEditText.apply(this, arguments); };
             try { return origShow.apply(this, arguments); }
-            finally { editMessageReplyMarkup = origEdit; }
+            finally { editMessageReplyMarkup = origEdit; editMessageText = origEditText; }
         };
         patchedShow.__phnPatched = true;
         showFunctionsMenu = patchedShow;
