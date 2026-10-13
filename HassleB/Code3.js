@@ -14,9 +14,10 @@
 // ║   • /dahk — меню лицензёра; /givelic и /givelic <ID> показывают наши ║
 // ║     диалоги поверх штатной команды                                   ║
 // ║   • кнопка «Ответ» у входящих SMS → «Место» / «Ценовая политика»     ║
-// ║   • Telegram: «Ответ» под входящим SMS (ответ SMS) и под сообщениями ║
-// ║     собеседника в разговоре — после ответа на входящий звонок или   ║
-// ║     когда ответили на ваш исходящий (текст прямо в разговор, без /p);║
+// ║   • Telegram: «Ответ» под входящим SMS (ответ SMS), на карточке      ║
+// ║     «Идёт разговор» (сразу после того как вы ответили на звонок) и  ║
+// ║     под сообщениями собеседника в разговоре — входящий или          ║
+// ║     исходящий звонок (текст прямо в разговор, без /p);              ║
 // ║     «Круговое меню» и                                                ║
 // ║     «Просьба о чае» в меню «Лицензёр» (как в игре)                   ║
 // ║                                                                      ║
@@ -41,7 +42,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.19';
+var VERSION = 'code3 v1.20';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -2791,7 +2792,7 @@ try { (function () {
     // callback_data: lic|aro|<номер>|<s/c>|<uid> (раскрыть), lic|arb|<номер>|<s/c>|<uid> (свернуть),
     //                lic|ars|<номер>|<0 место / 1 цены>|<uid> (SMS), lic|arc|<номер>|<0/1>|<uid> (в звонке)
     const AR = PFX + 'ar';
-    const CALL_CARD_BTN = false;   // true — вернуть «Ответ» ещё и на карточку входящего звонка (ответ /p + текст); по умолчанию кнопка только под репликами собеседника после ответа на звонок
+    const CALL_CARD_BTN = false;   // true — вернуть «Ответ» ещё и на карточку ВХОДЯЩЕГО звонка до ответа (ответ /p + текст); по умолчанию «Ответ» появляется на карточке «Идёт разговор» (после ответа на звонок) и под репликами собеседника
     const _arMsgs = {};   // 'chatId:messageId' → { num, kind } — сообщения с кнопкой «Ответ» (переживают перерисовку клавиатуры)
     function arK(kind) { return kind === 'call' ? 'c' : kind === 'talk' ? 't' : 's'; }
     function arKind(k) { return k === 'c' ? 'call' : k === 't' ? 'talk' : 'sms'; }
@@ -2835,23 +2836,37 @@ try { (function () {
     const CARD_CALL_RE = /^📞\s*<b>Входящий звонок[^\n]*<\/b>\n[\s\S]*?Номер:\s*<code>(\d+)<\/code>/;
     const CARD_SMS_RE = /^✉\uFE0F?\s*<b>SMS[^\n]*<\/b>\n[\s\S]*?📱\s*<code>(\d+)<\/code>/;
     const _cards = [];   // { num, kind, at } — карточки Code2, к которым «Ответ» уже дописан
+    // Карточка РАЗГОВОРА из Code2 (модуль PHONE & OFFERS): «📞 <b>Звонок (ник)</b>\n👤 …\n📱 Номер: <code>N</code>\n🟢 <i>Идёт разговор…</i>»
+    // (для исходящего — «Исходящий звонок»). Это то самое сообщение с «Положить трубку / Ответить / Движения / Пауза…».
+    // Code2 шлёт его через tgApi('sendMessage') (если бот не видел начала звонка) и правит через editMessageText (когда вы ответили на звонок).
+    // Дописываем к нему «💬 Ответ ▾» — «Место» / «Ценовая политика» уходят сразу в разговор (без /p), как под репликой собеседника.
+    const CARD_TALK_RE = /^📞\s*<b>(?:Звонок|Исходящий звонок)[^\n]*<\/b>\n[\s\S]*?🟢\s*<i>Идёт разговор/;
+    const CARD_NUM_RE = /Номер:\s*<code>(\d+)<\/code>/;
+    function talkCardNum(text) {   // null — это не карточка разговора; иначе номер собеседника ('' если в карточке его нет)
+        if (typeof text !== 'string' || !CARD_TALK_RE.test(text)) return null;
+        const nm = text.match(CARD_NUM_RE);
+        return nm ? nm[1] : '';
+    }
     if (typeof tgApi === 'function' && !tgApi.__licApiWrapped) {
         const origApi = tgApi;
         const wrappedApi = function (method, payload, onSuccess, onError, retryCount) {
             try {
                 if (method === 'sendMessage' && !retryCount && payload && typeof payload.text === 'string' && typeof payload.reply_markup === 'string' && ready()) {
-                    const mc = CALL_CARD_BTN ? payload.text.match(CARD_CALL_RE) : null, ms = mc ? null : payload.text.match(CARD_SMS_RE);
-                    if (mc || ms) {
-                        const num = (mc || ms)[1], kind = mc ? 'call' : 'sms';
+                    const tn = talkCardNum(payload.text);   // карточка разговора (отправлена сразу в состоянии «Идёт разговор»)
+                    const mc = (tn === null && CALL_CARD_BTN) ? payload.text.match(CARD_CALL_RE) : null, ms = (tn !== null || mc) ? null : payload.text.match(CARD_SMS_RE);
+                    if (tn !== null || mc || ms) {
+                        const num = tn !== null ? tn : (mc || ms)[1], kind = tn !== null ? 'talk' : mc ? 'call' : 'sms';
                         const kb = JSON.parse(payload.reply_markup);
                         if (kb && Array.isArray(kb.inline_keyboard) && !kb.inline_keyboard.some(arIsRow)) {
                             kb.inline_keyboard.push(arOpenRow(num, kind));
                             payload = Object.assign({}, payload, { reply_markup: JSON.stringify(kb) });
-                            _cards.push({ num: num, kind: kind, at: Date.now() });
-                            while (_cards.length > 20) _cards.shift();
+                            if (tn === null) {
+                                _cards.push({ num: num, kind: kind, at: Date.now() });
+                                while (_cards.length > 20) _cards.shift();
+                            }
                             const prevOk = onSuccess, chatId = payload.chat_id;
                             onSuccess = function (data) {
-                                try { if (data && data.result) _arMsgs[chatId + ':' + data.result.message_id] = { num: num, kind: kind }; } catch (e) {}
+                                try { if (data && data.result) _arMsgs[chatId + ':' + data.result.message_id] = { num: num, kind: kind, talkCard: tn !== null }; } catch (e) {}
                                 if (typeof prevOk === 'function') prevOk(data);
                             };
                         }
@@ -2862,6 +2877,29 @@ try { (function () {
         };
         wrappedApi.__licApiWrapped = true;
         tgApi = wrappedApi;
+    }
+    // Правка карточки разговора: когда вы ответили на звонок, Code2 делает editMessageText(…, «🟢 Идёт разговор…», кнопки) —
+    // добавляем «Ответ ▾» и запоминаем сообщение (после «Пауза» / «Движения» / «Управление» кнопка возвращается через editMessageReplyMarkup).
+    // Когда карточка меняется на другой статус («Отправлено /h…», «Звонок окончен») или кнопки снимаются — забываем её.
+    if (typeof editMessageText === 'function' && !editMessageText.__licTalkWrapped) {
+        const origEditText = editMessageText;
+        const wrappedEditText = function (chatId, messageId, text, replyMarkup) {
+            try {
+                const key = chatId + ':' + messageId, ent = _arMsgs[key], tn = talkCardNum(text);
+                const kbOk = !!(replyMarkup && Array.isArray(replyMarkup.inline_keyboard));
+                if (tn !== null && kbOk && ready()) {
+                    if (!replyMarkup.inline_keyboard.some(arIsRow)) {
+                        replyMarkup = { inline_keyboard: replyMarkup.inline_keyboard.concat([arOpenRow(tn, 'talk')]) };
+                    }
+                    _arMsgs[key] = { num: tn, kind: 'talk', talkCard: true };
+                } else if (ent && ent.talkCard) {
+                    delete _arMsgs[key];   // карточка больше не «Идёт разговор» (или без кнопок) — «Ответ» не возвращаем
+                }
+            } catch (e) { c3Dbg('[LIC] editMessageText wrap error: ' + e.message); }
+            return origEditText.call(this, chatId, messageId, text, replyMarkup);
+        };
+        wrappedEditText.__licTalkWrapped = true;
+        editMessageText = wrappedEditText;
     }
     function normNick(x) { return String(x).toLowerCase().replace(/ё/g, 'е').replace(/[_\s]+/g, ' ').trim(); }
 
