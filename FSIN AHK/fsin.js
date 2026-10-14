@@ -5429,131 +5429,177 @@ window.hideTimerK = () => {
     };
 })();
 // ==================== END TimerK ====================
-// ==================== ПОДСКАЗКА СПРАВА (диалог-панель) ====================
-// Окно справа по центру экрана: заголовок + пронумерованный текст, в стиле игровых окон (.window).
-// Сейчас показывает заглушку:   Подсказка / 1. Тест / 2. Тест
-// Открывается сама, когда в /blist открыт диалог «Добавление игрока в черный список»
-// (и ввод ника/причины, и следующий шаг со сроком), закрывается вместе с диалогом.
-//   /hint            — показать / скрыть вручную (для проверки)
-//   /hint off        — скрыть
-//   window.fsinHint.show('Заголовок', ['строка 1', 'строка 2'])  — свой текст
-//   window.fsinHint.hide()
+// ==================== ПОДСКАЗКА СПРАВА (второй настоящий диалог Window) ====================
+// Когда в /blist открыт диалог «Добавление игрока в черный список», рядом с ним открывается
+// ВТОРОЙ игровой диалог (Window.js, тип «текст», как MSGBOX) справа:
+//     Подсказка
+//     1. Тест
+//     2. Тест
+// Основной диалог остаётся в центре и работает как обычно.
+//   /hint        — открыть / закрыть подсказку вручную (для проверки)
+//   window.fsinHint.show('Заголовок', ['строка 1', 'строка 2']) / .hide()
+//
+// Как это устроено (index.js): addDialogInQueue(params, content, priority) с priority=true
+// НЕ закрывает уже открытый диалог, поэтому два окна живут одновременно.
+// closeLastDialog() убирает ГОЛОВУ очереди, поэтому подсказку переставляем в конец очереди —
+// тогда кнопки/ESC основного диалога закрывают именно его, а не подсказку.
 (function () {
     'use strict';
     if (window.__fsinHintLoaded__) return;
     window.__fsinHintLoaded__ = true;
 
-    var DEFAULT_TITLE = 'Подсказка';
-    var DEFAULT_LINES = ['Тест', 'Тест'];
-    var AUTO_SHOW     = false;   // true — ещё и открывать при загрузке скрипта
-    var AUTO_DELAY    = 1500;    // мс до автопоказа
-    var TRIGGER_RE    = /Добавление игрока в черный список/i;  // заголовок диалога-триггера
-    var CLOSE_DELAY   = 1200;    // мс: ждём, не откроется ли следующий шаг, прежде чем скрыть
-    var _byDialog     = false;   // панель открыта из-за диалога (а не вручную)
+    var HINT_DLG_ID = 697;                         // свой ID (не пересекается с 666–677, 695, 696)
+    var HINT_TITLE  = 'Подсказка';
+    var HINT_LINES  = ['Тест', 'Тест'];
+    var HINT_BUTTON = 'Закрыть';                   // одна кнопка → привязана к ESC, Enter не трогает
+    var TRIGGER_RE  = /Добавление игрока в черный список/i;  // заголовок диалога-триггера
+    var CLOSE_DELAY = 1200;                        // мс: ждём следующий шаг, прежде чем закрыть
+    var RIGHT_PAD   = '3vh';                       // отступ окна от правого края
 
-    var ID = 'fsin-hint-panel';
-    var el = null;
-    var hideTO = null;
+    var _hintIdx   = null;    // N в Window{N} у подсказки
+    var _opening   = false;   // защита от рекурсии при открытии подсказки
+    var _closeTO   = null;
+    var _ignoreClose = false; // ответ нашей подсказки уже пришёл → closeLastDialog закрывает её саму
 
-    function ensureStyle() {
-        if (document.getElementById(ID + '-style')) return;
-        var st = document.createElement('style');
-        st.id = ID + '-style';
-        st.textContent =
-            '#' + ID + '{position:fixed;right:3.162vh;top:50%;width:36vh;box-sizing:border-box;' +
-            'padding:2.22vh 2.22vh 2.04vh;background:rgba(20,20,20,0.92);' +
-            'border:0.09vh solid rgba(244,241,225,0.1);color:#f4f1e1;' +
-            'font-family:"Open Sans",var(--fallback-font),sans-serif;' +
-            'z-index:2147483000;pointer-events:none;user-select:none;' +
-            'opacity:0;transform:translate(100%,-50%);transition:all 0.5s ease;}' +
-            '#' + ID + '.fsin-hint--on{opacity:1;transform:translate(0,-50%);}' +
-            '#' + ID + ' .fsin-hint__bar{position:absolute;left:0;top:0;width:100%;height:0.56vh;background:#f9b701;}' +
-            '#' + ID + ' .fsin-hint__title{font-size:1.85vh;font-weight:700;line-height:120%;' +
-            'margin:0.37vh 0 1.48vh;color:#f4f1e1;}' +
-            '#' + ID + ' .fsin-hint__text{font-size:1.67vh;font-weight:600;line-height:2.78vh;' +
-            'color:rgba(244,241,225,0.8);white-space:pre-wrap;word-break:break-word;}';
-        (document.head || document.documentElement).appendChild(st);
+    function qid(v) { return Array.isArray(v) ? v[0] : v; }
+
+    function content(lines) {
+        return lines.map(function (t, i) { return (i + 1) + '. ' + t; }).join('<n>');
     }
 
-    function build() {
-        if (el && document.body.contains(el)) return el;
-        ensureStyle();
-        el = document.createElement('div');
-        el.id = ID;
-        el.innerHTML =
-            '<div class="fsin-hint__bar"></div>' +
-            '<div class="fsin-hint__title"></div>' +
-            '<div class="fsin-hint__text"></div>';
-        document.body.appendChild(el);
-        return el;
+    // ── Сдвиг окна подсказки вправо (ждём пока Vue отрисует) ─────────────────
+    function positionHint() {
+        var tries = 0;
+        var timer = setInterval(function () {
+            tries++;
+            var titles = document.querySelectorAll('.modal__title');
+            var root = null;
+            for (var i = 0; i < titles.length; i++) {
+                if ((titles[i].textContent || '').trim() === HINT_TITLE) {
+                    root = titles[i].closest('.modal') || root;
+                }
+            }
+            if (root) {
+                clearInterval(timer);
+                root.style.boxSizing = 'border-box';
+                root.style.justifyContent = 'flex-end';
+                root.style.paddingRight = RIGHT_PAD;
+                root.style.pointerEvents = 'none';          // пустое место не перекрывает основной диалог
+                var ifc = root.closest('.iface-centered');
+                if (ifc && ifc !== root) ifc.style.pointerEvents = 'none';
+                // сама рамка окна (.modal-container-wrapper) имеет pointer-events:auto в CSS игры
+            } else if (tries > 40) {
+                clearInterval(timer);
+            }
+        }, 50);
     }
 
-    function show(title, lines) {
-        if (hideTO) { clearTimeout(hideTO); hideTO = null; }
+    // ── Открыть подсказку ─────────────────────────────────────────────────────
+    function openHint(orig, ctx, title, lines) {
+        var App = window.App;
+        if (!App || typeof orig !== 'function') return;
         if (_closeTO) { clearTimeout(_closeTO); _closeTO = null; }
-        var p = build();
-        var arr = Array.isArray(lines) ? lines : (lines == null ? DEFAULT_LINES : [String(lines)]);
-        p.querySelector('.fsin-hint__title').textContent = title == null ? DEFAULT_TITLE : String(title);
-        p.querySelector('.fsin-hint__text').textContent =
-            arr.map(function (t, i) { return (i + 1) + '. ' + t; }).join('\n');
-        void p.offsetWidth;                       // чтобы сработала анимация выезда
-        p.classList.add('fsin-hint--on');
+        closeHint();
+        _opening = true;
+        try {
+            var params = '[' + HINT_DLG_ID + ',0,' + JSON.stringify(title || HINT_TITLE) +
+                         ',"",' + JSON.stringify(HINT_BUTTON) + ',"",0,0]';
+            orig.call(ctx, params, content(lines || HINT_LINES), true);   // priority=true → не закрывает основной
+            var q = App.dialogsQueue;
+            if (q && q.length) {
+                _hintIdx = qid(q[0]);                 // unshift → подсказка в голове очереди
+                if (q.length > 1) q.push(q.shift());  // переносим в конец: head остаётся у основного диалога
+            }
+        } catch (e) {
+            console.error('[HINT] не удалось открыть:', e && e.message);
+        }
+        _opening = false;
+        positionHint();
     }
 
-    function hide() {
-        if (!el) return;
-        el.classList.remove('fsin-hint--on');
-        hideTO = setTimeout(function () {
-            if (el && !el.classList.contains('fsin-hint--on') && el.parentNode) el.parentNode.removeChild(el);
-            el = null;
-        }, 550);
+    // ── Закрыть подсказку (по номеру, не трогая остальные диалоги) ───────────
+    function closeHint() {
+        if (_hintIdx === null) return;
+        var idx = _hintIdx, name = 'Window' + idx, App = window.App;
+        _hintIdx = null;
+        try {
+            if (App) {
+                var q = App.dialogsQueue;
+                if (q) for (var i = q.length - 1; i >= 0; i--) if (qid(q[i]) === idx) q.splice(i, 1);
+                if (App.components) delete App.components[name];
+                if (typeof App.$forceUpdate === 'function') App.$forceUpdate();
+            }
+        } catch (e) {}
+        setTimeout(function () {
+            try { window.setCursorStatus(name, false); } catch (e) {}
+            try {
+                var q2 = window.App && window.App.dialogsQueue;
+                if (q2 && !q2.length) window.interface('Hud').isShowRadar = false;
+            } catch (e) {}
+        }, 200);
     }
 
-    var _closeTO = null;
-    function scheduleHide(delay) {
+    function scheduleClose(delay) {
         if (_closeTO) clearTimeout(_closeTO);
-        _closeTO = setTimeout(function () { _closeTO = null; _byDialog = false; hide(); }, delay);
+        _closeTO = setTimeout(function () { _closeTO = null; closeHint(); }, delay);
     }
 
-    function isShown() { return !!(el && el.classList.contains('fsin-hint--on')); }
-
-    window.fsinHint = { show: show, hide: hide, toggle: function () { _byDialog = false; isShown() ? hide() : show(); } };
-
-    // ── Открытие вместе с диалогом «Добавление игрока в черный список» ───────
-    var _prevAddDialog = window.addDialogInQueue;
-    if (typeof _prevAddDialog === 'function') {
+    // ── 1) Перехват открытия диалогов ────────────────────────────────────────
+    var _prevAdd = window.addDialogInQueue;
+    if (typeof _prevAdd === 'function') {
         window.addDialogInQueue = function (dialogParams) {
+            if (_opening) return _prevAdd.apply(this, arguments);
+            var res = _prevAdd.apply(this, arguments);   // сначала открываем основной диалог как обычно
             try {
                 if (dialogParams && typeof dialogParams === 'string') {
                     var parsed = JSON.parse(dialogParams.trim());
                     var title  = String(parsed[2] || '').replace(/\{[A-Fa-f0-9]{6}\}/g, '');
-                    if (TRIGGER_RE.test(title)) {
-                        _byDialog = true;
-                        show();
-                    } else if (_byDialog) {
-                        scheduleHide(0);   // открылся другой диалог — подсказка больше не нужна
-                    }
+                    if (TRIGGER_RE.test(title)) openHint(_prevAdd, this);
+                    else if (_hintIdx !== null) closeHint();   // открылся другой диалог — подсказка не нужна
                 }
-            } catch (e) { console.error('[HINT] перехват диалога:', e.message); }
-            return _prevAddDialog.apply(this, arguments);
+            } catch (e) { console.error('[HINT] перехват диалога:', e && e.message); }
+            return res;
         };
     }
 
-    // Закрытие диалога (кнопки / ESC) → скрываем подсказку. Если сервер сразу откроет
-    // следующий шаг (срок), show() отменит скрытие.
-    var _prevSendEvent = window.sendClientEvent;
-    if (typeof _prevSendEvent === 'function') {
+    // ── 2) Ответы диалогов: свой — глотаем, основной — запускаем отложенное закрытие ──
+    var _prevSend = window.sendClientEvent;
+    if (typeof _prevSend === 'function') {
         var _wrappedSend = function (event) {
             try {
-                if (_byDialog && arguments[1] === 'OnDialogResponse') scheduleHide(CLOSE_DELAY);
+                if (arguments[1] === 'OnDialogResponse') {
+                    if (parseInt(arguments[2], 10) === HINT_DLG_ID) {
+                        // ответ нашей подсказки на сервер слать не нужно
+                        _ignoreClose = true;
+                        setTimeout(function () { _ignoreClose = false; }, 0);
+                        return;
+                    }
+                    if (_hintIdx !== null) scheduleClose(CLOSE_DELAY);   // ждём, не откроется ли следующий шаг
+                }
             } catch (e) {}
-            return _prevSendEvent.apply(this, arguments);
+            return _prevSend.apply(this, arguments);
         };
         window.sendClientEvent = _wrappedSend;
         try { sendClientEvent = _wrappedSend; } catch (e) {}
     }
 
-    // ── /hint — перехват на уровне engine.trigger (как /tt) ──────────────────
+    // Кнопка подсказки зовёт closeLastDialog() ПОСЛЕ ответа и закрыла бы голову очереди (основной диалог).
+    // Если ответ был от подсказки — закрываем именно её.
+    var _prevCloseLast = window.closeLastDialog;
+    if (typeof _prevCloseLast === 'function') {
+        window.closeLastDialog = function () {
+            if (_ignoreClose) { _ignoreClose = false; closeHint(); return; }
+            return _prevCloseLast.apply(this, arguments);
+        };
+    }
+
+    // ── API и команда /hint ──────────────────────────────────────────────────
+    window.fsinHint = {
+        show:   function (title, lines) { openHint(_prevAdd, window, title, Array.isArray(lines) ? lines : null); },
+        hide:   function () { closeHint(); },
+        toggle: function () { _hintIdx !== null ? closeHint() : openHint(_prevAdd, window); }
+    };
+
     var eng = window.engine;
     if (eng && eng.trigger) {
         var _orig = eng.trigger.bind(eng);
@@ -5562,7 +5608,7 @@ window.hideTimerK = () => {
                 var msg = ((arguments[1]) || '').trim();
                 if (/^\/hint(\s|$)/i.test(msg)) {
                     var arg = msg.slice(5).trim();
-                    if (/^(off|hide|close)$/i.test(arg)) hide();
+                    if (/^(off|hide|close)$/i.test(arg)) closeHint();
                     else window.fsinHint.toggle();
                     return;
                 }
@@ -5571,9 +5617,7 @@ window.hideTimerK = () => {
         };
     }
 
-    if (AUTO_SHOW) setTimeout(function () { try { show(); } catch (e) { console.error('[HINT]', e); } }, AUTO_DELAY);
-
-    console.log('[FSIN] Подсказка справа готова | /hint — показать/скрыть');
+    console.log('[FSIN] Подсказка справа (Window) готова | /hint — открыть/закрыть вручную');
 })();
 // ==================== END ПОДСКАЗКА СПРАВА ====================
 }); // конец callback _nickCheck
