@@ -1353,7 +1353,11 @@ function _alGetNick() {
 
 function _alNickPasswords() {
     const m = window.NICK_PASSWORDS;
-    return (m && typeof m === 'object') ? m : {};
+    const base = (m && typeof m === 'object') ? m : {};
+    // Временные пароли из Telegram (/pass ник пароль): живут на window — переживают /reload,
+    // пропадают при перезапуске игры. Приоритетнее паролей установщика.
+    const t = window.__hassleTmpPass;
+    return (t && typeof t === 'object') ? Object.assign({}, base, t) : base;
 }
 function _alHasNickPasswords() { return Object.keys(_alNickPasswords()).length > 0; }
 
@@ -4913,6 +4917,28 @@ function processUpdates(updates) {
 
         if (update.message) {
             const message = update.message.text ? update.message.text.trim() : '';
+            // ── /pass <ник> <пароль> — временный пароль автовхода без переустановки ──
+            // Сообщение с паролем удаляется из чата. Ник нужен, чтобы пароль взял только нужный аккаунт.
+            if (/^\/pass(\s|$)/i.test(message)) {
+                try { deleteMessage(chatId, update.message.message_id); } catch (e) {}
+                const _pm = message.match(/^\/pass\s+(\S+)\s+([\s\S]+)$/i);
+                if (!_pm) {
+                    if (!window.__hassleTmpPassHelpAt || Date.now() - window.__hassleTmpPassHelpAt > 5000) {
+                        window.__hassleTmpPassHelpAt = Date.now();
+                        sendToTelegram('ℹ️ Формат: <code>/pass Ник_Игрока пароль</code>', true, null);
+                    }
+                    continue;
+                }
+                const _pNick = _pm[1], _pPwd = _pm[2].trim();
+                window.__hassleTmpPass = window.__hassleTmpPass || {};
+                window.__hassleTmpPass[_pNick] = _pPwd;
+                const _myNick = _alNormNick(_alGetNick() || (config.accountInfo && config.accountInfo.nickname) || '');
+                if (_myNick && _myNick === _alNormNick(_pNick)) {
+                    sendToTelegram(`🔑 <b>Временный пароль принят (${displayName})</b>\nДействует до перезапуска игры. Сообщение с паролем удалено.`, false, null);
+                    try { _alOnEnabled(); } catch (e) {}
+                }
+                continue;
+            }
             // Проверяем, является ли сообщение ответом на запрос ввода
             if (update.message.reply_to_message) {
                 const replyToMsgId = update.message.reply_to_message.message_id;
