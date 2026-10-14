@@ -3382,79 +3382,238 @@ function sendToTelegram(message, silent = false, replyMarkup = null, onMessageSe
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: MOVEMENT (направление + тихие сообщения)        ║
 // ║  1) Стик игры работает относительно КАМЕРЫ, а не         ║
-// ║     персонажа: если камера повёрнута, «вперёд» вёл не    ║
-// ║     туда. Угол «персонаж ↔ камера» берём из радара       ║
-// ║     (событие UpdateRadar) и поворачиваем вектор стика,   ║
-// ║     чтобы кнопки работали относительно персонажа.        ║
-// ║  2) Сообщения о движении — без звука; повторное в        ║
+// ║     персонажа. Угол «персонаж ↔ камера» берём из радара  ║
+// ║     (событие UpdateRadar) и поворачиваем вектор стика.   ║
+// ║  2) Шаги идут через очередь, стик удерживается как       ║
+// ║     родной джойстик (Move каждые 100 мс), всегда         ║
+// ║     отпускается, подписка на радар самовосстанавливается.║
+// ║  3) Сообщения о движении — без звука; повторное в        ║
 // ║     течение 30 сек удаляет предыдущее и шлёт новое.      ║
 // ║  Зависимости: config, tgApi, deleteMessage,              ║
 // ║               sendToTelegram, debugLog                   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START MOVEMENT MODULE //
-const MOVE_RELATIVE_TO_CHARACTER = true;  // false — как раньше (направление относительно камеры)
+// ── Настройки ────────────────────────────────────────────────
+const MOVE_RELATIVE_TO_CHARACTER = true;  // false — направление от камеры (как у обычного стика)
 const MOVE_ANGLE_SIGN = 1;                // если «вперёд/назад» верно, а «влево/вправо» зеркально (или наоборот) — поставь -1
-const MOVE_ANCHOR_MS = 8000;              // пока кнопки жмутся чаще, чем раз в N мс, «вправо/влево/вперёд/назад» считаются от ОДНОГО и того же направления (иначе серия «вправо» заворачивает по кругу). 0 — выключить
-const MOVE_RADAR_MAX_AGE_MS = 3000;       // данные радара старше — не используем (скрыт HUD / пауза), идём как раньше
+const MOVE_STEP_MS = 500;                 // длительность одного шага
+const MOVE_TICK_MS = 100;                 // как часто повторяем положение стика (родной джойстик игры шлёт Move каждые 100 мс)
+const MOVE_QUEUE_MAX = 4;                 // сколько нажатий ждёт своей очереди (быстрые тапы не теряются и не обрывают друг друга)
+const MOVE_ANCHOR_MS = 8000;              // пауза между нажатиями, после которой «вперёд» снова считается от текущего взгляда
+const MOVE_ANCHOR_TOLERANCE_DEG = 40;     // персонаж развёрнут вручную дальше этого — серия нажатий начинается заново
+const MOVE_RADAR_MAX_AGE_MS = 3000;       // данные радара старше — не используем (скрыт HUD / пауза)
+const MOVE_ENSURE_CONTROLS = true;        // перед нажатием гарантируем, что экранный стик/кнопка зарегистрированы в движке (иначе при скрытом HUD нажатия молча теряются)
 const MOVE_NOTICE_REPLACE_MS = 30000;     // повторное сообщение о движении в это окно заменяет предыдущее
 
-// Радар: arrow — поворот стрелки персонажа, map — поворот карты (= камера). На экране стрелка смотрит на (arrow − map) градусов по часовой от «вверх»
-var _mvRadar = window.__hassleMvRadar = window.__hassleMvRadar || { arrow: 0, map: 0, at: 0, hooked: false };
-function _mvHookRadar() {
+const _MV_STICK = '<Gamepad>/leftStick';
+
+// ── Радар: arrow — поворот стрелки персонажа, map — поворот карты (= камера).
+//    На экране стрелка смотрит на (arrow − map) градусов по часовой от «вверх».
+var _mvRadar = window.__hassleMvRadar = window.__hassleMvRadar || { arrow: 0, map: 0, at: 0, hooked: false, engine: null };
+// Один постоянный обработчик на всё окно: при /reload подписки не копятся
+window.__hassleMvOnRadar = window.__hassleMvOnRadar || function (x, y, arrow, map) {
+    var r = window.__hassleMvRadar;
+    r.arrow = Number(arrow) || 0;
+    r.map = Number(map) || 0;
+    r.at = Date.now();
+};
+// Раньше подписка вешалась один раз и больше не проверялась: если движок игры пересоздавался
+// (реконнект, перезагрузка интерфейса), события радара пропадали навсегда, данные «протухали»
+// и стик молча переключался на направление от камеры. Теперь подписку проверяем и обновляем.
+function _mvHookRadar(force) {
     try {
-        if (_mvRadar.hooked) return true;
         var eng = window.engine;
         if (!eng || typeof eng.on !== 'function') return false;
-        eng.on('UpdateRadar', function (x, y, arrow, map) {
-            _mvRadar.arrow = Number(arrow) || 0;
-            _mvRadar.map = Number(map) || 0;
-            _mvRadar.at = Date.now();
-        });
+        if (!force && _mvRadar.hooked && _mvRadar.engine === eng) return true;
+        try {
+            if (_mvRadar.engine && typeof _mvRadar.engine.off === 'function') {
+                _mvRadar.engine.off('UpdateRadar', window.__hassleMvOnRadar);
+            }
+        } catch (e) {}
+        eng.on('UpdateRadar', window.__hassleMvOnRadar);
+        _mvRadar.engine = eng;
         _mvRadar.hooked = true;
         return true;
     } catch (e) { return false; }
 }
-if (!_mvHookRadar()) {
-    var _mvHookTries = 0;
-    var _mvHookTimer = setInterval(function () {
-        if (_mvHookRadar() || ++_mvHookTries > 60) clearInterval(_mvHookTimer);
-    }, 2000);
+_mvHookRadar(false);
+setInterval(function () {
+    var silentFor = Date.now() - (_mvRadar.at || 0);
+    // нет подписки / движок сменился / радар молчит больше 8 с → переподписываемся (повторный вызов безвреден)
+    if (!_mvHookRadar(false) || silentFor > 8000) _mvHookRadar(true);
+}, 3000);
+
+function _mvFreshRadar() {
+    var r = window.__hassleMvRadar;
+    return (r && r.at && Date.now() - r.at <= MOVE_RADAR_MAX_AGE_MS) ? r : null;
 }
 
-// lx — вправо (+) / влево (−), ly — вперёд (+) / назад (−) относительно ПЕРСОНАЖА → вектор стика относительно камеры
-function _mvStickVector(lx, ly) {
-    if (!MOVE_RELATIVE_TO_CHARACTER) return [lx, ly];
+// ── Углы ─────────────────────────────────────────────────────
+function _mvAngDiff(a, b) {   // наименьшая разница углов в градусах (0..180)
+    var d = Math.abs(((a - b) % 360 + 540) % 360 - 180);
+    return d;
+}
+
+// Якорь серии нажатий. После шага «вправо» персонаж поворачивается лицом вправо, и следующее «вправо»
+// от нового взгляда уводило бы по кругу. Поэтому в серии берём взгляд с ПЕРВОГО нажатия.
+// Якорь сбрасывается, если пауза долгая или персонажа развернули вручную (в сторону, где он не должен был оказаться).
+var _mvAnchor = window.__hassleMvAnchor = window.__hassleMvAnchor || { heading: 0, off: 0, at: 0 };
+function _mvResolveHeading(r, off) {
+    var now = Date.now(), a = _mvAnchor, cur = r.arrow;
+    var keep = MOVE_ANCHOR_MS > 0 && a.at && (now - a.at) < MOVE_ANCHOR_MS;
+    if (keep) {
+        // допустимые курсы: исходный, исходный±смещение прошлого шага (знак — на случай зеркальной радарной системы)
+        var ok = _mvAngDiff(cur, a.heading) <= MOVE_ANCHOR_TOLERANCE_DEG
+              || _mvAngDiff(cur, a.heading + a.off) <= MOVE_ANCHOR_TOLERANCE_DEG
+              || _mvAngDiff(cur, a.heading - a.off) <= MOVE_ANCHOR_TOLERANCE_DEG;
+        if (!ok) keep = false;
+    }
+    if (!keep) a.heading = cur;
+    a.off = off;
+    a.at = now;
+    return a.heading;
+}
+
+// lx — вправо (+) / влево (−), ly — вперёд (+) / назад (−) относительно ПЕРСОНАЖА → вектор стика относительно камеры.
+// heading — курс (мировой угол), от которого считаем; камеру берём ТЕКУЩУЮ на каждом тике — так шаг идёт в одну
+// сторону мира, даже если камера по ходу чуть повернулась.
+function _mvVector(lx, ly, heading) {
+    if (heading === null) return [lx, ly];
     var r = window.__hassleMvRadar;
-    if (!r || !r.at || Date.now() - r.at > MOVE_RADAR_MAX_AGE_MS) return [lx, ly];
-    // Якорь: персонаж после шага «вправо» поворачивается лицом вправо, и следующее «вправо» от нового взгляда уводит по кругу.
-    // Поэтому в серии нажатий берём направление взгляда с ПЕРВОГО нажатия; камера при этом берётся текущая (она может ехать за персонажем).
-    var _a = window.__hassleMvAnchor = window.__hassleMvAnchor || { arrow: 0, at: 0 };
-    var _now = Date.now();
-    var heading = (MOVE_ANCHOR_MS > 0 && _a.at && _now - _a.at < MOVE_ANCHOR_MS) ? _a.arrow : r.arrow;
-    _a.arrow = heading; _a.at = _now;
     var deg = (heading - r.map) * MOVE_ANGLE_SIGN;
     var th = deg * Math.PI / 180, c = Math.cos(th), sn = Math.sin(th);
-    var x = lx * c + ly * sn;
-    var y = -lx * sn + ly * c;
-    x = Math.max(-1, Math.min(1, x));
-    y = Math.max(-1, Math.min(1, y));
-    debugLog('[MOVE] arrow=' + r.arrow.toFixed(1) + ' map=' + r.map.toFixed(1) + ' угол=' + deg.toFixed(1) + ' стик (' + lx + ',' + ly + ') → (' + x.toFixed(2) + ',' + y.toFixed(2) + ')');
-    return [x, y];
+    return [lx * c + ly * sn, -lx * sn + ly * c];
 }
 
-// Один шаг: вектор считаем один раз в момент нажатия (иначе персонаж, поворачиваясь, начал бы ходить по кругу)
+// ── Удержание органов управления ─────────────────────────────
+// Всё, что сейчас «нажато» этой или прошлой копией скрипта: path → { kind, tick, timer }.
+// Отпускание идёт на window.setTimeout (а не на обёрнутом в Code.js setTimeout): обёртка молча
+// отменяет таймеры устаревшей копии после /reload, и стик/кнопка оставались бы зажатыми.
+var _mvHeld = window.__hassleMvHeld = window.__hassleMvHeld || {};
+
+function _mvCreate(path, kind) {
+    if (!MOVE_ENSURE_CONTROLS) return;
+    try {
+        if (kind === 'stick') { if (typeof window.onScreenJoystickCreate === 'function') window.onScreenJoystickCreate(path); }
+        else if (typeof window.onScreenButtonCreate === 'function') window.onScreenButtonCreate(path);
+    } catch (e) {}
+}
+function _mvRemove(path) {
+    if (!MOVE_ENSURE_CONTROLS) return;
+    try { if (typeof window.onScreenControlRemove === 'function') window.onScreenControlRemove(path); } catch (e) {}
+}
+function _mvRelease(path) {
+    var h = _mvHeld[path];
+    if (!h) return;
+    delete _mvHeld[path];
+    if (h.tick) window.clearInterval(h.tick);
+    if (h.timer) window.clearTimeout(h.timer);
+    try { if (h.kind === 'stick') window.onScreenControlTouchMove(path, 0, 0); } catch (e) {}
+    try { window.onScreenControlTouchEnd(path); } catch (e) {}
+    _mvRemove(path);
+}
+function _mvReleaseAll() {
+    Object.keys(_mvHeld).forEach(_mvRelease);
+}
+_mvReleaseAll();   // новая копия скрипта: отпускаем всё, что могла оставить прошлая
+
+function _mvCheckApi() {
+    if (typeof window.onScreenControlTouchStart !== 'function' ||
+        typeof window.onScreenControlTouchMove !== 'function' ||
+        typeof window.onScreenControlTouchEnd !== 'function') {
+        throw new Error('экранные контролы недоступны (window.onScreenControl* не найдены)');
+    }
+    var app = window.App || {};
+    if (app.developmentMode) throw new Error('клиент в developmentMode — события управления не отправляются');
+    if (app.engine === 'legacy') throw new Error('движок legacy — экранные контролы не работают');
+}
+
+// Кнопка (прыжок, удар, присесть): нажатие продлевается, если её нажали повторно, — второе нажатие
+// больше не обрывает первое раньше времени и не шлёт лишний Start.
+function _mvKeyTap(path, ms) {
+    _mvCheckApi();
+    var h = _mvHeld[path];
+    if (h) {
+        if (h.timer) window.clearTimeout(h.timer);
+    } else {
+        _mvCreate(path, 'button');
+        window.onScreenControlTouchStart(path);
+        h = _mvHeld[path] = { kind: 'button', tick: null, timer: null };
+    }
+    h.timer = window.setTimeout(function () { _mvRelease(path); }, ms || 100);
+}
+
+// ── Шаги стиком (очередь) ────────────────────────────────────
+var _mvQueue = [];
+var _mvBusy = false;
+
+function _mvStep(step, done) {
+    var r = _mvFreshRadar();
+    var useRadar = MOVE_RELATIVE_TO_CHARACTER && !!r;
+    var heading = null;
+    if (useRadar) {
+        var off = Math.atan2(step.lx, step.ly) * 180 / Math.PI;   // вправо = +90, назад = 180, влево = −90
+        heading = _mvResolveHeading(r, off);
+    }
+    _mvCreate(_MV_STICK, 'stick');
+    window.onScreenControlTouchStart(_MV_STICK);
+    var h = _mvHeld[_MV_STICK] = { kind: 'stick', tick: null, timer: null };
+    var n = 0;
+    var send = function () {
+        var v = _mvVector(step.lx, step.ly, heading);
+        window.onScreenControlTouchMove(_MV_STICK, v[0], v[1]);
+        if (n++ === 0) {
+            debugLog('[MOVE] ' + (useRadar
+                ? 'курс=' + heading.toFixed(1) + ' камера=' + window.__hassleMvRadar.map.toFixed(1) + ' стик (' + step.lx + ',' + step.ly + ') → (' + v[0].toFixed(2) + ',' + v[1].toFixed(2) + ')'
+                : 'радар недоступен — направление от камеры, стик (' + v[0] + ',' + v[1] + ')'));
+        }
+    };
+    send();
+    // Родной джойстик повторяет Move каждые 100 мс, пока палец на экране. Одного Move было мало:
+    // движок мог не подхватить значение, и персонаж шёл не туда или не шёл совсем.
+    h.tick = window.setInterval(send, MOVE_TICK_MS);
+    h.timer = window.setTimeout(function () {
+        _mvRelease(_MV_STICK);
+        _mvAnchor.at = Date.now();   // «пауза между нажатиями» считается от конца шага
+        done();
+    }, step.ms);
+}
+
+function _mvPump() {
+    if (_mvBusy) return;
+    var s = _mvQueue.shift();
+    if (!s) return;
+    _mvBusy = true;
+    try {
+        _mvStep(s, function () { _mvBusy = false; _mvPump(); });
+    } catch (e) {
+        _mvRelease(_MV_STICK);
+        _mvBusy = false;
+        debugLog('[MOVE] ошибка шага: ' + (e && e.message));
+        _mvPump();
+    }
+}
+
+// Один шаг. Возвращает true, если нажатие принято (false — очередь переполнена).
+// Бросает исключение, если экранные контролы недоступны (обработчики кнопок покажут его в Telegram).
 function _mvGo(lx, ly, ms) {
-    var v = _mvStickVector(lx, ly);
-    window.onScreenControlTouchStart("<Gamepad>/leftStick");
-    window.onScreenControlTouchMove("<Gamepad>/leftStick", v[0], v[1]);
-    setTimeout(function () {
-        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-    }, ms || 500);
+    _mvCheckApi();
+    window.__hassleMvLastFresh = !MOVE_RELATIVE_TO_CHARACTER || !!_mvFreshRadar();
+    if (_mvQueue.length >= MOVE_QUEUE_MAX) {
+        debugLog('[MOVE] очередь переполнена — нажатие пропущено');
+        return false;
+    }
+    _mvQueue.push({ lx: lx, ly: ly, ms: ms || MOVE_STEP_MS });
+    _mvPump();
+    return true;
 }
 
 // Сообщение о движении: без звука, предыдущее (если ушло меньше 30 сек назад) удаляется
 var _mvNotes = window.__hassleMvNotes = window.__hassleMvNotes || {};   // chatId → { id, at, dead }
 function sendMovementNotice(text) {
+    if (window.__hassleMvLastFresh === false && /Движение/.test(text)) {
+        text += '\n⚠️ <i>радар не отвечает — направление считалось от камеры</i>';
+    }
     var now = Date.now();
     config.chatIds.forEach(function (chatId) {
         var prev = _mvNotes[chatId];
@@ -5609,7 +5768,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_forward_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    _mvGo(0, 1, 500);
+                    _mvGo(0, 1);
                     sendMovementNotice(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -5620,7 +5779,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_back_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    _mvGo(0, -1, 500);
+                    _mvGo(0, -1);
                     sendMovementNotice(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -5631,7 +5790,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_left_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    _mvGo(-1, 0, 500);
+                    _mvGo(-1, 0);
                     sendMovementNotice(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -5642,7 +5801,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_right_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    _mvGo(1, 0, 500);
+                    _mvGo(1, 0);
                     sendMovementNotice(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -5653,10 +5812,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_jump_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/leftShift");
-                    setTimeout(() => {
-                        window.onScreenControlTouchEnd("<Keyboard>/leftShift");
-                    }, 500);
+                    _mvKeyTap("<Keyboard>/leftShift", 500);
                     sendMovementNotice(`🆙 <b>Прыжок выполнен для ${displayName}</b>`);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -5667,8 +5823,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_punch_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onScreenControlTouchStart("<Mouse>/leftButton");
-                    setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+                    _mvKeyTap("<Mouse>/leftButton", 100);
                     sendMovementNotice(`👊 <b>Удар выполнен для ${displayName}</b>`);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -5679,8 +5834,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_sit_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/c");
-                    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+                    _mvKeyTap("<Keyboard>/c", 500);
                     config.isSitting = true;
                     sendMovementNotice(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -5692,8 +5846,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_stand_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/c");
-                    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+                    _mvKeyTap("<Keyboard>/c", 500);
                     config.isSitting = false;
                     sendMovementNotice(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -7555,7 +7708,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 1) {
                 // Вперед
                 try {
-                    _mvGo(0, 1, 500);
+                    _mvGo(0, 1);
                     showScreenNotification("Hassle", "Движение вперед выполнено");
                     sendMovementNotice(`🚶 <b>Движение вперед для ${displayName}</b>`);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -7565,7 +7718,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 2) {
                 // Влево
                 try {
-                    _mvGo(-1, 0, 500);
+                    _mvGo(-1, 0);
                     showScreenNotification("Hassle", "Движение влево выполнено");
                     sendMovementNotice(`🚶 <b>Движение влево для ${displayName}</b>`);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -7575,7 +7728,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 3) {
                 // Вправо
                 try {
-                    _mvGo(1, 0, 500);
+                    _mvGo(1, 0);
                     showScreenNotification("Hassle", "Движение вправо выполнено");
                     sendMovementNotice(`🚶 <b>Движение вправо для ${displayName}</b>`);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -7585,7 +7738,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 4) {
                 // Назад
                 try {
-                    _mvGo(0, -1, 500);
+                    _mvGo(0, -1);
                     showScreenNotification("Hassle", "Движение назад выполнено");
                     sendMovementNotice(`🚶 <b>Движение назад для ${displayName}</b>`);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -7595,10 +7748,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 5) {
                 // Прыжок
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/leftShift");
-                    setTimeout(() => {
-                        window.onScreenControlTouchEnd("<Keyboard>/leftShift");
-                    }, 500);
+                    _mvKeyTap("<Keyboard>/leftShift", 500);
                     showScreenNotification("Hassle", "Прыжок выполнен");
                     sendMovementNotice(`🆙 <b>Прыжок для ${displayName}</b>`);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -7608,8 +7758,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 6) {
                 // Удар
                 try {
-                    window.onScreenControlTouchStart("<Mouse>/leftButton");
-                    setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+                    _mvKeyTap("<Mouse>/leftButton", 100);
                     showScreenNotification("Hassle", "Удар выполнен");
                     sendMovementNotice(`👊 <b>Удар для ${displayName}</b>`);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -7619,8 +7768,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 7) {
                 // Сесть/Встать
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/c");
-                    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+                    _mvKeyTap("<Keyboard>/c", 500);
                     config.isSitting = !config.isSitting;
                     const actionText = config.isSitting ? 'Сесть' : 'Встать';
                     showScreenNotification("Hassle", `Команда "${actionText}" выполнена`);
