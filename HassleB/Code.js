@@ -3039,7 +3039,8 @@ function deleteMessage(chatId, messageId) {
 // Уведомление/карточка с кнопкой «Управление» запоминается в момент нажатия; пока человек ходит по меню
 // (текст меню перезаписывает сообщение), «Назад» восстанавливает исходный текст и исходную клавиатуру.
 // Хранилище на window — переживает /reload.
-var _ctl = window.__hassleCtl = window.__hassleCtl || { snap: {}, dirty: {} };
+var _ctl = window.__hassleCtl = window.__hassleCtl || { snap: {}, dirty: {}, onMenuText: {} };
+_ctl.onMenuText = _ctl.onMenuText || {};   // true — на уведомлении сейчас текст меню (его заменили при открытии «Управления»)
 _ctl.restoring = false;
 _ctl.cur = null;   // {chatId, messageId} — сообщение, с которого пришла текущая кнопка (на время синхронной обработки)
 function _ctlKey(chatId, messageId) { return chatId + ':' + messageId; }
@@ -3094,6 +3095,7 @@ function _ctlOnCallback(cq) {
         const isBase = rows.some(function (r) { return r.some(function (b) { return b && typeof b.callback_data === 'string' && b.callback_data.indexOf('show_controls_') === 0; }); });
         if (!isBase) return;
         _ctl.dirty[key] = false;
+        _ctl.onMenuText[key] = false;   // кнопка нажата на исходном виде сообщения
         if (_ctlIsWelcome(chatId, messageId)) return;
         _ctl.snap[key] = {
             html: _ctlTgToHtml(m.text != null ? m.text : (m.caption || ''), m.entities || m.caption_entities),
@@ -3126,28 +3128,26 @@ function _ctlRestoreBase(chatId, messageId) {
     _ctl.restoring = true;
     try { editMessageText(chatId, messageId, s.html, _ctlBaseMarkup(s)); } finally { _ctl.restoring = false; }
     _ctl.dirty[key] = false;
+    _ctl.onMenuText[key] = false;
     return true;
 }
-// Показать меню (клавиатуру): если текст сообщения успел перезаписаться другим меню — возвращаем и текст
+// Показать меню «Управление» / «Функции»: у сообщения текст меню (welcome-текст) — как при открытии «Управления».
+// Если текст сейчас другой (исходное уведомление или текст другого подменю) — заменяем; иначе правим только кнопки.
 function _ctlShowMenu(chatId, messageId, markup) {
-    const key = _ctlKey(chatId, messageId);
-    if (_ctl.dirty[key]) {
-        let text = null;
-        if (_ctlIsWelcome(chatId, messageId)) text = buildWelcomeText();
-        else if (_ctl.snap[key]) text = _ctl.snap[key].html;
-        if (text !== null) {
-            _ctl.restoring = true;
-            try { editMessageText(chatId, messageId, text, markup); } finally { _ctl.restoring = false; }
-            _ctl.dirty[key] = false;
-            return;
-        }
+    const key = _ctlKey(chatId, messageId), welcome = _ctlIsWelcome(chatId, messageId);
+    if (_ctl.dirty[key] || (!welcome && !_ctl.onMenuText[key])) {
+        _ctl.restoring = true;
+        try { editMessageText(chatId, messageId, buildWelcomeText(), markup); } finally { _ctl.restoring = false; }
+        _ctl.dirty[key] = false;
+        if (!welcome) _ctl.onMenuText[key] = true;
+        return;
     }
     editMessageReplyMarkup(chatId, messageId, markup);
 }
 // «Назад» из движений / других подменю → клавиатура исходного сообщения
 function _ctlBackToBase(chatId, messageId) {
     const key = _ctlKey(chatId, messageId), s = _ctl.snap[key];
-    if (s && _ctl.dirty[key] && _ctlRestoreBase(chatId, messageId)) return;
+    if (s && (_ctl.dirty[key] || _ctl.onMenuText[key]) && _ctlRestoreBase(chatId, messageId)) return;   // текст меню → вернуть исходный текст
     if (s) { editMessageReplyMarkup(chatId, messageId, _ctlBaseMarkup(s)); return; }
     editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
 }
@@ -4111,16 +4111,14 @@ function showControlsMenu(chatId, messageId) {
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
-    if (_ctlIsWelcome(chatId, messageId)) {
-        // welcome: editMessageText (а не editMessageReplyMarkup) — восстанавливает и текст, и клавиатуру
-        // (нужно для возврата из меню, которые перезаписывали текст, например настройки уведомлений).
-        _ctl.restoring = true;
-        try { editMessageText(chatId, messageId, buildWelcomeText(), replyMarkup); } finally { _ctl.restoring = false; }
-        _ctl.dirty[_ctlKey(chatId, messageId)] = false;
-    } else {
-        // уведомление / карточка: текст НЕ заменяем welcome-текстом — остаётся исходный (при необходимости возвращаем его)
-        _ctlShowMenu(chatId, messageId, replyMarkup);
-    }
+    // При открытии «Управления» текст сообщения заменяется текстом меню (welcome-блок), кнопки — меню.
+    // editMessageText (а не editMessageReplyMarkup) — восстанавливает и текст, и клавиатуру
+    // (нужно для возврата из подменю, которые перезаписывали текст, например настройки уведомлений).
+    // Исходное уведомление запомнено в _ctl и вернётся по «Вернуться назад».
+    _ctl.restoring = true;
+    try { editMessageText(chatId, messageId, buildWelcomeText(), replyMarkup); } finally { _ctl.restoring = false; }
+    _ctl.dirty[_ctlKey(chatId, messageId)] = false;
+    if (!_ctlIsWelcome(chatId, messageId)) _ctl.onMenuText[_ctlKey(chatId, messageId)] = true;
 }
 
 // ── Единое меню всех функций (заменяет showLocalFunctionsMenu + showGlobalFunctionsMenu) ──
