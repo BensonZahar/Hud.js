@@ -441,72 +441,84 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 (function() {
     const _orig = window.sendChatInput;
     let _recInFlight = false;
-    let _recLastSent  = 0;           // мс с эпохи — когда был отправлен последний /rec
-    const REC_MIN_GAP     = 3000;    // минимальный интервал между /rec (мс)
-    const REC_INFLIGHT_TTL = 20000;  // сколько держим флаг после /rec (мс)
-    const REC_DEFER_MS    = 150;     // задержка перед реальным вызовом (мс)
+    let _recWatch = null;
+    const REC_INFLIGHT_EXTRA_MS = 20000; // запас сверх задержки аргумента /rec: подключение + вход (максимум, потом блокировка снимается сама)
+    const REC_DISC_GRACE_MS     = 2000;  // запас на «хвост» сообщений о разрыве после окончания задержки
+    const REC_DEFER_MS          = 150;   // задержка перед реальным вызовом (мс)
+
+    // Мод Hassle (libHassleExtended.so): /rec <секунды 5-600> → NetworkClient.OnApplicationQuit (рвёт связь СРАЗУ) →
+    // Game.Reset → NetworkClient.DelayedConnect (подключается заново через <секунды>). Без числа 5..600 мод только пишет подсказку.
+    // Пока идёт задержка, мы сами оффлайн, поэтому любые «Потеряно соединение / Вы были отключены» в этом окне — следствие нашего /rec.
+    // Окно считается по времени (а не одноразовым флагом): если мод сообщений не прислал, флаг не «залипает» и не съедает настоящий разрыв позже.
+    window.__recDisconnectUntil = 0;
+    window.__recOwnDisconnect = function() { return Date.now() < (window.__recDisconnectUntil || 0); };
+
+    function _recStoreConnected() {
+        try { return !!window.App.$store.getters['player/isPlayerConnected']; } catch (e) { return null; }
+    }
+    function _recRelease() {
+        _recInFlight = false;
+        if (_recWatch) { clearInterval(_recWatch); _recWatch = null; }
+    }
 
     window.sendChatInput = function(cmd) {
         if (__hassleStale()) return typeof _orig === 'function' ? _orig.apply(this, arguments) : undefined;
-        const isRec = typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim());
+        const recMatch = typeof cmd === 'string' ? cmd.trim().match(/^\/rec(?:\s+(\d{1,3}))?\s*$/i) : null;
+        const recSec = recMatch && recMatch[1] ? parseInt(recMatch[1], 10) : NaN;
 
-        if (isRec) {
-            // Защита 1: не пускаем второй /rec, пока первый ещё обрабатывается
-            if (_recInFlight) {
-                debugLog('[REC] Повторный /rec во время реконнекта — проигнорирован');
-                return undefined;
-            }
-
-            // Защита 2: rate-limit — не чаще раза в REC_MIN_GAP мс
-            const _now = Date.now();
-            if (_now - _recLastSent < REC_MIN_GAP) {
-                debugLog('[REC] /rec слишком часто (' + (_now - _recLastSent) + ' мс после предыдущего) — проигнорирован');
-                return undefined;
-            }
-
-            _recInFlight = true;
-            window.__afterRec5 = true;
-            window.__lastRecAt = Date.now();   // для подавления «кика» сразу после нашего /rec
-
-            // Сбрасываем HP-стейт — следующий тик после спавна только запишет baseline
-            if (typeof globalState !== 'undefined') {
-                globalState.hpLastValue    = null;
-                globalState._hpGraceUntil  = null;
-                globalState._hpGraceActive = false;
-                // FIX: отменяем отложенный таймер урона — без этого уведомление
-                // об уроне, накопленное ДО /rec, всё равно уходило через 1500мс после реконнекта
-                if (globalState._dmgTimer) { clearTimeout(globalState._dmgTimer); globalState._dmgTimer = null; }
-                globalState._dmgAccum = null;
-            }
-
-            // ⚠️ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: откладываем реальный вызов на REC_DEFER_MS.
-            // Синхронный _orig() внутри обработчика события (чат, HP-трекер,
-            // колбэк Telegram) → движок получает "разорвать соединение" пока
-            // ещё выполняет другую операцию → дедлок / зависание / вылет.
-            // setTimeout даёт call stack время завершиться до того как движок
-            // получит команду.
-            var _self = this;
-            var _args = arguments;
-            setTimeout(function() {
-                _recLastSent = Date.now();
-                try {
-                    if (typeof _orig === 'function') _orig.apply(_self, _args);
-                } catch (e) {
-                    debugLog('[REC] Ошибка при отправке /rec: ' + e.message);
-                } finally {
-                    // Сбрасываем флаг через REC_INFLIGHT_TTL — запас на весь реконнект.
-                    // finally: при исключении флаг раньше залипал навсегда и ВСЕ следующие /rec молча игнорировались
-                    setTimeout(function() { _recInFlight = false; }, REC_INFLIGHT_TTL);
-                }
-            }, REC_DEFER_MS);
-
-            return undefined; // call sites не используют возврат /rec
+        // Не /rec или /rec без валидной задержки (мод просто выведет подсказку, соединение не трогает) — обычный вызов
+        if (!recMatch || !(recSec >= 5 && recSec <= 600)) {
+            return typeof _orig === 'function' ? _orig.apply(this, arguments) : undefined;
         }
 
-        // Для всех остальных команд — обычный синхронный вызов
-        return typeof _orig === 'function'
-            ? _orig.apply(this, arguments)
-            : undefined;
+        // Защита: второй /rec, пока первый ещё не завершился, запустил бы второе отложенное подключение (двойной вход → «Ник недоступен» / «Подождите 15 секунд»)
+        if (_recInFlight) {
+            debugLog('[REC] Повторный /rec во время реконнекта — проигнорирован');
+            return undefined;
+        }
+
+        _recInFlight = true;
+        window.__lastRecAt = Date.now();   // для подавления «кика» сразу после нашего /rec
+        window.__recDisconnectUntil = Date.now() + REC_DEFER_MS + recSec * 1000 + REC_DISC_GRACE_MS;
+
+        // Сбрасываем HP-стейт — следующий тик после спавна только запишет baseline
+        if (typeof globalState !== 'undefined') {
+            globalState.hpLastValue    = null;
+            globalState._hpGraceUntil  = null;
+            globalState._hpGraceActive = false;
+            // FIX: отменяем отложенный таймер урона — без этого уведомление
+            // об уроне, накопленное ДО /rec, всё равно уходило через 1500мс после реконнекта
+            if (globalState._dmgTimer) { clearTimeout(globalState._dmgTimer); globalState._dmgTimer = null; }
+            globalState._dmgAccum = null;
+        }
+
+        // ⚠️ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: откладываем реальный вызов на REC_DEFER_MS.
+        // Синхронный _orig() внутри обработчика события (чат, HP-трекер,
+        // колбэк Telegram) → движок получает "разорвать соединение" пока
+        // ещё выполняет другую операцию → дедлок / зависание / вылет.
+        // setTimeout даёт call stack время завершиться до того как движок
+        // получит команду.
+        var _self = this;
+        var _args = arguments;
+        setTimeout(function() {
+            try {
+                if (typeof _orig === 'function') _orig.apply(_self, _args);
+            } catch (e) {
+                debugLog('[REC] Ошибка при отправке /rec: ' + e.message);
+            }
+            // Блокировку снимаем, когда игрок снова в игре (isPlayerConnected: true → был false после Game.Reset),
+            // иначе — по таймауту: задержка аргумента + REC_INFLIGHT_EXTRA_MS. finally-логика: блокировка не залипает навсегда.
+            const _until = Date.now() + recSec * 1000 + REC_INFLIGHT_EXTRA_MS;
+            let _sawDown = false;
+            if (_recWatch) clearInterval(_recWatch);
+            _recWatch = setInterval(function() {
+                const c = _recStoreConnected();
+                if (c === false) _sawDown = true;
+                if ((_sawDown && c === true) || Date.now() > _until) _recRelease();
+            }, 1000);
+        }, REC_DEFER_MS);
+
+        return undefined; // call sites не используют возврат /rec
     };
 })();
 
@@ -6921,10 +6933,10 @@ function initializeChatMonitor() {
         // Новые проверки сообщений в чате
         if (/Потеряно\s+соединение/i.test(msg)) { // клиент (index3.js, CONNECTION_LOST) ловит «Потеряно»
             debugLog('Обнаружено потеря соединения!');
-            if (!window.__afterRec5) {
+            if (!(window.__recOwnDisconnect && window.__recOwnDisconnect())) {
                 sendToTelegram(`❌ Потеряно соединение с сервером (${displayName})`, false, null);
             } else {
-                window.__afterRec5 = false; // сброс: следующее "потеряно" уже не от /rec 5
+                debugLog('Потеря соединения — следствие нашего /rec, уведомление подавлено');
             }
         }
         // Статусы окна Connect (index3.js), которых раньше не было: «You are banned» (BANIP), «Недоступный» (UNAVAILABLE_NICK), «свободных мест» (RECONNECT_FULL).
@@ -6980,7 +6992,7 @@ function initializeChatMonitor() {
         // Вы были отключены от сервера (цвет BEBEBE)
         if (msg.includes("Вы были отключены от сервера")) {
             debugLog('Обнаружено отключение от сервера!');
-            if (!window.__afterRec5) {
+            if (!(window.__recOwnDisconnect && window.__recOwnDisconnect())) {
                 if (window.__afterRateLimit) {
                     // Это отключение — прямое следствие rate-limit, уже уведомили выше
                     debugLog('Отключение после rate-limit — повторное уведомление подавлено');
@@ -7006,7 +7018,7 @@ function initializeChatMonitor() {
                     sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>${_discExtra}`, false, disconnectMarkup);
                 }
             } else {
-                window.__afterRec5 = false; // после /rec 5 не дублируем
+                debugLog('Отключение — следствие нашего /rec, уведомление подавлено');
             }
         }
         // Проверка неактивности — только по тексту (цвет может прийти как undefined у системных сообщений)
