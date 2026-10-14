@@ -1171,7 +1171,15 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
 // пока он false — окно авторизации открывается как обычно и не трогается.
 const autoLoginConfig = {
     password: PASSWORD, // ОБЩИЙ пароль (из установщика). Персональный по нику — см. _alResolvePassword()
-    enabled: true       // Флаг активации автовхода
+    _enabled: true,
+    // FIX: enabled стал свойством. Раньше при «выкл → /rec 5 → вкл» окно входа, открытое в режиме
+    // ручного ввода (manualWindow), оставалось «залипшим»: включение автовхода его не перепроверяло,
+    // а второй /rec 5 глушился защитой от спама — пароль не вводился, сервер кикал по тайм-ауту.
+    get enabled() { return this._enabled; },
+    set enabled(v) {
+        this._enabled = !!v;
+        if (this._enabled) { try { _alOnEnabled(); } catch (e) {} }
+    }
 };
 
 // При перезагрузке скрипта снимаем хуки/наблюдатели прошлой копии
@@ -1517,6 +1525,7 @@ function _alBeforeOpen(params) {
         _alHideUI(); // ДО открытия — первый кадр уже без окна
         return true;
     }
+    _alDiagNoAuto(); // автовход включён, но не может сработать — скажем почему
     return false;
 }
 
@@ -1551,6 +1560,7 @@ _alHook('closeInterface', function(orig) {
         if (!_AL.dead && name === 'Authorization') {
             const wasSent = _AL.sent, hadProblem = _AL.problem;
             _AL.sent = false;
+            _AL.problem = false;
             _AL.manualWindow = false;
             _AL.lastClose = Date.now();
             clearTimeout(_AL.sentTimer); _AL.sentTimer = null;
@@ -1598,10 +1608,40 @@ function _alFallbackCheck() {
         return;
     }
     if (!autoLoginConfig.enabled) { _AL.manualWindow = true; return; }
-    if (_AL.manualWindow || !_alCanAuto()) return;
+    if (_AL.manualWindow) return;
+    if (!_alCanAuto()) { _alDiagNoAuto(); return; }
     _alHideUI();
     _alFire();
     _alTryPatch();
+}
+
+// Почему автовход включён, окно входа открыто, а пароль не уходит (раньше — полная тишина)
+function _alWhyNot() {
+    if (!autoLoginConfig.enabled || _AL.sent) return null;
+    if (!autoLoginConfig.password && !_alHasNickPasswords())
+        return { code: 'nopass', text: 'Не задан пароль автовхода (ни общий, ни по нику). Задайте его в установщике и переустановите код.' };
+    if (typeof window.sendClientEvent !== 'function' || !window.gm)
+        return { code: 'noapi', text: 'Игра ещё не готова: нет sendClientEvent/gm.' };
+    const left = _AL.blockUntil - Date.now();
+    if (left > 0) return { code: 'block', text: 'Автовход на паузе ещё ' + Math.ceil(left / 1000) + ' сек после прошлой ошибки.', silent: true };
+    return null;
+}
+function _alDiagNoAuto() {
+    try {
+        const w = _alWhyNot();
+        if (!w) return;
+        const now = Date.now();
+        if (_AL.diagCode === w.code && now - (_AL.diagAt || 0) < 120000) return;
+        _AL.diagCode = w.code; _AL.diagAt = now;
+        debugLog('[AUTOLOGIN] Не сработал: ' + w.text);
+        if (!w.silent) sendToTelegram(`⚠️ <b>Автовход не сработал (${displayName})</b>\n${w.text}`, false, null);
+    } catch (e) {}
+}
+// Автовход включили (кнопка, AFK-цикл, строй…) — окно входа могло быть открыто раньше, перепроверяем
+function _alOnEnabled() {
+    if (_AL.dead) return;
+    _AL.manualWindow = false;
+    setTimeout(function () { if (!_AL.problem) _alFallbackCheck(); }, 50);
 }
 _AL.fallbackObs = new MutationObserver(_alFallbackCheck);
 function _alStartObserver() {
@@ -1610,6 +1650,9 @@ function _alStartObserver() {
 }
 if (document.body) _alStartObserver();
 else document.addEventListener('DOMContentLoaded', _alStartObserver);
+// Страховка: MutationObserver не видит окно, которое уже было в DOM (кик/реконнект не закрывают интерфейс)
+// или потерял body. Раз в 2.5 с перепроверяем. После ошибки пароля (problem) повторов нет.
+_AL.pollTimer = setInterval(function () { if (!_AL.dead && !_AL.problem) _alFallbackCheck(); }, 2500);
 
 window.__hassleAL = {
     dispose: function() {
@@ -1618,6 +1661,7 @@ window.__hassleAL = {
         try { _AL.errObs && _AL.errObs.disconnect(); } catch (e) {}
         clearTimeout(_AL.revealTimer);
         clearTimeout(_AL.sentTimer); clearTimeout(_AL.cooldownTimer); clearTimeout(_AL.holdTimer);
+        try { clearInterval(_AL.pollTimer); } catch (e) {}
         try { document.documentElement.classList.remove(_AL.HIDE_CLASS); } catch (e) {}
         try { _AL.styleEl && _AL.styleEl.remove(); } catch (e) {}
         ['interface', 'closeInterface', 'setCursorStatus'].forEach(function(p) {
