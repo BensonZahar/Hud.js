@@ -3394,6 +3394,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, onMessageSe
 // START MOVEMENT MODULE //
 const MOVE_RELATIVE_TO_CHARACTER = true;  // false — как раньше (направление относительно камеры)
 const MOVE_ANGLE_SIGN = 1;                // если «вперёд/назад» верно, а «влево/вправо» зеркально (или наоборот) — поставь -1
+const MOVE_ANCHOR_MS = 8000;              // пока кнопки жмутся чаще, чем раз в N мс, «вправо/влево/вперёд/назад» считаются от ОДНОГО и того же направления (иначе серия «вправо» заворачивает по кругу). 0 — выключить
 const MOVE_RADAR_MAX_AGE_MS = 3000;       // данные радара старше — не используем (скрыт HUD / пауза), идём как раньше
 const MOVE_NOTICE_REPLACE_MS = 30000;     // повторное сообщение о движении в это окно заменяет предыдущее
 
@@ -3425,7 +3426,13 @@ function _mvStickVector(lx, ly) {
     if (!MOVE_RELATIVE_TO_CHARACTER) return [lx, ly];
     var r = window.__hassleMvRadar;
     if (!r || !r.at || Date.now() - r.at > MOVE_RADAR_MAX_AGE_MS) return [lx, ly];
-    var deg = (r.arrow - r.map) * MOVE_ANGLE_SIGN;
+    // Якорь: персонаж после шага «вправо» поворачивается лицом вправо, и следующее «вправо» от нового взгляда уводит по кругу.
+    // Поэтому в серии нажатий берём направление взгляда с ПЕРВОГО нажатия; камера при этом берётся текущая (она может ехать за персонажем).
+    var _a = window.__hassleMvAnchor = window.__hassleMvAnchor || { arrow: 0, at: 0 };
+    var _now = Date.now();
+    var heading = (MOVE_ANCHOR_MS > 0 && _a.at && _now - _a.at < MOVE_ANCHOR_MS) ? _a.arrow : r.arrow;
+    _a.arrow = heading; _a.at = _now;
+    var deg = (heading - r.map) * MOVE_ANGLE_SIGN;
     var th = deg * Math.PI / 180, c = Math.cos(th), sn = Math.sin(th);
     var x = lx * c + ly * sn;
     var y = -lx * sn + ly * c;
