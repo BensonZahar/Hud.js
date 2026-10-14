@@ -25,6 +25,9 @@
 // ║     ID не тот / игрока нет → выдача отменяется, ник берётся с сервера ║
 // ║   • v1.19: список игроков (PlayersOnline) УДАЛЁН полностью —         ║
 // ║     ID по нику и проверка идут только через серверный /id            ║
+// ║   • v1.21: Telegram пишет, УШЁЛ ли запрос на покупку (ответ сервера  ║
+// ║     «Вы предложили…»), а если висит прошлое предложение («Используйте ║
+// ║     /cancel…») — предупреждает и даёт кнопку «Отменить» (/cancel)    ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
@@ -42,7 +45,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.20';
+var VERSION = 'code3 v1.21';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -870,6 +873,22 @@ function reissueLic() {
     return true;
 }
 onUndo(function () { if (reissueTimer) { clearTimeout(reissueTimer); reissueTimer = null; } });
+
+// ══════════════════════════ ОТМЕНА ПРЕДЛОЖЕНИЯ (/cancel) ══════════════════════════
+// Серверный /cancel отзывает наше исходящее предложение. Нужен, когда /givelic не прошёл из-за прошлого предложения:
+// сервер отвечает «Используйте /cancel чтобы отозвать предыдущее предложение» (offer.pwn, SendPlayerOffer).
+var _cancelAt = 0;   // когда ушёл наш /cancel — по этому окну Telegram-модуль принимает ответ сервера («Вы отозвали…»)
+function cancelOffer() {
+    if (!licensorReady()) return false;
+    whenFloodFree(1, function () {
+        if (_dead) return;
+        _cancelAt = Date.now();
+        tr('CANCEL/отправка', '/cancel', STATE.last ? 'последняя цель: ID ' + STATE.last.targetId : 'выдач ещё не было');
+        rawSend('/cancel');
+        gtAdd('~g~Отмена предложения~n~~w~Отправлен /cancel', 2500, 3);
+    });
+    return true;
+}
 function doReissue() {
     if (!OPTS.AUTO_REISSUE) return;
     if (!STATE.last) {
@@ -1798,6 +1817,12 @@ function onChat(message) {
         gtAdd('~y~Игрок далеко~n~~w~ID ' + last.targetId + (last.nick ? ' (' + last.nick + ')' : '') + ' · /givelic работает до 6 м, меню открывается с 8 м. Если рядом — проверьте ID', 4500, 3);
     }
 
+    // /givelic не принят: у нас ещё висит предыдущее предложение — его надо отозвать (/cancel)
+    if (last && last.at && Date.now() - last.at < 20000 && clean.indexOf('чтобы отозвать предыдущее предложение') !== -1 && cooled('busy', 3000)) {
+        tr('GIVE/занято', 'есть активное предложение — нужен /cancel', 'ID ' + last.targetId);
+        gtAdd('~y~Запрос НЕ отправлен~n~~w~Есть активное предложение — отзовите его: /cancel (в Telegram — «Отменить»)', 5000, 3);
+    }
+
     if (OPTS.AUTO_REPLIES && last && licensorReady()) {
         // Неоплаченные штрафы у покупателя
         if (clean.indexOf('У человека есть неоплаченные штрафы') !== -1) {
@@ -2578,6 +2603,8 @@ window.__code3 = {
     ready: licensorReady,
     give: function (id, idx) { return licensorReady() && giveByIndex(String(id), idx); },
     reissue: function () { if (!licensorReady() || !STATE.last) return false; reissueLic(); return true; },
+    cancel: function () { return cancelOffer(); },                       // /cancel — отозвать своё исходящее предложение (кнопка «Отменить» в Telegram)
+    cancelAt: function () { return _cancelAt; },
     // Переключатели из меню лицензёра (то же, что пункты «Круговое меню» / «Просьба о чае» в игре); возвращают новое состояние или null
     toggleTea: function () { if (!licensorReady()) return null; toggleTea(); return !!STATE.tea; },
     toggleCircle: function () { if (!licensorReady()) return null; toggleCircle(); return !!STATE.circle; },
@@ -2696,6 +2723,7 @@ try { (function () {
             [btn('☕ Просьба о чае ' + (stt.tea ? '🟢' : '🔴'), PFX + 'tea|' + uid, stt.tea ? 'success' : 'danger')],
             [btn('🪪 Выдача лицензий', PFX + 'types|' + uid, 'primary')]
         ];
+        rows.push([btn('❌ Отменить предложение (/cancel)', PFX + 'cancel|' + uid, 'danger')]);
         if (last) rows.push([btn('🔁 Перевыдать: ' + last.name + ' → ' + last.targetId, PFX + 'reissue|' + uid)]);
         rows.push([btn('⬅️ Вернуться назад', 'show_functions_' + uid)]);
         editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
@@ -2708,13 +2736,32 @@ try { (function () {
         rows.push([btn('⬅️ Вернуться назад', PFX + 'menu|' + uid)]);
         editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
     }
+    // Когда пришёл последний ответ сервера на выдачу (handleEvent) — по нему сторож понимает, ушёл ли запрос
+    let _evAt = 0;
+    const WATCH_MS = 12000;
+    function cancelBtn() { return btn('❌ Отменить', PFX + 'cancel|' + uniqueId, 'danger'); }
+    // Сервер всегда отвечает на /givelic («Вы предложили…» либо причина отказа). Нет ответа за WATCH_MS — пишем в Telegram, а не молчим
+    function watchGive(giveAt, target) {
+        setTimeout(function () {
+            if (_evAt >= giveAt) return;   // сервер уже ответил — событие ушло в Telegram
+            const l = lastGive();
+            const went = !!(l && l.at >= giveAt && String(l.targetId) === String(target));
+            if (went) {
+                sendToTelegram('❔ <b>Нет ответа сервера на /givelic (' + esc(displayName) + ')</b>\nНеизвестно, ушёл ли запрос (антифлуд / чат скрыт). Если игрок предложения не видит — отмените и выдайте заново.', false, { inline_keyboard: [[cancelBtn()]] });
+            } else {
+                sendToTelegram('⚠️ <b>/givelic НЕ отправлен (' + esc(displayName) + ')</b>\nПомощник не пропустил команду (проверка ник ↔ ID или антифлуд) — подробности в игре.', false, null);
+            }
+        }, WATCH_MS);
+    }
     function doGive(target, idx) {
         const t = types()[idx];
         if (!t) return false;
         if (!ready()) { sendToTelegram(notReadyText(), false, null); return false; }
+        const giveAt = Date.now();
         const ok = !!api().give(target, idx);
         if (ok) {
-            sendToTelegram('✅ <b>Отправлено (' + esc(displayName) + ')</b>\n<code>/givelic ' + esc(target) + ' ' + t.type + ' ' + t.price + '</code>\n🪪 ' + esc(t.name) + ' — ' + money(t.price), false, null);
+            // Сразу ничего не пишем: в Telegram уйдёт ответ сервера («Вы предложили…» / причина отказа) — см. handleEvent
+            watchGive(giveAt, target);
         } else {
             sendToTelegram('❌ <b>Не удалось отправить /givelic (' + esc(displayName) + ')</b>', false, null);
         }
@@ -2730,7 +2777,9 @@ try { (function () {
             sendToTelegram('⚠️ <b>Перевыдача отменена (' + esc(displayName) + ')</b>\nПоследняя выдача была другому игроку: ID <code>' + esc(last.targetId) + '</code> (' + esc(nickOf(last.targetId) || '—') + ').', false, null);
             return false;
         }
+        const giveAt = Date.now();
         const ok = !!api().reissue();
+        if (ok) watchGive(giveAt, tid);
         sendToTelegram(ok
             ? '🔁 <b>Перевыдача запущена (' + esc(displayName) + ')</b>\n🪪 ' + esc(last.name) + ' → ' + esc(nickOf(tid) || 'ID') + ' [ID: ' + esc(tid) + ']'
             : '❌ <b>Не удалось перевыдать (' + esc(displayName) + ')</b>', false, null);
@@ -3075,11 +3124,28 @@ try { (function () {
             }
             case 'reissue':
                 if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
-                sendToTelegram(api().reissue() ? '🔁 <b>Перевыдача запущена (' + esc(displayName) + ')</b>' : '❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null);
+                {
+                    const giveAt = Date.now(), lg = lastGive(), okRe = !!api().reissue();
+                    if (okRe && lg) watchGive(giveAt, lg.targetId);
+                    sendToTelegram(okRe ? '🔁 <b>Перевыдача запущена (' + esc(displayName) + ')</b>' : '❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null);
+                }
                 break;
             case 're':   // кнопка «Перевыдать» под событием выдачи: только если это всё ещё последняя цель
                 reissueFor(d.args[0]);
                 break;
+            case 'cancel': {   // кнопка «Отменить»: /cancel — отозвать своё исходящее предложение (если /givelic не прошёл из-за прошлого — тоже оно)
+                if (!once('cancel', 3000)) break;   // двойное нажатие
+                const okc = !!api().cancel();
+                sendToTelegram(okc
+                    ? '🗑 <b>/cancel отправлен (' + esc(displayName) + ')</b>\n⏳ <i>Жду ответ сервера: отозвано ли предложение…</i>'
+                    : '❌ <b>Не удалось отправить /cancel (' + esc(displayName) + ')</b>', true, null);
+                try {   // у сообщения, под которым нажали, убираем кнопку «Отменить» (остальные остаются)
+                    const old = (cq.message && cq.message.reply_markup && cq.message.reply_markup.inline_keyboard) || [];
+                    const kept = old.filter(function (r) { return !r.some(function (b) { return b && typeof b.callback_data === 'string' && b.callback_data.indexOf(PFX + 'cancel|') === 0; }); });
+                    if (kept.length !== old.length) editMessageReplyMarkup(chatId, messageId, { inline_keyboard: kept });
+                } catch (e) {}
+                break;
+            }
             // ── Кнопка «Выдача лицензии» под сообщением игрока: клавиатура меняется на месте (сообщение не удаляется) ──
             case 'open':
                 if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
@@ -3217,18 +3283,31 @@ try { (function () {
         } catch (e) { return null; }
     }
     function isTarget(id) { const l = lastGive(); return !!(l && String(l.targetId) === String(id)); }
-    function reissueBtn(id) {
+    function reissueBtn(id, label) {
         const l = lastGive();
-        return btn('🔁 Перевыдать: ' + (l ? l.name : 'лицензию'), PFX + 're|' + id + '|' + uniqueId, 'primary');
+        return btn(label || ('🔁 Перевыдать: ' + (l ? l.name : 'лицензию')), PFX + 're|' + id + '|' + uniqueId, 'primary');
     }
 
     // Ответы сервера на нашу выдачу: пишем в Telegram (в течение EVENT_WINDOW после /givelic), независимо от переключателя.
     const EVENT_WINDOW = 3 * 60 * 1000;
     const EVENTS = [
+        // ── запрос на покупку: ушёл / не ушёл (offer.pwn: SendPlayerOffer → OFFER_TYPE_GIVE_LIC) ──
+        { re: /^Вы предложили\s.+?\sкупить у Вас лицензию/i,                       icon: '📨', title: 'Предложение отправлено', ok: true, cancelBtn: true },
+        { re: /Используйте\s+\/cancel\s+чтобы отозвать предыдущее предложение/i,    icon: '⚠️', title: 'Запрос НЕ отправлен — активно предыдущее предложение', cancelBtn: true, redoCancel: true,
+          hint: 'Сначала отклоните его командой /cancel (кнопка «Отменить»), затем выдайте заново.' },
+        // ── итог /cancel (кнопка «Отменить» или ручной /cancel) ──
+        { re: /^Вы отозвали\s+св[оё]е\s+(?:последнее\s+)?предложение/i,             icon: '🗑', title: 'Предложение отозвано', cancel: true, redo: true },
+        { re: /^У Вас нет активных предложений/i,                                    icon: 'ℹ️', title: 'Активных предложений нет — отменять нечего', cancel: true },
+        // ── отказы сервера ──
         { re: /У человека есть неоплаченные штрафы/i,                    icon: '⚠️', title: 'Есть неоплаченные штрафы', redo: true },
         { re: /У покупателя наложен запрет на покупку лицензии на оружие/i, icon: '🚫', title: 'Запрет на покупку лицензии на оружие', redo: true },
         { re: /У покупателя недостаточно денег/i,                         icon: '💸', title: 'Недостаточно денег', redo: true },
         { re: /У покупателя уже есть этот тип лицензии/i,                 icon: 'ℹ️', title: 'Такая лицензия уже есть', redo: false },
+        { re: /Игрок проходит мини-игру/i,                                icon: '🎮', title: 'Игрок проходит мини-игру — запрос не отправлен', redo: true },
+        { re: /покупает оружие, пожалуйста, подождите/i,                  icon: '🔫', title: 'Игрок покупает оружие — запрос не отправлен', redo: true },
+        { re: /Заключ[её]нному нельзя продать/i,                          icon: '⛓', title: 'Заключённому нельзя продать эту лицензию', redo: false },
+        { re: /^Стоимость данной лицензии составляет/i,                   icon: '💰', title: 'Цена не совпала со стоимостью лицензии', redo: false },
+        { re: /^Некорректный тип лицензии/i,                              icon: '❓', title: 'Некорректный тип лицензии', redo: false },
         { re: /отказался от Вашего предложения/i,                         icon: '❌', title: 'Отказался от предложения', redo: true },
         { re: /^\*?\s*Игрок (?:находится )?слишком далеко/i,            icon: '📏', title: 'Игрок слишком далеко', redo: true },
         { re: /^\*?\s*Такого игрока нет/i,                                icon: '❓', title: 'Такого игрока нет', redo: false },
@@ -3236,21 +3315,32 @@ try { (function () {
     ];
     function handleEvent(text) {
         if (!ready()) return false;
-        const l = lastGive();
-        if (!l || !l.at || Date.now() - l.at > EVENT_WINDOW) return false;
         const ev = EVENTS.find(function (e) { return e.re.test(text); });
         if (!ev) return false;
         if (/^\s*-\s/.test(text) || PLAYER_MSG_RE.test(text)) return false;       // строки чата игроков — не события
+        const l = lastGive(), now = Date.now();
+        const inWin = !!(l && l.at && now - l.at <= EVENT_WINDOW);                // ответ на недавнюю выдачу
+        let cw = false;                                                           // ответ на наш /cancel (его окно — 15 с, даже если выдача была давно)
+        if (ev.cancel) { try { const ca = api().cancelAt && api().cancelAt(); cw = !!(ca && now - ca < 15000); } catch (e) {} }
+        if (!inWin && !cw) return false;
+        if (!ev.cancel) _evAt = now;                                              // сервер ответил на выдачу — сторож (watchGive) молчит
         if (!once('ev|' + ev.title, 3000)) return true;
+        const showL = !!(l && inWin);
         const send = function () {
-            const nick = nickOf(l.targetId);
+            const nick = showL ? nickOf(l.targetId) : null;
             const rows = [];
-            if (ev.redo) rows.push([reissueBtn(l.targetId)]);
-            rows.push([btn('🪪 Выдать лицензию (ID ' + l.targetId + ')', PFX + 'to|' + l.targetId + '|' + uniqueId)]);
-            sendToTelegram(ev.icon + ' <b>' + ev.title + '</b>\n🪪 ' + esc(l.name) + ' → ' + esc(nick || 'игрок') + ' [ID: ' + esc(l.targetId) + ']\n' +
-                '<i>' + esc(text) + '</i>\n(' + esc(displayName) + ')', !!ev.silent, { inline_keyboard: rows });
+            if (ev.cancelBtn) rows.push([cancelBtn()]);
+            if (showL && ev.redoCancel) rows.push([reissueBtn(l.targetId, '🔁 Отменить и перевыдать: ' + l.name)]);   // перевыдача = /cancel + повтор /givelic
+            if (showL && ev.redo) rows.push([reissueBtn(l.targetId)]);
+            if (showL) rows.push([btn('🪪 Выдать лицензию (ID ' + l.targetId + ')', PFX + 'to|' + l.targetId + '|' + uniqueId)]);
+            sendToTelegram(ev.icon + ' <b>' + ev.title + '</b>\n' +
+                (showL ? '🪪 ' + esc(l.name) + ' → ' + esc(nick || 'игрок') + ' [ID: ' + esc(l.targetId) + ']\n' : '') +
+                (showL && ev.ok ? '<code>/givelic ' + esc(l.targetId) + ' ' + l.type + ' ' + l.price + '</code>\n' : '') +
+                (ev.hint ? '👉 ' + esc(ev.hint) + '\n' : '') +
+                '<i>' + esc(text) + '</i>\n(' + esc(displayName) + ')', !!ev.silent, rows.length ? { inline_keyboard: rows } : null);
         };
-        try { const a = api(); if (a && typeof a.whenNick === 'function') a.whenNick(l.targetId, send); else send(); } catch (e) { send(); }   // ждём, пока ник цели определится (ответ сервера на /id)
+        if (showL) { try { const a = api(); if (a && typeof a.whenNick === 'function') a.whenNick(l.targetId, send); else send(); } catch (e) { send(); } }   // ждём, пока ник цели определится (ответ сервера на /id)
+        else send();
         return true;
     }
 
