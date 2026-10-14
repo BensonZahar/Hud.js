@@ -1506,6 +1506,19 @@ function _alBeforeOpen(params) {
         // Сервер переоткрыл окно сразу после отправки → вход не прошёл.
         // Показываем окно сразу, как в оригинале, без повторов.
         const wasSent = _AL.sent;
+        // FIX: повторное открытие окна БЕЗ ошибки от сервера (problem=false) — это не «неверный пароль»
+        // (неверный пароль всегда приходит как setError → problem=true). Сервер молча игнорирует
+        // OnAuthorizationStart, пока игрок не в состоянии входа или идёт проверка бан-листа, либо сам
+        // открывает окно дважды. Раньше автовход после этого блокировался на минуту до ручного ввода.
+        // Теперь шлём пароль ещё раз (максимум 2 повтора на подключение).
+        if (wasSent && !_AL.problem && autoLoginConfig.enabled && (_AL.reopenRetries || 0) < 2) {
+            _AL.reopenRetries = (_AL.reopenRetries || 0) + 1;
+            _AL.sent = false;
+            clearTimeout(_AL.sentTimer); _AL.sentTimer = null;
+            _AL.lastSend = 0;
+            debugLog('[AUTOLOGIN] Окно переоткрыто без ошибки сервера — повторная отправка пароля (' + _AL.reopenRetries + '/2)');
+            if (_alCanAuto()) { _alHideUI(); return true; }
+        }
         _AL.blockUntil = now + _AL.RETRY_BLOCK_MS;
         _alShowUI();
         if (wasSent) {
@@ -1523,6 +1536,7 @@ function _alBeforeOpen(params) {
         clearTimeout(_AL.sentTimer); _AL.sentTimer = null;
     }
     _AL.retried = false;
+    _AL.reopenRetries = 0; // свежее подключение — счётчик повторов обнуляем
     if (!autoLoginConfig.enabled) { _AL.manualWindow = true; return false; } // окно для ручного входа
     _AL.manualWindow = false;
     if (_alCanAuto()) {
