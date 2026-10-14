@@ -446,6 +446,9 @@ let _awaitingTimerDialog = false;
 let _timerDialogResetTO = null;
 // Флаг: диалог "Точное время" сейчас открыт — ждём зелёного сообщения "Снимок экрана сохранен" для закрытия
 let _timerDialogOpen = false;
+// Номер диалога (счётчик window._fsinDlgSeq), которым открылось "Точное время".
+// Закрываем последний диалог только если после него не открывалось других (иначе прибьём чужой, напр. /blist).
+let _timerDialogSeq = -1;
 // Флаг: Dokladi был открыт до доклада — восстановить его после закрытия "Точное время"
 let _timerDokladiWasOpen = false;
 
@@ -790,6 +793,10 @@ function getPlayerInfoFromList(id) {
 }
 
 let _mainChatHandlerReady = false;
+// Автокуфф: ждём ответ на /id только после НАШЕГО запроса (и только по этому нику),
+// иначе любой ручной /id при включённом автокуффе запускал /cuff + /escort.
+let _acPendingNick = null;
+let _acPendingUntil = 0;
 
 
 const setupChatHandler = () => {
@@ -845,14 +852,18 @@ const setupChatHandler = () => {
                         }, 1000);
                     } else {
                         // Фолбэк — запрашиваем через /id (ответ поймает блок ниже)
+                        _acPendingNick = nickname;
+                        _acPendingUntil = Date.now() + 5000;
                         setTimeout(() => { sendChatInput(`/id ${nickname}`); }, 500);
                     }
                 }
          
                 // Фолбэк: разбираем ответ сервера на /id когда ID не нашёлся в списке
                 const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
-                if (idMatch && idMatch[2]) {
+                if (idMatch && idMatch[2] && _acPendingNick && Date.now() < _acPendingUntil &&
+                    String(idMatch[1]).toLowerCase() === String(_acPendingNick).toLowerCase()) {
                     const id = idMatch[2];
+                    _acPendingNick = null; // одноразово
                     setTimeout(() => {
                         sendMessagesWithDelay([
                             `/cuff ${id}`,
@@ -875,8 +886,12 @@ const setupChatHandler = () => {
                     _timerDialogOpen = false;
                     if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
                     setTimeout(() => {
-                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
-                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт — скриншот подтверждён');
+                        if (window._fsinDlgSeq === _timerDialogSeq) {
+                            try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                            console.log('[AHK-TIMER] Диалог "Точное время" закрыт — скриншот подтверждён');
+                        } else {
+                            console.log('[AHK-TIMER] После "Точное время" открылся другой диалог — не закрываю (скриншот)');
+                        }
                         // Восстанавливаем тост таймера
                         try {
                             window._dokladToastSuppressed = false;
@@ -1644,6 +1659,7 @@ sendClientEvent = sendClientEventCustom;
 
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
+    window._fsinDlgSeq = (window._fsinDlgSeq || 0) + 1; // счётчик всех открытых диалогов
     try {
         if (dialogParams && typeof dialogParams === 'string') {
             const parsed = JSON.parse(dialogParams.trim());
@@ -1683,13 +1699,18 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 _awaitingTimerDialog = false;
                 if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
                 _timerDialogOpen = true;
+                _timerDialogSeq = window._fsinDlgSeq;
                 console.log('[AHK-TIMER] Диалог "Точное время" открыт — жду сообщение "Снимок экрана сохранен" в чате');
                 // Защитный таймаут: если скриншот так и не появился за 30 секунд — всё равно закрываем
                 _timerDialogResetTO = setTimeout(() => {
                     if (_timerDialogOpen) {
                         _timerDialogOpen = false;
-                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
-                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт по таймауту (30с)');
+                        if (window._fsinDlgSeq === _timerDialogSeq) {
+                            try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                            console.log('[AHK-TIMER] Диалог "Точное время" закрыт по таймауту (30с)');
+                        } else {
+                            console.log('[AHK-TIMER] После "Точное время" открылся другой диалог — не закрываю (таймаут 30с)');
+                        }
                         // Восстанавливаем тост и Dokladi
                         try { window._dokladToastSuppressed = false; } catch(e) {}
                         if (_timerDokladiWasOpen) { _timerDokladiWasOpen = false; try { window.openInterface('Dokladi'); } catch(e) {} }
@@ -1705,8 +1726,12 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 _lastPaginatedDialogId = null;
             }
 
-            // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
-            if (style === 2 && dialogId === 0 && title.includes('ФСИН') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
+            // ── Авто-снаряжение ФСИН: LIST с заголовком РОВНО "ФСИН" (оружейка) ──
+            // FIX: раньше было title.includes('ФСИН') — под это попадал серверный /blist
+            // ("Черный список: "ФСИН"", тоже LIST, слот 0) и авто-снаряжение само жало пункты в нём.
+            // dialogId тут — это индекс слота диалога (почти всегда 0), а не серверный ID,
+            // поэтому отличать оружейку можно только по точному заголовку.
+            if (style === 2 && dialogId === 0 && title.trim() === 'ФСИН' && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
                 if (!window._fsinGrabProcessing) {
                     console.log('[FSIN-GRAB] === v2.1 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
