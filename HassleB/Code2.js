@@ -3067,10 +3067,10 @@ if (document.readyState === 'loading') {
         });
         return rec;
     }
-    function finish(rec, note) {
+    function finish(rec, note, keyboard) {
         if (!rec || rec.done) return;
         rec.done = true;
-        rec.msgs.forEach(function (m) { editMessageText(m.chatId, m.messageId, rec.html + '\n\n' + note, null); });
+        rec.msgs.forEach(function (m) { editMessageText(m.chatId, m.messageId, rec.html + '\n\n' + note, keyboard || null); });
     }
 
     // ── Звонки и SMS ────────────────────────────────────────────
@@ -3112,19 +3112,50 @@ if (document.readyState === 'loading') {
         if (!rec) return;
         rec.msgs.forEach(function (m) { editMessageText(m.chatId, m.messageId, rec.html, null); });
     }
-    function endCall(note) {
+    // «Перезвонить»: номер берём из карточки; если бот не видел начала звонка — из «телефонной книги» (имя → номер)
+    //  phone.pwn: /call работает только для служебных номеров, обычные набираются из телефона событием
+    //  Phone_OnPlayerCall(number) — его и шлёт кнопка «Набор номера» (та же проверка баланса/занятости на сервере)
+    const phoneBook = {};
+    function rememberNumber(name, number) {
+        if (name && number) phoneBook[String(name).replace(/_/g, ' ').toLowerCase()] = String(number);
+    }
+    function lookupNumber(name) {
+        return (name && phoneBook[String(name).replace(/_/g, ' ').toLowerCase()]) || '';
+    }
+    function redialKeyboard(number, label) {
+        return { inline_keyboard: [[btn(label || '📞 Перезвонить', 'phn_cb_' + number + '_' + uniqueId)]].concat(baseRows()) };
+    }
+    function sendDial(number) {
+        const n = parseInt(number, 10);
+        if (!n || n < 1) return false;
+        const evt = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined) ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
+        // «сырой» путь — игровой sendClientEvent теряет события при открытом чате
+        try {
+            if (typeof window.sendClientEventHandle === 'function') { window.sendClientEventHandle(evt, 'Phone_OnPlayerCall', n); return true; }
+        } catch (e) { debugLog('[PHONE] sendClientEventHandle: ' + e.message); }
+        try {
+            if (typeof window.sendClientEvent === 'function') { window.sendClientEvent(evt, { ignoreChat: true }, 'Phone_OnPlayerCall', n); return true; }
+        } catch (e) { debugLog('[PHONE] sendClientEvent: ' + e.message); }
+        return false;
+    }
+    let redialPending = null;   // { number, at } — ждём реакцию сервера на перезвон (ошибки приходят строками чата)
+    const REDIAL_ERR_RE = /^(Абонент занят|Набранный Вами номер не обслуживается|Данный номер не обслуживается|Телефон абонента вне зоны доступа|Ваш телефон отключен|Закончите текущий разговор|На счету недостаточно средств|В данный момент человек не может вам ответить|Нельзя звонить человеку, который находится в AFK|У Вас нет телефона|В данный момент Вы не можете использовать это|Вы не можете пользоваться этим когда сидите в тюрьме)/;
+
+    // note — подпись под карточкой; noRedial — не предлагать перезвонить (звонок заменён новым)
+    function endCall(note, noRedial) {
         const c = activeCall;
         if (!c) return;
         activeCall = null;
         if (c.timer) clearTimeout(c.timer);
         stripButtons(c.lastLine);
-        finish(c.rec, note);
+        const number = c.number || lookupNumber(c.caller);
+        finish(c.rec, note, (number && !noRedial) ? redialKeyboard(number) : null);
     }
     // звонок принят → то же сообщение остаётся с кнопкой «Положить трубку»
     function startTalking(name, outgoing) {
         let c = activeCall;
         if (!c) {   // бот не видел начала звонка (перезапуск и т.п.) — создаём карточку разговора
-            c = activeCall = { rec: null, state: 'talking', caller: name, number: '', outgoing: !!outgoing, hanging: false, lines: [], lastLine: null };
+            c = activeCall = { rec: null, state: 'talking', caller: name, number: lookupNumber(name), outgoing: !!outgoing, hanging: false, lines: [], lastLine: null };
             sessionLog('📞 Разговор с ' + name);
             c.rec = sendWithButtons(callHtml(c, '🟢 <i>Идёт разговор</i>'), talkKeyboard(false), true);
             return;
@@ -3186,12 +3217,45 @@ if (document.readyState === 'loading') {
             if (!once('call:' + m[1])) return;
             const caller = m[2].trim();
             sessionLog('📞 Звонок от ' + caller + ' (т.' + m[1] + ')');
-            if (activeCall) endCall('⏭ <i>Новый звонок</i>');
+            if (activeCall) endCall('⏭ <i>Новый звонок</i>', true);
+            rememberNumber(caller, m[1]);
             const c = activeCall = { rec: null, state: 'ringing', caller: caller, number: m[1], outgoing: false, hanging: false, lines: [], lastLine: null };
             c.rec = sendWithButtons(
                 callHtml(c, ''),
                 { inline_keyboard: [[btn('📞 Ответить (/p)', 'phn_p_' + uniqueId), btn('📵 Сбросить (/h)', 'phn_h_' + uniqueId)]].concat(baseRows()) },
                 false
+            );
+            return;
+        }
+
+        // мы позвонили (вручную в игре или кнопкой «Перезвонить») — карточка исходящего с кнопкой «Отменить»
+        //  phone.pwn:1494  «Исходящий звонок | Номер: %d {FFCD00}| Ожидание ответа от %s...»  (0x66CC00)
+        m = msg.match(/^Исходящий звонок \| Номер: (\d+) \| Ожидание ответа от (.+?)\.*$/);
+        if (m) {
+            if (!once('out:' + m[1])) return;
+            const callee = m[2].trim();
+            redialPending = null;
+            sessionLog('📞 Звоним ' + callee + ' (т.' + m[1] + ')');
+            if (activeCall) endCall('⏭ <i>Новый звонок</i>', true);
+            rememberNumber(callee, m[1]);
+            const c = activeCall = { rec: null, state: 'ringing', caller: callee, number: m[1], outgoing: true, hanging: false, lines: [], lastLine: null };
+            c.rec = sendWithButtons(
+                callHtml(c, '⏳ <i>Ожидание ответа…</i>'),
+                { inline_keyboard: [[btn('📵 Отменить (/h)', 'phn_h_' + uniqueId)]].concat(baseRows()) },
+                true
+            );
+            // страховка: если сервер так и не сообщил об ответе/конце — не оставляем карточку «висеть»
+            c.timer = setTimeout(function () { if (activeCall === c && c.state === 'ringing') endCall('⌛ <i>Нет ответа</i>'); }, 60000);
+            return;
+        }
+
+        // перезвон не удался (занят / вне зоны / нет денег …) — серверная строка приходит сразу после нашего события
+        if (redialPending && Date.now() - redialPending.at < 6000 && REDIAL_ERR_RE.test(msg)) {
+            const num = redialPending.number;
+            redialPending = null;
+            sendWithButtons(
+                '⚠️ <b>Перезвонить не получилось (' + esc(displayName) + ')</b>\n📱 Номер: <code>' + esc(num) + '</code>\n<i>' + esc(msg) + '</i>',
+                redialKeyboard(num, '🔁 Повторить'), false
             );
             return;
         }
@@ -3230,6 +3294,7 @@ if (document.readyState === 'loading') {
             if (m) {
                 const text = m[1], sender = m[2].trim(), phone = m[3];
                 const isService = /^(Оператор|Банк)$/i.test(sender);
+                if (!isService) rememberNumber(sender, phone);
                 // «набор» в жёлтых SMS ловит модуль SOBESED — не дублируем
                 if (config.sobesNotifications && /набор/i.test(text)) return;
                 if (!once('sms:' + phone + ':' + text)) return;
@@ -3375,6 +3440,38 @@ if (document.readyState === 'loading') {
             return;
         }
 
+        // «📞 Перезвонить» / «🔁 Повторить»: phn_cb_<номер>_<uid>
+        if (data.indexOf('phn_cb_') === 0) {
+            const number = data.slice('phn_cb_'.length).split('_')[0];
+            if (!/^\d{1,9}$/.test(number)) {
+                sendToTelegram('⚠️ <b>Не удалось перезвонить (' + esc(displayName) + ')</b>: некорректный номер', false, null);
+                return;
+            }
+            if (!once('phn_cb:' + number)) return;   // двойное нажатие
+            if (activeCall && activeCall.state === 'talking') {
+                sendToTelegram('⚠️ <b>Сначала завершите текущий разговор (' + esc(displayName) + ')</b>', false, null);
+                return;
+            }
+            redialPending = { number: number, at: Date.now() };
+            if (!sendDial(number)) {
+                redialPending = null;
+                sendToTelegram('❌ <b>Не удалось набрать (' + esc(displayName) + ')</b>: нет связи с игрой', false, null);
+                return;
+            }
+            sessionLog('📞 Перезвон на т.' + number);
+            // кнопка с карточки уходит (повторное нажатие не нужно); текст оставляем как есть
+            editMessageReplyMarkup(chatId, messageId, { inline_keyboard: baseRows() });
+            // карточка «Исходящий звонок» появится сама, когда сервер ответит строкой «Исходящий звонок | Номер: …»;
+            // если сервер промолчит (напр. служебный номер), подсказываем через 6 с
+            setTimeout(function () {
+                if (redialPending && redialPending.number === number) {
+                    redialPending = null;
+                    if (!activeCall) sendToTelegram('ℹ️ <i>Ответа от игры на набор т.' + esc(number) + ' нет (' + esc(displayName) + ')</i>', true, null);
+                }
+            }, 6000);
+            return;
+        }
+
         // «✍️ Ответить» собеседнику: просим ввести текст (force_reply)
         if (data.indexOf('phn_r_') === 0) {
             _abortPollSafe();
@@ -3411,7 +3508,7 @@ if (document.readyState === 'loading') {
         return !!m && m[1] === uniqueId;
     }
     function isOurCallback(data) {
-        return typeof data === 'string' && /^(offer_(yes|no)_|phn_(p|h|r|sms)_|ntf_(phone|offer)_)/.test(data);
+        return typeof data === 'string' && /^(offer_(yes|no)_|phn_(p|h|r|sms|cb)_|ntf_(phone|offer)_)/.test(data);
     }
 
     // ── Меню «Функции» → тумблеры ───────────────────────────────
