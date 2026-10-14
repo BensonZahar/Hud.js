@@ -95,8 +95,12 @@ HASSLE_LOADER_URL = None
 # Фоллбэк-имена переменных в Index.js (меняются при каждой сборке игры).
 # Автодетект ищет по паттернам {Preloader: и {FirstPersonConfig:{open:
 # Если паттерн не найден — используются значения ниже.
-PC_DD_VAR_FALLBACK     = 'Id'   # ПК      — словарь импортов (lazy-loaders)
-PC_FD_VAR_FALLBACK     = 'bd'   # ПК      — словарь конфигов (open/show/options)
+PC_DD_VAR_FALLBACK     = 'Dd'   # ПК      — словарь импортов (lazy-loaders), сборка 2026-10-04
+PC_FD_VAR_FALLBACK     = 'Rd'   # ПК      — словарь конфигов (open/show/options), сборка 2026-10-04
+# Буквы хелперов в Index.js (тоже меняются между сборками):
+#   f = defineAsyncComponent (обёртка ленивого компонента), d = preload-хелпер (подгрузка css + import)
+LOADER_F_FALLBACK      = 'f'
+LOADER_D_FALLBACK      = 'd'
 HASSLE_DD_VAR_FALLBACK = 'Dd'   # Телефон — словарь импортов (lazy-loaders)
 HASSLE_FD_VAR_FALLBACK = 'Rd'   # Телефон — словарь конфигов (open/show/options)
 
@@ -961,38 +965,135 @@ class InstallerAPI:
         """
         Определяет актуальные имена переменных словарей компонентов в Index.js.
 
-        Словарь импортов (dd_var) — содержит ленивые f(()=>d(()=>import(...)))
-        Ищем: VAR={Preloader:  — Preloader всегда первый ключ этого объекта.
+        dd_var — словарь ленивых импортов:  VAR={Preloader:bd,FirstPersonConfig:f(()=>d(()=>import(...)))...}
+        fd_var — словарь конфигов:          VAR={FirstPersonConfig:{open:{status:!1},show:!0,options:{}}...}
 
-        Словарь конфигов (fd_var) — содержит open/show/options для каждого компонента
-        Ищем: VAR={FirstPersonConfig:{open:  — первый ключ конфиг-объекта.
-
-        Возвращает (dd_var, fd_var). Fallback: (PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK).
+        Способы поиска (по очереди, берём первый сработавший):
+          1) прямой паттерн  VAR={Preloader:  /  VAR={FirstPersonConfig:{open:
+          2) по ключу FirstPersonConfig: берём ближайшее VAR={ слева от него
+             (работает, даже если первым ключом стал не Preloader)
+          3) по использованию в App: components:VAR,data(){return{TOAST_LAYER_ID  (dd)
+                                     components:VAR,developmentMode               (fd)
+        Возвращает (dd_var, fd_var). Фоллбэк: PC_DD_VAR_FALLBACK / PC_FD_VAR_FALLBACK.
         """
         import re
-        dd_var, fd_var = PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK
+        ident = r'[A-Za-z_$][A-Za-z0-9_$]*'
 
-        m = re.search(r'([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\{Preloader\s*:', content)
+        def _walk_back(pos):
+            # ближайшее "VAR={" левее позиции pos (не дальше 400 символов)
+            seg = content[max(0, pos - 400):pos]
+            hits = list(re.finditer(r'(' + ident + r')\s*=\s*\{', seg))
+            return hits[-1].group(1) if hits else None
+
+        def _components_used(var):
+            return bool(var) and bool(re.search(r'components\s*:\s*' + re.escape(var) + r'\s*[,}]', content))
+
+        # ── dd_var ──
+        dd_var, how = None, ''
+        m = re.search(r'(' + ident + r')\s*=\s*\{Preloader\s*:', content)
         if m:
-            dd_var = m.group(1)
-            _log_to_file(f'_detect_var_names: dd_var="{dd_var}" (найден по Preloader:)')
+            dd_var, how = m.group(1), 'Preloader:'
+        if not dd_var:
+            m = re.search(r'FirstPersonConfig\s*:\s*' + ident + r'\(\(\)\s*=>\s*' + ident + r'\(\(\)\s*=>\s*import\(', content)
+            if m:
+                dd_var, how = _walk_back(m.start()), 'FirstPersonConfig:f(()=>d(()=>import'
+        if not dd_var:
+            m = re.search(r'components\s*:\s*(' + ident + r')\s*,\s*data\(\)\s*\{\s*return\s*\{\s*TOAST_LAYER_ID', content)
+            if m:
+                dd_var, how = m.group(1), 'components:VAR,data(){return{TOAST_LAYER_ID'
+        if dd_var:
+            _log_to_file(f'_detect_var_names: dd_var="{dd_var}" (найден по {how}; components:{dd_var} в App: {_components_used(dd_var)})')
         else:
-            _log_to_file(f'_detect_var_names: dd_var не найден, используем fallback "{PC_DD_VAR_FALLBACK}"')
+            dd_var = PC_DD_VAR_FALLBACK
+            _log_to_file(f'_detect_var_names: dd_var не найден, используем fallback "{dd_var}"')
 
-        m = re.search(
-            r'([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\{FirstPersonConfig\s*:\s*\{open\s*:',
-            content
-        )
+        # ── fd_var ──
+        fd_var, how = None, ''
+        m = re.search(r'(' + ident + r')\s*=\s*\{FirstPersonConfig\s*:\s*\{open\s*:', content)
         if m:
-            fd_var = m.group(1)
-            _log_to_file(f'_detect_var_names: fd_var="{fd_var}" (найден по FirstPersonConfig:{{open:)')
+            fd_var, how = m.group(1), 'FirstPersonConfig:{open:'
+        if not fd_var:
+            m = re.search(r'FirstPersonConfig\s*:\s*\{\s*open\s*:\s*\{\s*status\s*:', content)
+            if m:
+                fd_var, how = _walk_back(m.start()), 'walk-back от FirstPersonConfig:{open:'
+        if not fd_var:
+            m = re.search(r'components\s*:\s*(' + ident + r')\s*,\s*developmentMode', content)
+            if m:
+                fd_var, how = m.group(1), 'components:VAR,developmentMode'
+        if fd_var:
+            _log_to_file(f'_detect_var_names: fd_var="{fd_var}" (найден по {how}; components:{fd_var} в App: {_components_used(fd_var)})')
         else:
-            _log_to_file(f'_detect_var_names: fd_var не найден, используем fallback "{PC_FD_VAR_FALLBACK}"')
+            fd_var = PC_FD_VAR_FALLBACK
+            _log_to_file(f'_detect_var_names: fd_var не найден, используем fallback "{fd_var}"')
 
+        if dd_var == fd_var:
+            _log_to_file(f'_detect_var_names: ВНИМАНИЕ dd_var == fd_var == "{dd_var}" — детект неверный, берём фоллбэки')
+            dd_var, fd_var = PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK
         return dd_var, fd_var
 
     @staticmethod
-    def _build_interfaces_block(ifaces: list, dd_var: str = PC_DD_VAR_FALLBACK, fd_var: str = PC_FD_VAR_FALLBACK) -> str:
+    def _detect_loader_names(content: str) -> tuple:
+        """
+        Определяет буквы хелперов, которыми Index.js оборачивает ленивые компоненты:
+            FirstPersonConfig:f(()=>d(()=>import("./FirstPersonConfig.js"),[...],import.meta.url))
+        f = defineAsyncComponent, d = preload-хелпер. Эти буквы тоже меняются между сборками,
+        а сгенерированный блок вставляется в конец Index.js (тот же модуль), где они видны по имени.
+        Возвращает (f_name, d_name). Фоллбэк: LOADER_F_FALLBACK / LOADER_D_FALLBACK.
+        """
+        import re
+        ident = r'[A-Za-z_$][A-Za-z0-9_$]*'
+        pat_key = r'FirstPersonConfig\s*:\s*(' + ident + r')\(\(\)\s*=>\s*(' + ident + r')\(\(\)\s*=>\s*import\('
+        pat_any = r'[:,]\s*(' + ident + r')\(\(\)\s*=>\s*(' + ident + r')\(\(\)\s*=>\s*import\(\s*["\']\./'
+        for pat, how in ((pat_key, 'FirstPersonConfig'), (pat_any, 'первый ленивый компонент')):
+            m = re.search(pat, content)
+            if m:
+                f_name, d_name = m.group(1), m.group(2)
+                _log_to_file(f'_detect_loader_names: f="{f_name}", d="{d_name}" (по {how})')
+                return f_name, d_name
+        _log_to_file(f'_detect_loader_names: не найдено, фоллбэк f="{LOADER_F_FALLBACK}", d="{LOADER_D_FALLBACK}"')
+        return LOADER_F_FALLBACK, LOADER_D_FALLBACK
+
+    @staticmethod
+    def _names_look_valid(content: str, dd_var: str, fd_var: str, f_name: str, d_name: str) -> bool:
+        """
+        Проверяет, что найденные буквы реально существуют в Index.js и играют свои роли:
+          • components:dd_var и components:fd_var используются в App (это и есть реестр движка);
+          • dd_var != fd_var;
+          • f и d определены в модуле (function f( / const f= / ,f= ).
+        Если проверка не прошла — буквы использовать нельзя.
+        """
+        import re
+        if not (dd_var and fd_var and f_name and d_name) or dd_var == fd_var:
+            return False
+        def used_in_app(v):
+            return bool(re.search(r'components\s*:\s*' + re.escape(v) + r'\s*[,}]', content))
+        def defined(n):
+            e = re.escape(n)
+            return bool(re.search(
+                r'(?<![\w$.])(?:function\s+' + e + r'\s*\(|(?:const|let|var)\s+' + e + r'\s*=|[,;{}]\s*' + e + r'\s*=(?!=))',
+                content))
+        return used_in_app(dd_var) and used_in_app(fd_var) and defined(f_name) and defined(d_name)
+
+    @classmethod
+    def _resolve_loader_names(cls, content: str, fb_dd: str, fb_fd: str) -> tuple:
+        """
+        Итог: (dd_var, fd_var, f_name, d_name, ok, note).
+        Сначала автодетект по Index.js; если буквы не проходят проверку — пробуем фоллбэки;
+        если не проходят и они — ok=False (блок регистрации НЕ вставляем, чтобы не гадать вслепую).
+        """
+        dd, fd = cls._detect_var_names(content)
+        f_name, d_name = cls._detect_loader_names(content)
+        if cls._names_look_valid(content, dd, fd, f_name, d_name):
+            return dd, fd, f_name, d_name, True, 'автодетект'
+        _log_to_file(f'_resolve_loader_names: автодетект не прошёл проверку ({dd}/{fd}/{f_name}/{d_name}), пробую фоллбэки')
+        if cls._names_look_valid(content, fb_dd, fb_fd, LOADER_F_FALLBACK, LOADER_D_FALLBACK):
+            return fb_dd, fb_fd, LOADER_F_FALLBACK, LOADER_D_FALLBACK, True, 'фоллбэк'
+        _log_to_file('_resolve_loader_names: ни автодетект, ни фоллбэк не прошли проверку — интерфейсы не регистрируем')
+        return dd, fd, f_name, d_name, False, 'не удалось определить буквы'
+
+    @staticmethod
+    def _build_interfaces_block(ifaces: list, dd_var: str = PC_DD_VAR_FALLBACK, fd_var: str = PC_FD_VAR_FALLBACK,
+                                f_name: str = LOADER_F_FALLBACK, d_name: str = LOADER_D_FALLBACK) -> str:
         if not ifaces:
             return ""
         native_names = {
@@ -1009,7 +1110,7 @@ class InstallerAPI:
             files_js  = "[" + ",".join(f'"{f}"' for f in list(files) + list(deps)) + "]"
             if itype == "sideEffect":
                 side_effects.append(
-                    f'd(()=>import("./{js_file}"),{files_js},import.meta.url);'
+                    f'{d_name}(()=>import("./{js_file}"),{files_js},import.meta.url);'
                 )
                 print(f'[Installer] "{name}" -> side-effect импорт')
                 continue
@@ -1021,7 +1122,7 @@ class InstallerAPI:
             hud_flag  = iface.get("hud", False)
             style_val = iface.get("style", "")
             dd_parts.append(
-                f'{name}:f(()=>d(()=>import("./{js_file}"),{files_js},import.meta.url))'
+                f'{name}:{f_name}(()=>{d_name}(()=>import("./{js_file}"),{files_js},import.meta.url))'
             )
             opts_list = [f"hideHud:{hide_hud}", f"hideChat:{hide_chat}"]
             if hud_flag:
@@ -1032,12 +1133,17 @@ class InstallerAPI:
             fd_parts.append(
                 f'{name}:{{open:{{status:!1}},show:!0,options:{{{opts_str}}}}}'
             )
+        # Каждый кусок обёрнут в try/catch: если буквы вдруг неверные, ошибка уйдёт в консоль,
+        # а код АХК ниже по файлу всё равно выполнится (раньше ReferenceError ронял весь хвост Index.js).
+        def _safe(code, label):
+            return 'try{' + code + '}catch(_e){console.error("[AHK] ' + label + ':",_e)}'
         parts = []
         if dd_parts:
-            parts.append(f'Object.assign({dd_var},{{{",".join(dd_parts)}}});')
+            parts.append(_safe(f'Object.assign({dd_var},{{{",".join(dd_parts)}}});', 'регистрация интерфейсов (импорты)'))
         if fd_parts:
-            parts.append(f'Object.assign({fd_var},{{{",".join(fd_parts)}}});')
-        parts.extend(side_effects)
+            parts.append(_safe(f'Object.assign({fd_var},{{{",".join(fd_parts)}}});', 'регистрация интерфейсов (конфиги)'))
+        for se in side_effects:
+            parts.append(_safe(se, 'side-effect импорт'))
         return "".join(parts)
 
     def _deploy_custom_ui_files(self, ifaces: list, department: str = 'mvd'):
@@ -1219,16 +1325,30 @@ class InstallerAPI:
                 # Читаем Index.js и определяем актуальные имена переменных.
                 # Это нужно делать до _build_interfaces_block, потому что
                 # имена меняются при каждой сборке игры.
+                # ВАЖНО: путь к Index.js задаём здесь же. Раньше тут стояло open(idx), а idx
+                # присваивался только ниже по функции -> UnboundLocalError -> except -> всегда
+                # использовался устаревший фоллбэк, и интерфейсы регистрировались не в тот объект.
+                _idx_path = self.radmir_path/"uiresources"/"assets"/"Index.js"
+                _iface_warn = ""
                 try:
-                    with open(idx, 'r', encoding='utf-8') as _f:
+                    with open(_idx_path, 'r', encoding='utf-8') as _f:
                         _idx_raw = _f.read()
-                    dd_var, fd_var = self._detect_var_names(_idx_raw)
-                    print(f'[Installer] Переменные Index.js: dd_var="{dd_var}", fd_var="{fd_var}"')
-                except Exception:
+                    # Читаем чистый файл: наш прошлый блок (между маркерами) не должен влиять на детект
+                    _idx_raw = self._remove_markers(_idx_raw)
+                    dd_var, fd_var, f_name, d_name, _names_ok, _names_how = self._resolve_loader_names(
+                        _idx_raw, PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK)
+                    print(f'[Installer] Index.js ({_names_how}): dd_var="{dd_var}", fd_var="{fd_var}", f="{f_name}", d="{d_name}", ok={_names_ok}')
+                except Exception as _e:
                     dd_var, fd_var = PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK
-                    _log_to_file(f'_detect_var_names: не удалось прочитать Index.js, фоллбэк "{PC_DD_VAR_FALLBACK}"/"{PC_FD_VAR_FALLBACK}"')
+                    f_name, d_name, _names_ok = LOADER_F_FALLBACK, LOADER_D_FALLBACK, False
+                    _log_to_file(f'_resolve_loader_names: не удалось прочитать Index.js ({_e!r})')
 
-                interfaces_block = self._build_interfaces_block(ifaces, dd_var, fd_var)
+                if _names_ok:
+                    interfaces_block = self._build_interfaces_block(ifaces, dd_var, fd_var, f_name, d_name)
+                else:
+                    interfaces_block = ""
+                    _iface_warn = (" Но кастом-интерфейсы НЕ зарегистрированы: не удалось определить буквы "
+                                   "в Index.js (смотрите лог установщика).")
             except Exception:
                 traceback.print_exc(file=sys.stdout)
                 _log_to_file(f'_build_interfaces_block ИСКЛЮЧЕНИЕ:\n{traceback.format_exc()}')
@@ -1292,7 +1412,7 @@ class InstallerAPI:
                         'licensor_helper': (bool(auto_reissue_lic) or bool(safe_givelic_key)) and department == 'pravo',  # гейт: любая функция помощника включена
                     })
                 result_data["ok"] = True
-                result_data["message"] = "Код успешно установлен!"
+                result_data["message"] = "Код успешно установлен!" + _iface_warn
                 self._notify(True)
             except Exception as e:
                 result_data["message"] = f"Ошибка записи: {e}"
@@ -1710,18 +1830,25 @@ class InstallerAPI:
                 # Телефон — отдельная сборка игры, буквы могут отличаться от ПК.
                 # Автодетект ищет по паттернам {Preloader: и {FirstPersonConfig:{open:
                 # Фоллбэк — HASSLE_DD_VAR_FALLBACK / HASSLE_FD_VAR_FALLBACK (не ПК-шные Id/bd!)
+                _iface_warn_h = ""
                 try:
-                    dd_var_h, fd_var_h = self._detect_var_names(content)
-                    _log_to_file(f'insert_hassle_code: dd_var="{dd_var_h}", fd_var="{fd_var_h}" (телефон)')
-                except Exception:
+                    dd_var_h, fd_var_h, f_name_h, d_name_h, names_ok_h, names_how_h = self._resolve_loader_names(
+                        content, HASSLE_DD_VAR_FALLBACK, HASSLE_FD_VAR_FALLBACK)
+                    _log_to_file(f'insert_hassle_code: dd_var="{dd_var_h}", fd_var="{fd_var_h}", f="{f_name_h}", d="{d_name_h}", ok={names_ok_h} ({names_how_h}, телефон)')
+                except Exception as _e:
                     dd_var_h, fd_var_h = HASSLE_DD_VAR_FALLBACK, HASSLE_FD_VAR_FALLBACK
-                    _log_to_file(f'insert_hassle_code: автодетект не сработал, фоллбэк "{dd_var_h}"/"{fd_var_h}"')
+                    f_name_h, d_name_h, names_ok_h = LOADER_F_FALLBACK, LOADER_D_FALLBACK, False
+                    _log_to_file(f'insert_hassle_code: не удалось определить буквы ({_e!r})')
+                if not names_ok_h:
+                    _iface_warn_h = (" Но кастом-интерфейсы НЕ зарегистрированы: не удалось определить буквы "
+                                     "в Index.js телефона (смотрите лог установщика).")
 
                 # Загружаем кастом-интерфейсы и собираем блок регистрации
                 # с правильными переменными телефонного Index.js
                 try:
                     ifaces_h = self._fetch_custom_interfaces(dept)
-                    interfaces_block_h = self._build_interfaces_block(ifaces_h, dd_var_h, fd_var_h)
+                    interfaces_block_h = (self._build_interfaces_block(ifaces_h, dd_var_h, fd_var_h, f_name_h, d_name_h)
+                                          if names_ok_h else "")
                     _log_to_file(f'insert_hassle_code: interfaces_block len={len(interfaces_block_h)}, ifaces={len(ifaces_h)}')
                 except Exception:
                     interfaces_block_h = ""
@@ -1766,7 +1893,7 @@ class InstallerAPI:
                     return
                 save_settings({"hassle_app_folder": app_folder})
                 result_data["ok"] = True
-                result_data["message"] = "Код успешно установлен!"
+                result_data["message"] = "Код успешно установлен!" + _iface_warn_h
                 self._notify(True)
             except Exception as e:
                 _log_to_file(f"insert_hassle_code: {e}")
