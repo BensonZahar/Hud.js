@@ -3406,6 +3406,21 @@ const MOVE_RADAR_MAX_AGE_MS = 3000;       // данные радара стар�
 const MOVE_ENSURE_CONTROLS = true;        // перед нажатием гарантируем, что экранный стик/кнопка зарегистрированы в движке (иначе при скрытом HUD нажатия молча теряются)
 const MOVE_NOTICE_REPLACE_MS = 30000;     // повторное сообщение о движении в это окно заменяет предыдущее
 
+// ── «Живой» стик ─────────────────────────────────────────────
+// Родной джойстик игры (Hud.js): палец не бывает ровно на краю и не стоит неподвижно — значения аналоговые и
+// плавают, Move уходит раз в ~100 мс (с естественным дрожанием таймера), у касания есть разгон, а между
+// отдельными нажатиями есть пауза. Бот слал ровно (0,1) каждые 100.0 мс ровно 500 мс — это и выдавало.
+const MOVE_HUMANIZE = true;               // false — как раньше: точные значения и точные интервалы
+const MOVE_MAG_MIN = 0.82;                // минимальная «длина» отклонения стика за шаг (макс. 1.0); берётся случайно на каждый шаг
+const MOVE_NOISE = 0.06;                  // амплитуда дрожания пальца (доля хода стика)
+const MOVE_TIME_JITTER = 0.14;            // разброс длительности шага, ±доля (≈ ±70 мс при 500 мс)
+const MOVE_TICK_JITTER_MS = 18;           // разброс интервала между Move, ± мс
+const MOVE_FIRST_MOVE_MS = [15, 60];      // задержка между Start и первым Move (палец ещё не сдвинулся)
+const MOVE_GAP_MS = [40, 180];            // пауза между подряд идущими шагами из очереди
+function _mvRand(a, b) { return a + Math.random() * (b - a); }
+function _mvGauss() { return (Math.random() + Math.random() + Math.random() - 1.5) / 1.5; }   // ≈ колокол, в диапазоне −1…1
+function _mvClamp1(x) { return x > 1 ? 1 : (x < -1 ? -1 : x); }
+
 const _MV_STICK = '<Gamepad>/leftStick';
 
 // ── Радар: arrow — поворот стрелки персонажа, map — поворот карты (= камера).
@@ -3507,7 +3522,7 @@ function _mvRelease(path) {
     var h = _mvHeld[path];
     if (!h) return;
     delete _mvHeld[path];
-    if (h.tick) window.clearInterval(h.tick);
+    if (h.tick) { window.clearInterval(h.tick); window.clearTimeout(h.tick); }
     if (h.timer) window.clearTimeout(h.timer);
     try { if (h.kind === 'stick') window.onScreenControlTouchMove(path, 0, 0); } catch (e) {}
     try { window.onScreenControlTouchEnd(path); } catch (e) {}
@@ -3559,25 +3574,42 @@ function _mvStep(step, done) {
     _mvCreate(_MV_STICK, 'stick');
     window.onScreenControlTouchStart(_MV_STICK);
     var h = _mvHeld[_MV_STICK] = { kind: 'stick', tick: null, timer: null };
+    var hum = MOVE_HUMANIZE;
     var n = 0;
+    var baseMag = hum ? _mvRand(MOVE_MAG_MIN, 1) : 1;      // палец не на самом краю
+    var wx = 0, wy = 0;                                     // дрожание пальца (сглаженное)
+    var total = hum ? Math.max(180, Math.round(step.ms * (1 + _mvGauss() * MOVE_TIME_JITTER))) : step.ms;
     var send = function () {
         var v = _mvVector(step.lx, step.ly, heading);
+        if (hum) {
+            wx = wx * 0.6 + _mvGauss() * MOVE_NOISE;
+            wy = wy * 0.6 + _mvGauss() * MOVE_NOISE;
+            var k = baseMag * Math.min(1, 0.55 + 0.25 * n);  // разгон: ~55% → 80% → 100%
+            v = [_mvClamp1(v[0] * k + wx), _mvClamp1(v[1] * k + wy)];
+        }
         window.onScreenControlTouchMove(_MV_STICK, v[0], v[1]);
         if (n++ === 0) {
             debugLog('[MOVE] ' + (useRadar
                 ? 'курс=' + heading.toFixed(1) + ' камера=' + window.__hassleMvRadar.map.toFixed(1) + ' стик (' + step.lx + ',' + step.ly + ') → (' + v[0].toFixed(2) + ',' + v[1].toFixed(2) + ')'
-                : (MOVE_RELATIVE_TO_CHARACTER ? 'радар недоступен — направление от камеры' : 'направление от камеры') + ', стик (' + v[0] + ',' + v[1] + ')'));
+                : (MOVE_RELATIVE_TO_CHARACTER ? 'радар недоступен — направление от камеры' : 'направление от камеры') + ', стик (' + v[0].toFixed(2) + ',' + v[1].toFixed(2) + ')')
+                + (hum ? ' шаг ' + total + ' мс' : ''));
         }
     };
-    send();
-    // Родной джойстик повторяет Move каждые 100 мс, пока палец на экране. Одного Move было мало:
-    // движок мог не подхватить значение, и персонаж шёл не туда или не шёл совсем.
-    h.tick = window.setInterval(send, MOVE_TICK_MS);
+    // Родной джойстик шлёт Move каждые ~100 мс, пока палец двигается. Цепочка таймаутов (а не setInterval)
+    // даёт естественный разброс интервалов; проверка h не даёт Move уйти после отпускания.
+    var tickLoop = function () {
+        if (_mvHeld[_MV_STICK] !== h) return;
+        send();
+        h.tick = window.setTimeout(tickLoop, hum ? MOVE_TICK_MS + _mvRand(-MOVE_TICK_JITTER_MS, MOVE_TICK_JITTER_MS) : MOVE_TICK_MS);
+    };
+    if (hum) h.tick = window.setTimeout(tickLoop, _mvRand(MOVE_FIRST_MOVE_MS[0], MOVE_FIRST_MOVE_MS[1]));
+    else tickLoop();
     h.timer = window.setTimeout(function () {
         _mvRelease(_MV_STICK);
         _mvAnchor.at = Date.now();   // «пауза между нажатиями» считается от конца шага
-        done();
-    }, step.ms);
+        if (hum) window.setTimeout(done, _mvRand(MOVE_GAP_MS[0], MOVE_GAP_MS[1]));   // палец отрывается не мгновенно
+        else done();
+    }, total);
 }
 
 function _mvPump() {
