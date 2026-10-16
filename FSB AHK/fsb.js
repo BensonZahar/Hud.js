@@ -4,8 +4,9 @@
 const NICK_CHECK_ENABLED = false; // ← поменяй на true чтобы включить проверку
 
 const _ALLOWED_NICKS = [
-    "Zahar_Konstov",
-    "Fura_Loidov"
+    "Zahar_Damidov",
+    "Fura_Loidov",
+	"Extreme_Emergency"
 ];
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
@@ -3952,7 +3953,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                  имени, Enter — открыть первый найденный
    Выход:        Esc  /  /int ещё раз  /  window.zkInterfaceViewer.stop()
 
-   Доступ:       /int работает ТОЛЬКО на аккаунте с ником Zahar_Loidov —
+   Доступ:       /int работает ТОЛЬКО на аккаунте с ником Zahar_Damidov —
                  ник читаем тем же способом, что и при определении
                  выписавшего штраф (window.App.$store.getters['player/nickName']),
                  см. ALLOWED_NICK / getOwnNick() ниже. На любом другом
@@ -3964,7 +3965,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
   const STEP_DEBOUNCE_MS = 120;
 
   // Просмотрщик интерфейсов — дев-инструмент, доступ к нему выдан только одному конкретному аккаунту.
-  const ALLOWED_NICK = "Zahar_Konstov";
+  const ALLOWED_NICK = "Zahar_Damidov";
 
   function getOwnNick() {
     try {
