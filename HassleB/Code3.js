@@ -28,10 +28,13 @@
 // ║   • v1.21: Telegram пишет, УШЁЛ ли запрос на покупку (ответ сервера  ║
 // ║     «Вы предложили…»), а если висит прошлое предложение («Используйте ║
 // ║     /cancel…») — предупреждает и даёт кнопку «Отменить» (/cancel)    ║
-// ║   • v1.22: фикс — «Вы предложили…» не доходило до Telegram: строки   ║
-// ║     чата с префиксом-временем «[ЧЧ:ММ:СС]» не проходили по «^…»;     ║
-// ║     плюс запасной путь: главный перехват чата шлёт строки и в        ║
-// ║     Telegram-модуль (хук OnChatAddMessage там ставился один раз)     ║
+// ║   • v1.22: Telegram-вкладка получает строки чата и от главного      ║
+// ║     перехвата (запасной путь); «Вы предложили…» ловится мягче;       ║
+// ║     после /givelic запоминаются строки чата за 15 с — если ответ     ║
+// ║     сервера не опознан, Telegram покажет, что сервер реально писал;  ║
+// ║     ошибка при сборке сообщения больше не глотается молча; если      ║
+// ║     внутренний обработчик чата упал на строке — наш разбор всё равно ║
+// ║     выполняется                                                      ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
@@ -1881,9 +1884,10 @@ function ensureChatHook() {
     var cur = window.OnChatAddMessage;
     if (typeof cur === 'function' && !cur.__code3) {
         var w = function (e, c, t) {
-            var r;
-            if (typeof cur === 'function') r = cur.apply(this, arguments);
+            var r, innerErr = null;
+            try { if (typeof cur === 'function') r = cur.apply(this, arguments); } catch (x) { innerErr = x; }   // внутренний обработчик упал — наш разбор всё равно выполняется
             if (!_dead) { try { onChat(e); } catch (er) { warn('onChat:', er); } }
+            if (innerErr) throw innerErr;
             return r;
         };
         w.__code3 = true;
@@ -2741,6 +2745,23 @@ try { (function () {
         rows.push([btn('⬅️ Вернуться назад', PFX + 'menu|' + uid)]);
         editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
     }
+    // Строки чата за 15 с после /givelic (без чата игроков «- текст…») — чтобы при «нет ответа» показать, что сервер реально писал
+    const _tap = [];
+    function tapChat(raw) {
+        try {
+            const l = lastGive(); if (!l || !l.at || Date.now() - l.at > 15000) return;
+            const t = cleanMsg(stripTime(raw)).slice(0, 160);
+            if (!t || /^\s*-\s/.test(t) || PLAYER_MSG_RE.test(raw)) return;
+            const last = _tap[_tap.length - 1];
+            if (last && last.t === t && Date.now() - last.at < 400) return;
+            _tap.push({ t: t, at: Date.now() });
+            while (_tap.length > 8) _tap.shift();
+            c3Dbg('[LIC] чат после /givelic: ' + JSON.stringify(t));
+        } catch (e) {}
+    }
+    function tapSince(at) {
+        return _tap.filter(function (x) { return x.at >= at; }).map(function (x) { return '• ' + esc(x.t); }).join('\n');
+    }
     // Когда пришёл последний ответ сервера на выдачу (handleEvent) — по нему сторож понимает, ушёл ли запрос
     let _evAt = 0;
     const WATCH_MS = 12000;
@@ -2752,7 +2773,9 @@ try { (function () {
             const l = lastGive();
             const went = !!(l && l.at >= giveAt && String(l.targetId) === String(target));
             if (went) {
-                sendToTelegram('❔ <b>Нет ответа сервера на /givelic (' + esc(displayName) + ')</b>\nНеизвестно, ушёл ли запрос (антифлуд / чат скрыт). Если игрок предложения не видит — отмените и выдайте заново.', false, { inline_keyboard: [[cancelBtn()]] });
+                const seen = tapSince(giveAt);
+                sendToTelegram('❔ <b>Нет ответа сервера на /givelic (' + esc(displayName) + ')</b>\nНеизвестно, ушёл ли запрос (антифлуд / чат скрыт / сервер написал иначе). Если игрок предложения не видит — отмените и выдайте заново.' +
+                    (seen ? '\n\n📜 <b>Что пришло в чат после /givelic:</b>\n' + seen : '\n\n📜 После /givelic в чат не пришло ни одной строки (кроме чата игроков).'), false, { inline_keyboard: [[cancelBtn()]] });
             } else {
                 sendToTelegram('⚠️ <b>/givelic НЕ отправлен (' + esc(displayName) + ')</b>\nПомощник не пропустил команду (проверка ник ↔ ID или антифлуд) — подробности в игре.', false, null);
             }
@@ -3297,7 +3320,10 @@ try { (function () {
     const EVENT_WINDOW = 3 * 60 * 1000;
     const EVENTS = [
         // ── запрос на покупку: ушёл / не ушёл (offer.pwn: SendPlayerOffer → OFFER_TYPE_GIVE_LIC) ──
-        { re: /^Вы предложили\s.+?\sкупить у Вас лицензию/i,                       icon: '📨', title: 'Предложение отправлено', ok: true, cancelBtn: true },
+        // точный текст из offer.pwn (OFFER_TYPE_GIVE_LIC): «Вы предложили %s купить у Вас лицензию на %s за %s руб»
+        { re: /^Вы предложили\s+.+?\s+купить у Вас лицензию на\s+.+?\s+за\s+[\d\s.,]+руб/i, icon: '📨', title: 'Предложение отправлено', ok: true, cancelBtn: true },
+        // запасной вариант: сервер мог поменять формулировку — любое «Вы предложили…» в первые 20 с после нашего /givelic
+        { re: /^Вы предложили\s/i,                                                    icon: '📨', title: 'Предложение отправлено', ok: true, cancelBtn: true, fresh: 20000 },
         { re: /Используйте\s+\/cancel\s+чтобы отозвать предыдущее предложение/i,    icon: '⚠️', title: 'Запрос НЕ отправлен — активно предыдущее предложение', cancelBtn: true, redoCancel: true,
           hint: 'Сначала отклоните его командой /cancel (кнопка «Отменить»), затем выдайте заново.' },
         // ── итог /cancel (кнопка «Отменить» или ручной /cancel) ──
@@ -3333,21 +3359,30 @@ try { (function () {
         const inWin = !!(l && l.at && now - l.at <= EVENT_WINDOW);                // ответ на недавнюю выдачу
         let cw = false;                                                           // ответ на наш /cancel (его окно — 15 с, даже если выдача была давно)
         if (ev.cancel) { try { const ca = api().cancelAt && api().cancelAt(); cw = !!(ca && now - ca < 15000); } catch (e) {} }
+        if (ev.fresh && !(l && l.at && now - l.at <= ev.fresh)) return false;   // запасное правило — только сразу после нашей выдачи
         if (!inWin && !cw) { c3Dbg('[LIC] «' + ev.title + '» пропущено: нет недавней выдачи (последняя: ' + (l && l.at ? Math.round((now - l.at) / 1000) + ' с назад' : 'нет') + ')'); return false; }
         c3Dbg('[LIC] событие сервера: ' + ev.title);
         if (!ev.cancel) _evAt = now;                                              // сервер ответил на выдачу — сторож (watchGive) молчит
         if (!once('ev|' + ev.title, 3000)) return true;
         const showL = !!(l && inWin);
-        const send = function () {
+        const plainSend = function () {
+            try { sendToTelegram(ev.icon + ' <b>' + ev.title + '</b>\n<i>' + esc(text) + '</i>\n(' + esc(displayName) + ')', !!ev.silent, null); } catch (e2) { c3Dbg('[LIC] plain send error: ' + e2.message); }
+        };
+        const send = function () { try { sendRich(); } catch (e) { c3Dbg('[LIC] send error: ' + e.message + ' — шлю без кнопок'); plainSend(); } };
+        const sendRich = function () {
             const nick = showL ? nickOf(l.targetId) : null;
             const rows = [];
             if (ev.cancelBtn) rows.push([cancelBtn()]);
             if (showL && ev.redoCancel) rows.push([reissueBtn(l.targetId, '🔁 Отменить и перевыдать: ' + l.name)]);   // перевыдача = /cancel + повтор /givelic
             if (showL && ev.redo) rows.push([reissueBtn(l.targetId)]);
             if (showL) rows.push([btn('🪪 Выдать лицензию (ID ' + l.targetId + ')', PFX + 'to|' + l.targetId + '|' + uniqueId)]);
+            if (ev.ok) {
+                // «Предложение отправлено»: только полный текст сервера (лицензия и цена в нём уже есть)
+                sendToTelegram(ev.icon + ' <b>' + esc(text) + '</b>\n(' + esc(displayName) + ')', !!ev.silent, rows.length ? { inline_keyboard: rows } : null);
+                return;
+            }
             sendToTelegram(ev.icon + ' <b>' + ev.title + '</b>\n' +
                 (showL ? '🪪 ' + esc(l.name) + ' → ' + esc(nick || 'игрок') + ' [ID: ' + esc(l.targetId) + ']\n' : '') +
-                (showL && ev.ok ? '<code>/givelic ' + esc(l.targetId) + ' ' + l.type + ' ' + l.price + '</code>\n' : '') +
                 (ev.hint ? '👉 ' + esc(ev.hint) + '\n' : '') +
                 '<i>' + esc(text) + '</i>\n(' + esc(displayName) + ')', !!ev.silent, rows.length ? { inline_keyboard: rows } : null);
         };
@@ -3377,14 +3412,15 @@ try { (function () {
     // Запасной вход для главного перехвата чата (Hud.chat.add + постоянная перепроверка хука): OnChatAddMessage здесь ставился один раз,
     // а Code.js его перезаписывает при переинициализации чата. Дубль отсекает once() в handleEvent.
     window.__code3TgEvent = function (raw) {
-        try { if (!ready()) return false; const m = String(raw); if (PLAYER_MSG_RE.test(m)) return false; return handleEvent(cleanMsg(m)); } catch (e) { c3Dbg('[LIC] event(alt) error: ' + e.message); return false; }
+        try { if (!ready()) return false; const m = String(raw); if (PLAYER_MSG_RE.test(m)) return false; tapChat(m); return handleEvent(cleanMsg(m)); } catch (e) { c3Dbg('[LIC] event(alt) error: ' + e.message); return false; }
     };
     function onChat(raw, colorArg) {
         if (!ready()) return;   // форма не правительственная или звание не Лицензёр — в Telegram ничего не пересылаем
         const msg = String(raw);
         const m = msg.match(PLAYER_MSG_RE);
         if (!m) {
-            try { const cm = cleanMsg(msg); if (!handleIncoming(cm) && !handleCallTalk(cm) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { c3Dbg('[LIC] event error: ' + e.message); }
+            try { tapChat(msg); } catch (e) {}
+        try { const cm = cleanMsg(msg); if (!handleIncoming(cm) && !handleCallTalk(cm) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { c3Dbg('[LIC] event error: ' + e.message); }
             return;
         }
         if (!config.licAllMessages) return;
@@ -3407,8 +3443,10 @@ try { (function () {
         const cur = window.OnChatAddMessage;
         if (typeof cur === 'function' && !cur.__licWrapped) {
             const wrapped = function (e, colorArg, t) {
-                cur.call(this, e, colorArg, t);
+                let innerErr = null;
+                try { cur.call(this, e, colorArg, t); } catch (x) { innerErr = x; }   // если внутренний обработчик чата упал на строке — наш разбор всё равно выполняется
                 try { onChat(String(e), colorArg); } catch (err) { c3Dbg('[LIC] chat error: ' + err.message); }
+                if (innerErr) throw innerErr;
             };
             wrapped.__licWrapped = true;
             window.OnChatAddMessage = wrapped;
