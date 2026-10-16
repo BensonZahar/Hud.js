@@ -45,8 +45,10 @@
     window._duranCustomInterfaces = [
         { name: "Zkm",     files: ["zkm.js", "zkm.css"], hideHud: false, hideChat: false, type: "interface" },
         { name: "MvdMenu", files: ["MvdMenu.js"],         hideHud: false, hideChat: false, type: "interface" },
-        { name: "AdvMenu", files: ["AdvMenu.js"],         hideHud: false, hideChat: false, type: "interface" },
+        { name: "AdvMenu", files: ["AdvMenu.js", "AdvMenu.css"], deps: ["./Window.css"], hideHud: false, hideChat: false, type: "interface" },
         { name: "Dokladi", files: ["dokladi.js", "dokladi.css"], hideHud: false, hideChat: false, type: "interface" },
+        { name: "PhoneMenu", files: ["PhoneMenu.js", "PhoneMenu.css"], hideHud: false, hideChat: false, hud: true, style: "z-index: 2", type: "interface" },
+        { name: "SideMenu", files: ["SideMenu.js", "SideMenu.css"], deps: ["./Window.css"], hideHud: false, hideChat: false, type: "interface" },
         { name: "ZkmScreenNotification", files: ["ZkmScreenNotification.js", "ZkmScreenNotification.css"], type: "sideEffect" },
     ];
 
