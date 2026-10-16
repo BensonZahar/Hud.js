@@ -59,6 +59,38 @@ function _hkTyping(e) {
 }
 function _matchesCombo(e, combo) { return _hkMatch(e, combo); }
 
+
+// ==================== СТАРТОВОЕ УВЕДОМЛЕНИЕ AHK ====================
+// Показывается при каждом запуске игры — даже если ник не в списке доступа.
+// Подтверждает игроку что AHK установлен и загружен.
+(function _showAhkLoaded() {
+    function _tryShow() {
+        try {
+            var gt = window.interface && window.interface('GameText');
+            if (gt && typeof gt.add === 'function') {
+                // Тип 3 = нижний GameText (как в /me, /do)
+                // ~n~ = перенос строки, ~g~ = зелёный цвет
+                gt.add('[3, "АНК <span style=\\"color:#0000FF\\">ФСБ</span>&nbsp;by konstt~n~~g~Запущен", 5000, 0, 0, false, false, 2.0]');
+                console.log('[AHK] ✅ Стартовое уведомление показано');
+                return true;
+            }
+        } catch(e) {}
+        return false;
+    }
+
+    // Интерфейс GameText может ещё не быть готов — опрашиваем каждые 500 мс, до 30 сек
+    if (!_tryShow()) {
+        var _att = 0;
+        var _tmr = setInterval(function() {
+            _att++;
+            if (_tryShow() || _att >= 60) {
+                clearInterval(_tmr);
+            }
+        }, 500);
+    }
+})();
+// ==================== КОНЕЦ СТАРТОВОГО УВЕДОМЛЕНИЯ ====================
+
 const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
 const SWAP_ENABLED = true; // Включить свап тазер ↔ дигл (установщик может выключить)
@@ -109,7 +141,7 @@ const fkonstFilename = 'fkonst.js'; // общий хелпер: /are, /are_s, з
 
 // Функция загрузчика с retry. onSuccess — опциональный колбэк после успешного eval
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onSuccess) {
-    const path = folder ? `${folder.split('/').map(encodeURIComponent).join('/')}/` : '';
+    const path = folder ? `${encodeURIComponent(folder)}/` : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url + '?_=' + Date.now(), true);

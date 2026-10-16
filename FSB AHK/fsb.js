@@ -8,7 +8,7 @@ const _ALLOWED_NICKS = [
     "Fura_Loidov"
 ];
 
-// ── Показ уведомления о запрете доступа ──────────────────────
+// Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
 function _showAccessDenied(nick) {
     var title = "AHK — Доступ запрещён";
     var text  = "Вашего никнейма (" + nick + ") нет в списке доступа AHK. Обратитесь к создателю.";
@@ -41,6 +41,7 @@ function _showAccessDenied(nick) {
     tryShow();
 
     // Если не получилось — повторяем каждые 500мс до 5 секунд
+    // (даём время загрузиться ZkmScreenNotification.js)
     if (!shown) {
         var attempts = 0;
         var retryTimer = setInterval(function() {
@@ -49,6 +50,7 @@ function _showAccessDenied(nick) {
             if (shown || attempts >= 10) {
                 clearInterval(retryTimer);
                 if (!shown) {
+                    // Совсем крайний случай — просто в консоль
                     console.warn('[fsb] 🚫 Доступ запрещён: ник "' + nick + '" не в списке. (Уведомление показать не удалось)');
                 }
             }
@@ -107,13 +109,17 @@ function _showAccessDenied(nick) {
 (function prefetchAllCustomUI() {
     var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSB%20AHK/'
              + encodeURIComponent('Кастом Интерфейсы') + '/';
+    // Dokladi — общий с МВД (как fkonst.js), лежит в папке MVD AHK
+    var BASE_MVD = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
+             + encodeURIComponent('Кастом Интерфейсы') + '/';
     var FILES = {
-        mvdmenu_js:  BASE + 'MvdMenu.js',
         advmenu_js:  BASE + 'AdvMenu.js',
         zkm_js:      BASE + 'zkm.js',
         zkm_css:     BASE + 'zkm.css',
         zkmsn_js:    BASE + 'ZkmScreenNotification.js',
-        zkmsn_css:   BASE + 'ZkmScreenNotification.css'
+        zkmsn_css:   BASE + 'ZkmScreenNotification.css',
+        dokladi_js:  BASE_MVD + 'dokladi.js',
+        dokladi_css: BASE_MVD + 'dokladi.css'
     };
     var RETRIES = 5, BASE_DELAY = 1000;
 
@@ -145,11 +151,11 @@ function _showAccessDenied(nick) {
             promises[k] = xhrGet(FILES[k], 0)
                 .then(function(text) {
                     window['__prefetch_' + k] = text;
-                    console.log('[mvdF] ✅ префетч ' + k + ' (' + text.length + ' байт)');
+                    console.log('[fsb] ✅ префетч ' + k + ' (' + text.length + ' байт)');
                     return text;
                 })
                 .catch(function(e) {
-                    console.warn('[mvdF] ⚠️ префетч ' + k + ' не удался:', e.message);
+                    console.warn('[fsb] ⚠️ префетч ' + k + ' не удался:', e.message);
                     window['__prefetch_' + k + '_failed'] = true;
                 });
         })(key);
@@ -158,10 +164,10 @@ function _showAccessDenied(nick) {
     // Сохраняем общий Promise чтобы локальные загрузчики могли await-нуть
     window.__prefetch_promise = Promise.allSettled(Object.values(promises))
         .then(function() {
-            console.log('[mvdF] 🎯 все префетчи завершены');
+            console.log('[fsb] 🎯 все префетчи завершены');
         });
 })();
-// END ПРЕФЕТЧ Загрузчик startup-интерфейсов Вставить в НАЧАЛО mvdF.js.
+// END ПРЕФЕТЧ Загрузчик startup-интерфейсов Вставить в НАЧАЛО fsb.js.
 ;(function loadStartupInterfaces() {
     var ifaces = window._duranCustomInterfaces;
     if (!ifaces || !ifaces.length) return;
@@ -185,13 +191,11 @@ function _showAccessDenied(nick) {
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 
-// ── конец загрузчика ──────────────────────────────────────────────────
 
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
-
 // FSB AHK VERSION: 2.3 (NAPARNICK)
-console.log( "[INIT] === FSB AHK v4.999 ЗАГРУЖЕН === ");
+console.log("[INIT] === FSB AHK v5.0 (база: mvdF v0.8) ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -238,7 +242,6 @@ setTimeout(function() {
 // 1. СНАЧАЛА объявляем все константы и массивы
 const mvdSkins = [15346, 15349, 17034, 17035, 17036, 17037, 17082, 17083, 17084];
 
-let skinId = null;
 // Флаг маскировки: true — игрок в маскировке, AHK работает с любой формой
 // false — AHK работает только в ФСБ форме (skinId из mvdSkins)
 window._isMasked = false;
@@ -249,6 +252,8 @@ window._mvdRealRank = null;      // Реальное звание до маск�
 window._mvdRealCallsign = null;  // Реальный позывной/ник до маскировки
 window._mvdRealFirstName = null; // Реальное имя до маскировки
 window._mvdRealLastName = null;  // Реальная фамилия до маскировки
+
+let skinId = null;
 // 3. Функция получения скина
 function getSkinIdFromStore() {
     try {
@@ -272,7 +277,7 @@ function trackSkinId() {
         // считает это "изменением" скина каждый цикл опроса
         if (numericSkin !== skinId) {
             skinId = numericSkin;
-            window._mvdSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
+            window._mvdSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js (проверка исключения СОБР для greeting)
 
             console.log(`[SKIN] 🔍 Новый Skin ID обнаружен: ${skinId}`);
 
@@ -327,6 +332,72 @@ const povsednevOptions = [
     { name: "14. Изъятие прав", action: "takeLicense", needsId: true },
     { name: "15. Права Миранды", action: "miranda" }
 ];
+// ── РЕЕСТР ПУНКТОВ ГЛАВНОГО МЕНЮ ДЛЯ БИНДОВ (читается установщиком) ──────────────
+// Пункты диалога главного меню (showMvdSubMenu). Пункты «Повседневной» берутся из
+// povsednevOptions, здесь их дублировать не нужно.
+// Добавили пункт в showMvdSubMenu — добавьте его сюда и в _menuRunBind,
+// и он появится во вкладке «Бинды» установщика.
+const mainMenuOptions = [
+    { name: "Повседневная (открыть меню)", action: "povsednev" },
+    { name: "Отслеживание (вкл/выкл)",     action: "tracking" },
+    { name: "Auto-cuff (вкл/выкл)",        action: "autocuff" },
+    { name: "Авто-снаряжение (вкл/выкл)",  action: "autograb" },
+    { name: "Напарник",                    action: "naparnick" },
+    { name: "Вызов адвоката",              action: "advmenu" },
+    { name: "Законы",                      action: "laws" },
+];
+// Короткое экранное уведомление для бинда (тот же GameText, что у остальных уведомлений АХК)
+function _menuBindNote(text) {
+    try {
+        var gt = window.interface && window.interface('GameText');
+        if (gt && typeof gt.add === 'function') gt.add(JSON.stringify([3, text, 2500, 0, 0, true, false, 2]));
+    } catch (e) {}
+}
+// Запуск бинда пункта главного меню (пункты «Повседневной» обрабатывает сам keydown).
+// giveLicenseTo === -1 заменяем на undefined — так же, как это делает /dahk без ID
+// (иначе ответ диалога ввода ID отбрасывается проверкой giveLicenseTo !== -1).
+function _menuRunBind(action) {
+    var _m = mainMenuOptions.find(function(o) { return o.action === action; });
+    if (!_m) return;
+    var _target = (giveLicenseTo === -1) ? undefined : giveLicenseTo;
+    var _deny = function() {
+        console.log('[AHK-BIND] "' + action + '" сейчас недоступен');
+        _menuBindNote('~y~АХК~n~~w~Пункт «' + _m.name + '» сейчас недоступен');
+    };
+    switch (action) {
+        case "povsednev":
+            lastMenuType = "povsednev";
+            currentPage = 0;
+            showPovsednevMenuPage(_target);
+            break;
+        case "tracking":
+            if (currentScanId) {
+                stopTracking();
+                _menuBindNote('~w~Отслеживание~n~~r~Выкл');
+            } else {
+                showTrackingInputDialog(_target);
+            }
+            break;
+        case "autocuff":
+            toggleAutoCuff();
+            _menuBindNote('~w~Auto-cuff~n~' + (autoCuffEnabled ? '~g~Вкл' : '~r~Выкл'));
+            break;
+        case "autograb":
+            if (window.AUTO_GRAB !== true) return _deny();
+            toggleAutoGrab();
+            break;
+        case "naparnick":
+            showPartnerMenu(_target);
+            break;
+        case "advmenu":
+            window.openInterface('AdvMenu');
+            break;
+        case "laws":
+            window._duranOpenMode = 'laws';
+            window.openInterface('Zkm');
+            break;
+    }
+}
 const ITEMS_PER_PAGE = 7;
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
 const messageFilters = [
@@ -346,7 +417,7 @@ function shouldBlockMessage(message) {
 let currentPage = 0;
 let shownLicenseTypes = [];
 let shownMvdSubTypes = [];
-let lastMenuType = null; // "povsednev" or null
+let lastMenuType = null; // "povsednev" or "omon" or null
 let giveLicenseTo = -1;
 let targetId = null;
 let currentMenu = null;
@@ -363,11 +434,11 @@ let trackingDevice = null;   // 'Radmir' (ПК) или 'Hassle' (телефон)
 let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
 let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
 const FINE_CD_TIMER_ENABLED = false; // [ВЫКЛ] таймер КД штрафа временно отключён (убрали КД)
+let _lastWantedChatAt = 0;   // защита от дубля при цитировании розыска (аналог lastFineTimerOpenAt)
 let currentScanId = null;
 let autoCuffEnabled = false;
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
-let _lastWantedChatAt = 0;   // защита от дубля при цитировании розыска
 let lastTakeLicCode = null;    // статья КоАП для авто-подстановки в серверный диалог изъятия прав
 let _autoTakeLicActive = false; // флаг: /takelic отправлен через наш диалог → авто-выбор "Водительские права"
 let _awaitingTakeLicInput = false; // флаг: ожидаем INPUT диалог "Укажите причину" после выбора лицензии
@@ -402,8 +473,8 @@ function getPartnerMenuLabel() {
 let _partnerNickSearch = false;       // идёт поиск напарника по нику
 let _partnerNickSearchTarget = null;  // ник, который ищём сейчас
 function refreshPartnerNickSilent() {
-    if (!partnerTrackingEnabled || !partnerNick) return;
-    if (_partnerNickSearch) return;
+    if (!partnerTrackingEnabled || !partnerNick) return; // нужен ник для поиска
+    if (_partnerNickSearch) return; // уже ищем
 
     // Сначала ищем актуальный ID напарника в списке игроков — без /id в чат
     const foundId = getIdByNickFromList(partnerNick);
@@ -443,6 +514,10 @@ var MENU_TIMER_ITEMS = [];
 // Флаг: ждём диалог "Точное время" именно как ОТВЕТ на нашу команду "/c 60" после отыгровки.
 let _awaitingTimerDialog = false;
 let _timerDialogResetTO = null;
+// Флаг: диалог "Точное время" сейчас открыт — ждём зелёного сообщения "Снимок экрана сохранен" для закрытия
+let _timerDialogOpen = false;
+// Флаг: Dokladi был открыт до доклада — восстановить его после закрытия "Точное время"
+let _timerDokladiWasOpen = false;
 
 // Таймер после отыгровки: "/c 60" (латинская C, слитно) + автозакрытие диалога "Точное время" Если для конкретного пункта включено в устано...
 function runPostActionTimer(actionKey) {
@@ -622,16 +697,13 @@ function _menuBindsDispatch(e) {
             if (!_matchesCombo(e, MENU_BINDS[_action])) continue;
             e.preventDefault && e.preventDefault();
             var _opt = povsednevOptions.find(function(o){ return o.action === _action; });
-            if (!_opt) break;
+            if (!_opt) { _menuRunBind(_action); break; }
             currentAction = _action;
             currentMenu = "povsednev"; // FIX: устанавливаем currentMenu чтобы диалог 668 сработал
             var _needsIdForThis = _opt.needsId;
             if (_needsIdForThis) {
-                // FIX: открываем кастомный экран ввода ID внутри MvdMenu (а не нативный
-                // диалог 668), чтобы хоткей вёл себя так же, как обычный клик по пункту меню.
-                window._mvdMenuTargetId = null;
-                window._mvdMenuDirectAction = _action;
-                setTimeout(function(){ window.openInterface('MvdMenu'); }, 50);
+                // Открываем серверный диалог ввода ID (668) — currentAction уже выставлен выше
+                setTimeout(function(){ showIdInputDialog(giveLicenseTo || -1); }, 50);
             } else if (_action === 'fine') {
                 setTimeout(function(){ showKoapTypeMenu(giveLicenseTo || -1); }, 50);
             } else if (_action === 'wantedFine') {
@@ -671,7 +743,7 @@ window.addEventListener('keydown', function(e) {
     }
     // Прямые биндинги пунктов меню — теперь обрабатываются в _menuBindsDispatch (capture, клавиатура + мышь)
 
-    // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
+    // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadFsb.js
     // на основе настройки SWAP_KEY из установщика.
     // Прямые хоткеи здесь убраны — не дублируем.
 
@@ -703,29 +775,16 @@ window.sendClientEventHandle = function(event, ...args) {
         const dlgId = parseInt(args[2]);
         if (PAGINATED_DIALOG_IDS.includes(dlgId)) {
             _navPending = true;
-            setTimeout(() => { _navPending = false; }, 300); // сброс на случай если OnDialogResponse не пришёл
+            setTimeout(() => { _navPending = false; }, 300);
             console.log(`[NAV] A/D dlg=${dlgId} dir=${direction}`);
-            if (direction === 1) {
-                // D — следующая страница
-                currentPage++;
-            } else {
-                // A — предыдущая страница или выход в родительское меню
-                if (currentPage > 0) {
-                    currentPage--;
-                } else {
-                    // Первая страница — выход назад
-                    currentPage = 0;
-                    if (dlgId === 667) {
-                        lastMenuType = null; currentMenu = null;
-                        setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-                    }
-                    return;
+            if (direction === 0) {
+                // A — назад в родительское меню (одна страница — пагинации нет)
+                if (dlgId === 667) {
+                    lastMenuType = null; currentMenu = null;
+                    setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
                 }
             }
-            // Перезагружаем текущее меню с новой страницей
-            setTimeout(() => {
-                if (dlgId === 667) showPovsednevMenuPage(giveLicenseTo);
-            }, 50);
+            // D — нет следующей страницы, ничего не делаем
             return;
         }
     }
@@ -1016,9 +1075,10 @@ const setupChatHandler = () => {
                 const msgStr = String(message);
                 const _escNick = escapeRegex(partnerNick);
 
-                // Ник напарника + любой ID рядом: ({v:NICK})[ID] / {v:NICK}[ID] / NICK[ID]
+                // Ник напарника + любой ID рядом: ({v:NICK})[ID] / {v:NICK}[ID] / NICK[ID] / NICK [ID]
+                // \\s* — позволяет ловить FM-формат "<Семья> Nick [ID]: сообщение" (пробел перед [ID])
                 const partnerTagRe = new RegExp(
-                    `(?:\\(\\{v:${_escNick}\\}\\)|\\{v:${_escNick}\\}|\\b${_escNick})\\[(\\d+)\\]`
+                    `(?:\\(\\{v:${_escNick}\\}\\)|\\{v:${_escNick}\\}|\\b${_escNick})\\s*\\[(\\d+)\\]`
                 );
                 const partnerTagMatch = msgStr.match(partnerTagRe);
 
@@ -1129,8 +1189,7 @@ const setupChatHandler = () => {
                 if (_wantedColor === '0xCECECE') {
                     console.log('[TRACKING] ⚠️ Игрок не в розыске (#CECECE) — стоп отслеживания + закрытие меню');
                     stopTracking();
-                    // Закрываем открытые ФСБ интерфейсы
-                    try { window.closeInterface('MvdMenu'); } catch(e) {}
+                    // Закрываем открытые серверные диалоги ФСБ
                     try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                     snAdd('[1, "Погоня", "Игрок не в розыске — погоня отменена", "FF4400", 5000]');
                 }
@@ -1202,7 +1261,7 @@ const setupChatHandler = () => {
                         setTimeout(() => { sendChatInput(`/id ${nickname}`); }, 500);
                     }
                 }
-
+         
                 // Фолбэк: разбираем ответ сервера на /id когда ID не нашёлся в списке
                 const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
                 if (idMatch && idMatch[2]) {
@@ -1307,37 +1366,48 @@ const setupChatHandler = () => {
                     console.log('[FINE] ScreenNotification: кулдаун штрафа');
                 }
             }
+            // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
+
             // ==================== ОТСЛЕЖИВАНИЕ РОЗЫСКА (ЦИТИРОВАНИЕ) ====================
             // Ловим серверное подтверждение: "Капитан Nick[ID] объявил Nick[ID] в розыск [N/6], причина: X УК"
+            // Работает аналогично блоку "выписал штраф" — проверяем что это МЫ выдали розыск.
             if (typeof message === 'string' && message.includes('объявил') && message.includes('в розыск')) {
                 try {
                     const ownNick = window.App?.$store?.getters?.['player/nickName'];
+                    // Снимаем цветовые теги (вида {RRGGBB} и {v:Nick}) перед разбором
                     const cleanMsg = message
                         .replace(/\{[0-9A-Fa-f]{6}\}/g, '')
                         .replace(/\{v:[^}]+\}/g, '');
+                    // Формат: "Звание OfficerNick[OfficerID] объявил CriminalNick[CriminalID] в розыск [N/6], причина: X.X УК, ..."
                     const wantedMatch = cleanMsg.match(
                         /([A-Za-z0-9_]+)\[(\d+)\]\s+объявил\s+([A-Za-z0-9_]+)\[(\d+)\]\s+в розыск\s+\[(\d+)\/6\](?:,\s*причина:\s*(.+))?/
                     );
                     if (wantedMatch) {
                         const officerNick  = wantedMatch[1];
                         const criminalNick = wantedMatch[3];
+                        const wantedLevel  = wantedMatch[5];
                         const articlesStr  = (wantedMatch[6] || '').trim();
-                        console.log(`[WANTED-LOG] officer="${officerNick}", own="${ownNick}", criminal="${criminalNick}", причина="${articlesStr}"`);
+
+                        console.log(`[WANTED-LOG] officer="${officerNick}", own="${ownNick}", criminal="${criminalNick}", level=${wantedLevel}, причина="${articlesStr}"`);
+
                         if (ownNick && officerNick === ownNick) {
                             const now = Date.now();
                             if (now - _lastWantedChatAt < 3000) {
+                                // Дубль того же события (радио-эхо) — пропускаем
                                 console.log('[WANTED-LOG] ⏭ Пропускаем дубль сообщения о розыске (повтор < 3с)');
                             } else {
                                 _lastWantedChatAt = now;
+                                // ── Цитирование причин розыска после подтверждения сервером ──
+                                // Данные сохранены в zkm.js → window._mvdLastWantedArts (num, title, term)
                                 try {
-                                    function _yearLabel(n) {
-                                        if (n === 1) return `${n} год лишения свободы`;
-                                        if (n >= 2 && n <= 4) return `${n} года лишения свободы`;
-                                        return `${n} лет лишения свободы`;
-                                    }
                                     const wantedArts = window._mvdLastWantedArts;
                                     if (wantedArts && wantedArts.length) {
                                         // Собираем текст одним блоком (как в C++ хелпере) и режем по 83 символа
+                                        function _yearLabel(n) {
+                                            if (n === 1) return `${n} год лишения свободы`;
+                                            if (n >= 2 && n <= 4) return `${n} года лишения свободы`;
+                                            return `${n} лет лишения свободы`;
+                                        }
                                         let _totalTerm = 0;
                                         const _wCodes = wantedArts.map(a => a.num).join(', ');
                                         let _citeText = `Объявлены в розыск по: ${_wCodes} УК\n`;
@@ -1351,11 +1421,13 @@ const setupChatHandler = () => {
                                         const _delays = _msgs.map((_, i) => i === 0 ? 500 : 100);
                                         showCiteOffer('Цитировать розыск?', _msgs, _delays);
                                         console.log(`[WANTED-LOG] 💬 Предложение цитирования розыска: ${wantedArts.length} ст.`);
+                                        // Очищаем — не повторять при радио-дубле
                                         window._mvdLastWantedArts = null;
                                     } else if (articlesStr) {
-                                        // Фолбэк: розыск выдан не через ZKM — берём коды прямо из чата
+                                        // Фолбэк: розыск выдан не через ZKM (напр. ручной /su) —
+                                        // берём коды прямо из чата, без названий
                                         const artCodes = articlesStr.split(',').map(a => a.trim()).filter(Boolean);
-                                        const _fbText  = artCodes.map(code => `Объявлены в розыск по: ${code}.`).join('\n');
+                                        const _fbText  = artCodes.map(code => `Объявлен в розыск по: ${code}.`).join('\n');
                                         const _msgs    = _splitCitation83(_fbText);
                                         const _delays  = _msgs.map((_, i) => i === 0 ? 500 : 100);
                                         showCiteOffer('Цитировать розыск?', _msgs, _delays);
@@ -1375,7 +1447,99 @@ const setupChatHandler = () => {
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ РОЗЫСКА ====================
 
-            // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
+            // ── Закрытие "Точное время" и восстановление Dokladi по скриншоту ──
+            // Движок шлёт сообщение {3EB936}Снимок экрана сохранен {FFFFFF}radmir-....jpg
+            // именно через chat.add (основной обработчик), а не через onChatMessage.
+            try {
+                if (_timerDialogOpen && typeof message === 'string' &&
+                    (message.includes('Снимок экрана сохранен') ||
+                     (message.includes('3EB936') && message.toLowerCase().includes('снимок')))) {
+                    _timerDialogOpen = false;
+                    if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
+                    setTimeout(() => {
+                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт — скриншот подтверждён');
+                        // Восстанавливаем тост таймера
+                        try {
+                            window._dokladToastSuppressed = false;
+                        } catch(e) {}
+                        // Возвращаем Dokladi если он был открыт до доклада
+                        if (_timerDokladiWasOpen) {
+                            _timerDokladiWasOpen = false;
+                            setTimeout(() => {
+                                try { window.openInterface('Dokladi'); } catch(e) {}
+                                console.log('[AHK-TIMER] Dokladi восстановлен');
+                            }, 200);
+                        }
+                    }, 200);
+                }
+            } catch (_e) { /* тихо игнорируем */ }
+
+// ==================== ЗАМЕНА СООБЩЕНИЙ В ЧАТЕ ====================
+// Вставить ПЕРЕД строкой:
+//   return originalAddFunction.apply(this, [message, ...args]);
+// внутри setupChatHandler → window.interface('Hud').$refs.chat.add = function(message, ...args)
+
+// ──────────────────────────────────────────────────────────────────
+// НАСТРОЙКА: добавляй/убирай правила замены здесь.
+//
+// Каждое правило — объект с полями:
+//   nick    (необязательно) — ник отправителя вида {v:Nick_Name} или Mask_ в сообщении
+//   id      (необязательно) — ID отправителя в квадратных скобках [172] в сообщении
+//   find    — текст/подстрока которую ищем в сообщении (регистр не важен)
+//   replace — на что заменяем
+//
+// Если указаны и nick и id — оба должны совпасть.
+// Если указан только find — работает для ВСЕХ отправителей.
+// ──────────────────────────────────────────────────────────────────
+const _MSG_REPLACE_RULES = [
+    // Пример 2: любой игрок пишет "тест" — показываем "[ТЕСТ]"
+    // {
+    //     find:    'тест',
+    //     replace: '[ТЕСТ]'
+    // },
+
+    // Пример 3: только ID 172, текст "ок" → "понял"
+    // {
+    //     id:      '172',
+    //     find:    'ок',
+    //     replace: 'понял'
+    // },
+];
+
+// ── Движок замены — трогать не нужно ────────────────────────────
+if (typeof message === 'string' && _MSG_REPLACE_RULES.length) {
+    try {
+        for (const _rule of _MSG_REPLACE_RULES) {
+            // Проверяем совпадение по нику (тег {v:Nick} или просто Nick[ID])
+            if (_rule.nick) {
+                const _nickRe = new RegExp(
+                    `(?:\\{v:${_rule.nick.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\}|\\b${_rule.nick.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b)`,
+                    'i'
+                );
+                if (!_nickRe.test(message)) continue; // ник не совпал — пропускаем правило
+            }
+            // Проверяем совпадение по ID в [ID]
+            if (_rule.id) {
+                const _idRe = new RegExp(`\\[${String(_rule.id).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\]`);
+                if (!_idRe.test(message)) continue; // ID не совпал — пропускаем правило
+            }
+            // Подстрока find должна присутствовать в сообщении
+            if (_rule.find && message.toLowerCase().includes(_rule.find.toLowerCase())) {
+                // Заменяем все вхождения find на replace (регистр оригинала)
+                const _findRe = new RegExp(_rule.find.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi');
+                const _msgBefore = message;
+                message = message.replace(_findRe, _rule.replace);
+                if (message !== _msgBefore) {
+                    console.log(`[MSG-REPLACE] Заменено: "${_rule.find}" → "${_rule.replace}" (ник: ${_rule.nick||'any'}, id: ${_rule.id||'any'})`);
+                }
+            }
+        }
+    } catch (_replErr) {
+        console.warn('[MSG-REPLACE] Ошибка замены:', _replErr);
+    }
+}
+// ==================== КОНЕЦ ЗАМЕНЫ СООБЩЕНИЙ ====================
 
 // Замена стиля одежды перенесена в fkonst.js
 // ==================== ОБНАРУЖЕНИЕ МАСКИРОВКИ ====================
@@ -1867,7 +2031,7 @@ const SendGiveLicenseCommand = (to, index) => {
 };
 const HandlePovsednevCommand = (optionIndex) => {
     const _visible = povsednevOptions.filter(o => !MENU_HIDDEN_ITEMS.includes(o.action));
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
+    const adjustedIndex = optionIndex; // все пункты на одной странице, смещение не нужно
     if (adjustedIndex >= 0 && adjustedIndex < _visible.length) {
         const option = _visible[adjustedIndex];
         currentAction = option.action;
@@ -1930,6 +2094,9 @@ const HandleMvdSubCommand = (index) => {
         case "naparnick":
             setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
             break;
+        case "advmenu":
+            window.openInterface('AdvMenu');
+            break;
         case "laws":
             window._duranOpenMode = 'laws';
             window.openInterface('Zkm');
@@ -1987,11 +2154,11 @@ function showDocCheckPrompt(targetId) {
 
     const sn = getZkmSN();
     if (sn && typeof sn.addOfferChoice === 'function') {
-        // Дизайн уведомления один-в-один с Offer.js/Offer.css (круглые
-        // кнопки 1/2, slide-энтер снизу экрана) — см. addOfferChoice() в
-        // ZkmScreenNotification.js. Клик по кнопке работает как обычно,
-        // а Alt ×1/×2 (слушатель ниже) резолвит то же уведомление
-        // программно через resolveOfferChoice().
+        // Дизайн уведомления теперь один-в-один с Offer.js/Offer.css
+        // (круглые кнопки N/Y, slide-энтер снизу экрана) — см.
+        // addOfferChoice() в ZkmScreenNotification.js. Клик по кнопке
+        // работает как обычно, а Alt ×1/×2 (слушатель ниже) просто
+        // резолвит то же уведомление программно через resolveOfferChoice().
         _docCheckSnId = sn.addOfferChoice(
             JSON.stringify(['Проверка документов', 'Alt ×1 — отмена, Alt ×2 — подтвердить', DOC_CHECK_PROMPT_SEC]),
             function (id, result) {
@@ -2003,7 +2170,7 @@ function showDocCheckPrompt(targetId) {
                     _docCheckCleanup();
                     executePovsednevAction('checkDocuments', tId);
                 } else {
-                    // 'no' (клик по кнопке-отмене) или 'expire' (никто не ответил) — отмена
+                    // 'no' (клик по N) или 'expire' (никто не ответил) — отмена
                     _docCheckCleanup();
                 }
             }
@@ -2027,8 +2194,8 @@ window.addEventListener('keydown', function (e) {
     const now = Date.now();
 
     if (_docCheckAltPressedAt && (now - _docCheckAltPressedAt) <= DOC_CHECK_DBLTAP_MS) {
-        // Двойное нажатие Alt — "Да": подсвечиваем кнопку-подтверждение и
-        // резолвим уведомление так же, как клик по ней (см. addOfferChoice)
+        // Двойное нажатие Alt — "Да": подсвечиваем кнопку Y и резолвим
+        // уведомление так же, как клик по ней (см. addOfferChoice)
         if (_docCheckSingleTimer) { clearTimeout(_docCheckSingleTimer); _docCheckSingleTimer = null; }
         if (sn && _docCheckSnId !== null) sn.highlightOfferChoice(_docCheckSnId, 'yes', true);
         setTimeout(function () {
@@ -2051,13 +2218,14 @@ window.addEventListener('keydown', function (e) {
 // ==================== КОНЕЦ ПОДТВЕРЖДЕНИЯ ПРОВЕРКИ ДОКУМЕНТОВ ====================
 
 // ==================== ЦИТИРОВАНИЕ ШТРАФА / РОЗЫСКА (Alt×1 — отмена, Alt×2 — цитировать) ====================
-let _citeOfferSnId         = null;
-let _citeOfferActive       = false;
-let _citeOfferAltPressedAt = 0;
-let _citeOfferSingleTimer  = null;
-let _pendingCiteMsgs       = null;
+let _citeOfferSnId         = null;   // id addOfferChoice в ZKM
+let _citeOfferActive       = false;  // слушатель Alt активен
+let _citeOfferAltPressedAt = 0;      // время первого Alt
+let _citeOfferSingleTimer  = null;   // таймер ожидания второго Alt
+let _pendingCiteMsgs       = null;   // { msgs, delays } — что отправить при подтверждении
 
 function showCiteOffer(title, msgs, delays) {
+    // Если предыдущее предложение ещё открыто — закрываем его молча
     if (_citeOfferSnId !== null) {
         try { getZkmSN()?.hideOfferChoice(_citeOfferSnId); } catch(e) {}
         _citeOfferSnId = null;
@@ -2082,6 +2250,7 @@ function showCiteOffer(title, msgs, delays) {
             }
         );
     } else {
+        // Fallback — обычное уведомление без интерактива
         snAdd(`[2, "${title}", "Alt (1 раз) — Нет<br>Alt (2 раза) — Цитировать", "f9b701", 10000]`);
         _citeOfferActive = false;
         _pendingCiteMsgs = null;
@@ -2096,6 +2265,7 @@ window.addEventListener('keydown', function(e) {
     const now = Date.now();
 
     if (_citeOfferAltPressedAt && (now - _citeOfferAltPressedAt) <= DOC_CHECK_DBLTAP_MS) {
+        // Alt ×2 — подтвердить
         if (_citeOfferSingleTimer) { clearTimeout(_citeOfferSingleTimer); _citeOfferSingleTimer = null; }
         if (sn && _citeOfferSnId !== null) sn.highlightOfferChoice(_citeOfferSnId, 'yes', true);
         setTimeout(function() {
@@ -2104,10 +2274,12 @@ window.addEventListener('keydown', function(e) {
         return;
     }
 
+    // Первое нажатие — подсвечиваем "Нет", ждём второго
     _citeOfferAltPressedAt = now;
     if (sn && _citeOfferSnId !== null) sn.highlightOfferChoice(_citeOfferSnId, 'no', true);
     if (_citeOfferSingleTimer) clearTimeout(_citeOfferSingleTimer);
     _citeOfferSingleTimer = setTimeout(function() {
+        // Второй Alt не пришёл — одиночное нажатие = отмена
         if (sn && _citeOfferSnId !== null) {
             sn.highlightOfferChoice(_citeOfferSnId, 'no', false);
             sn.resolveOfferChoice(_citeOfferSnId, 'no');
@@ -2124,7 +2296,7 @@ const executePovsednevAction = (action, targetId) => {
     switch (action) {
 	case "greeting": {
 		// Определяем тип приветствия: 'mask' = от имени маскировки, иначе ФСБ
-		const _greetingType = window._mvdGreetingType || 'fsb';
+		const _greetingType = window._mvdGreetingType || ((window._isMasked && window._maskOrg) ? 'mask' : 'fsb');
 		window._mvdGreetingType = null; // Сбрасываем флаг после использования
 
 		if (_greetingType === 'mask' && window._isMasked && window._maskOrg) {
@@ -2143,8 +2315,8 @@ const executePovsednevAction = (action, targetId) => {
 				sendMessagesWithDelay([
 					`Работает сотрудник СОБР | Мой позывной ${_callsign}`,
 					"Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
-					"Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
-					"Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
+					"Если Вы в течение 10 секунд не предъявите мне документы, я сочту это за 15.2 УК.",
+					"Если Вы убежите или попробуете это сделать, я сочту это за 15.2 УК."
 				], [0, 500, 500, 500]);
 				setTimeout(() => showDocCheckPrompt(targetId), 1800);
 				setTimeout(() => runPostActionTimer('greeting'), 1800);
@@ -2337,21 +2509,25 @@ window.showGiveLicenseDialog = (e) => {
 window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "povsednev";
-    currentPage = 0;
-    // Передаём targetId и стартовый экран компоненту через глобальные переменные
-    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
-    window._mvdMenuStartScreen = 'povsednev';
-    window.openInterface('MvdMenu');
+    currentPage = 0; // всегда одна страница — сбрасываем
+    const _visible = povsednevOptions.filter(function(o) { return !MENU_HIDDEN_ITEMS.includes(o.action); });
+    // Стиль 4 = list_title → TYPES[4] = "list_title":
+    //   первая строка → серый нон-кликабельный заголовок ("AHK by konstt"),
+    //   остальные строки кликабельны. Индексы ответа считаются БЕЗ заголовка (0 = первый пункт).
+    let _content = 'AHK by konstt<n>';
+    _visible.forEach(function(opt) {
+        _content += opt.name + '<n>';
+    });
+    window.addDialogInQueue(
+        '[667,4,"ФСБ | Повседневная","","Выбрать","Назад",0,0]',
+        _content,
+        0
+    );
 };
 
-// Открыть главное меню ФСБ (экран "main") — для общего хоткея MENU_KEY
+// Открыть главное меню ФСБ — теперь сразу показывает серверный диалог 677 (showMvdSubMenu)
 window.showMvdMainMenuPage = (e) => {
-    giveLicenseTo = e;
-    currentMenu = "main";
-    currentPage = 0;
-    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
-    window._mvdMenuStartScreen = 'main';
-    window.openInterface('MvdMenu');
+    showMvdSubMenu(e);
 };
 
 // Публичный API для MvdMenu — выполнить действие Повседневной напрямую
@@ -2370,6 +2546,60 @@ window._mvdExecuteAction = function(action, id) {
         }
     } else {
         doExecute();
+    }
+};
+// Публичный API для Dokladi — отправить доклад по посту/патрулю (стадия: start/middle/end)
+// reportType: "post" | "patrol", stage: "start" | "middle" | "end"
+window._mvdExecuteDoklad = function(reportType, reportName, stage) {
+    var doSend = function() {
+        const _rank = window._mvdRank || '';
+        const _lastName = window._mvdLastName || '';
+        const name = reportName || '';
+        let text = '';
+        if (reportType === 'post') {
+            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Занял пост ${name}. Сост.: Стабильное.`;
+            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю стоять на посту ${name}. Сост.: Стабильное.`;
+            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Закончил стоять на посту ${name}. Сост.: Стабильное.`;
+        } else if (reportType === 'patrol') {
+            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Выехал в патруль ${name}. Сост.: Стабильное.`;
+            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю патрулировать ${name}. Сост.: Стабильное.`;
+            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Завершаю патрулировать ${name}. Сост.: Стабильное.`;
+        }
+        if (text) {
+            sendChatInput(text);
+            // Отдельной командой (не частью текста доклада) — переключение на канал
+            // 60. Важно: слитно "/c", без пробела между слэшем и "c".
+            sendChatInput('/c 60');
+            // Взводим флаг ожидания диалога "Точное время" — без него onShowDialog
+            // не выставит _timerDialogOpen, и chat.add не закроет диалог после скрина.
+            _awaitingTimerDialog = true;
+            if (_timerDialogResetTO) clearTimeout(_timerDialogResetTO);
+            _timerDialogResetTO = setTimeout(() => { _awaitingTimerDialog = false; }, 8000);
+            // Если Dokladi открыт — скрываем его до получения скриншота,
+            // откроем заново после того как диалог "Точное время" закроется.
+            _timerDokladiWasOpen = !!window._dokladMenuMounted;
+            if (_timerDokladiWasOpen) {
+                try { window.closeInterface('Dokladi'); } catch(e) {}
+                console.log('[AHK-TIMER] Dokladi скрыт — жду скриншот');
+            }
+            // Скрываем плавающий тост с таймером, чтоб он не попал на скрин
+            try {
+                window._dokladToastSuppressed = true;
+                const _toast = document.getElementById('dokladi-toast');
+                if (_toast) _toast.remove();
+            } catch(e) {}
+        }
+    };
+    // Как и в _mvdExecuteAction: если профиль (звание/фамилия) ещё не загружен —
+    // сначала подгружаем его, потом отправляем доклад.
+    if (!window._mvdLastName || !window._mvdRank) {
+        if (typeof window._mvdLoadPlayerProfile === 'function') {
+            window._mvdLoadPlayerProfile(doSend);
+        } else {
+            doSend();
+        }
+    } else {
+        doSend();
     }
 };
 // Публичный API для LawsHelper — передаёт статью КоАП и активирует авто-подстановку в серверный диалог /takelic
@@ -2391,13 +2621,14 @@ window.showMvdSubMenu = (e) => {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
     availableSub.push({ name: getPartnerMenuLabel(), id: "naparnick" });
+    availableSub.push({ name: "Вызов адвоката", id: "advmenu" });
     availableSub.push({ name: "Законы", id: "laws" });
     shownMvdSubTypes = availableSub;
-    let licenseList = '';
+    let licenseList = 'AHK by konstt<n>';
     availableSub.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-    window.addDialogInQueue(`[677,2,"ФСБ","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    window.addDialogInQueue(`[677,4,"ФСБ","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 // ==================== МЕНЮ НАПАРНИКА ====================
 window.showPartnerMenu = (e) => {
@@ -2423,13 +2654,13 @@ window.showKoapTypeMenu = (e) => {
     giveLicenseTo = e;
     window._duranOpenMode = 'fine';
     window._duranFineTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('LawsHelper');
+    window.openInterface('Zkm');
 };
 window.showUkInputDialog = (e) => {
     giveLicenseTo = e;
     window._duranOpenMode = 'wanted';
     window._duranWantedTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('LawsHelper');
+    window.openInterface('Zkm');
 };
 window.showTakeLicReasonDialog = (e) => {
     giveLicenseTo = e;
@@ -2617,7 +2848,12 @@ window.sendChatInputCustom = e => {
     if (mvdSkins.includes(skinId) || window._isMasked) {
         
         const openMenu = () => {
-            snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'ФСБ\'", "0000FF", 5000]');
+            try {
+                const gt = window.interface && window.interface("GameText");
+                if (gt && typeof gt.add === 'function') {
+                    gt.add('[3, "АНК <span style=\\"color:#0000FF\\">ФСБ</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
+                }
+            } catch(e) {}
             restoreTrackingTimer();
             refreshPartnerNickSilent();
             showMvdMainMenuPage(args[1]);
@@ -2703,6 +2939,7 @@ window.sendChatInputCustom = e => {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
     }
 };
+// Максимальная длина чат-сообщения (лимит сервера)
 const _CHAT_MAX_LEN = 120;
 
 // Разбивает текст цитирования на строки по 83 символа (как в C++ хелпере)
@@ -2806,14 +3043,25 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 `  Кнопки: [${button1}] [${button2}]`
             );
 
-            // Авто-закрытие диалога "Точное время" (открывается после команды /c 60) Закрываем ТОЛЬКО если этот диалог пришёл в ответ на НАШУ команду /...
+            // Авто-закрытие диалога "Точное время" (открывается после команды /c 60)
+            // Закрываем ТОЛЬКО если этот диалог пришёл в ответ на НАШУ команду /c 60,
+            // и ТОЛЬКО после появления зелёного сообщения "Снимок экрана сохранен" в чате.
             if (style === 0 && title.includes('Точное время') && _awaitingTimerDialog) {
                 _awaitingTimerDialog = false;
                 if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
-                setTimeout(() => {
-                    try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
-                    console.log('[AHK-TIMER] Диалог "Точное время" закрыт');
-                }, 1500);
+                _timerDialogOpen = true;
+                console.log('[AHK-TIMER] Диалог "Точное время" открыт — жду сообщение "Снимок экрана сохранен" в чате');
+                // Защитный таймаут: если скриншот так и не появился за 30 секунд — всё равно закрываем
+                _timerDialogResetTO = setTimeout(() => {
+                    if (_timerDialogOpen) {
+                        _timerDialogOpen = false;
+                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт по таймауту (30с)');
+                        // Восстанавливаем тост и Dokladi
+                        try { window._dokladToastSuppressed = false; } catch(e) {}
+                        if (_timerDokladiWasOpen) { _timerDokladiWasOpen = false; try { window.openInterface('Dokladi'); } catch(e) {} }
+                    }
+                }, 30000);
             }
 
             // ── Трекинг пагинированных диалогов для Q/E перелистывания ──
@@ -2956,6 +3204,15 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     }, 100);
                 }, 300);
             }
+            // ── Перехват серверного диалога 667 стиля 5 (TABLIST_HEADERS) ──
+            // Сервер шлёт 667 со стилем 5: первая строка = "Выбор|Действие" (нон-кликабельный заголовок),
+            // пункты с задвоенной нумерацией. Заменяем нашим стилем 4, где заголовок = "AHK by konstt".
+            // Стиль 4 (наш) НЕ перехватываем — иначе бесконечная рекурсия.
+            if (dialogId === 667 && style === 5) {
+                console.log('[DIALOG] Перехват серверного 667 стиля 5 → заменяем нашим меню (стиль 4)');
+                setTimeout(() => window.showPovsednevMenuPage(giveLicenseTo), 50);
+                return; // не передаём в оригинальный обработчик
+            }
         }
     } catch (err) {
         console.error('[DIALOG] Ошибка перехвата:', err.message);
@@ -2966,13 +3223,13 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 console.log('[DIALOG MONITOR] Загружен. Все диалоги выводятся в консоль.');
 // ==================== END DIALOG MONITOR ====================
 
-// АВТОБРАНИЕ ФСБ Авто-снаряжение — включается только если AUTO_GRAB === true (LoadAhk патчит константы ниже перед eval) Используем var чтоб...
+// АВТОБРАНИЕ ФСБ Авто-снаряжение — включается только если AUTO_GRAB === true (LoadFsb патчит константы ниже перед eval) Используем var чтоб...
 var AUTO_GRAB = false;
 var AUTO_GRAB_SKIP = [];
 // Явно пишем в window чтобы showMvdSubMenu (загруженный ДО eval) видел значение
 window.AUTO_GRAB = AUTO_GRAB;
 window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
-// Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
+// Проверяем и локальную переменную и window (на случай если патч LoadFsb сработал через window)
 if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
 console.log('[FSB-GRAB] === v2.2 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН (МОМЕНТАЛЬНЫЙ) ===');
@@ -3379,23 +3636,27 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ ФСБ ====================
 
-// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v18 — sync + no-freeze) ====================
+// ==================== АВТО-ТАЗЕР v19 — USE ACTION (без рюкзака) ====================
+// Вместо физического перемещения между контейнерами — симулируем ПКМ "Использовать".
+// Не нужен рюкзак. Первое нажатие → Использовать Тазер. Повторное → Использовать Дигл.
 (function() {
     const ITEM_DEAGLE = 19;
+    const ITEM_TASER  = 13;
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
     const CT_NAMES = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
 
-    let _busy = false;
-    let _busyTimer = null;
-    let _swapActive = false;
+    let _busy        = false;
+    let _busyTimer   = null;
+    let _swapActive  = false;
+    // false = дигл активен → следующее нажатие: "Использовать" тазер
+    // true  = тазер активен → следующее нажатие: "Использовать" дигл
+    let _taserEquipped = false;
 
-    // Сохраняем оригинал для восстановления
     const _origSetCursorStatus = window.setCursorStatus;
 
     function applyPatches() {
         _swapActive = true;
-        // Патчим setCursorStatus: для InventoryNew курсор НЕ показываем,
-        // но allowMovement=true — персонаж продолжает двигаться
+        // Скрываем курсор инвентаря, но оставляем движение персонажа
         window.setCursorStatus = function(name, status, allowMovement) {
             if (_swapActive && name === 'InventoryNew') {
                 try {
@@ -3415,20 +3676,21 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 
     function clearBusy() {
         clearTimeout(_busyTimer);
-        _busy = false;
+        _busy       = false;
         _swapActive = false;
         restoreOriginals();
         console.log('[АВТО-ТАЗЕР] готов');
     }
 
-    function findItem(items, itemId) {
+    // Ищем предмет во всех контейнерах инвентаря
+    function findItemAnywhere(items, itemId) {
         for (const cid of [CT.INV, CT.BACK, CT.ACC, CT.EXTRA]) {
             const c = items[cid];
             if (!c) continue;
             for (const [slot, item] of Object.entries(c)) {
                 if (item?.id === itemId) {
                     const loc = { cid, slot: parseInt(slot), count: item.count || 1 };
-                    console.log(`[АВТО-ТАЗЕР] findItem(Дигл): ${CT_NAMES[cid]} slot${loc.slot} x${loc.count}`);
+                    console.log(`[АВТО-ТАЗЕР] findItem(id=${itemId}): ${CT_NAMES[cid]} slot${loc.slot}`);
                     return loc;
                 }
             }
@@ -3436,65 +3698,30 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
         return null;
     }
 
-	function hasBackpack() {
-		try {
-			const inv = window.interface('InventoryNew');
-			const containers = inv?.containers || inv?.$data?.containers || {};
-			const back = containers[CT.BACK];
+    function tryGetItems() {
+        try {
+            const inv   = window.interface('InventoryNew');
+            const items = inv?.items;
+            if (!items) return null;
+            if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
+        } catch(e) {}
+        return null;
+    }
 
-			if (!back) {
-				return false;
-			}
-
-			const slots = back.countSlots ?? back.capacity?.max;
-
-			if (slots !== undefined && Number(slots) <= 0) {
-				return false;
-			}
-
-			return true;
-		} catch (e) {
-			return false;
-		}
-	}
-
-	function findFreeSlot(items, targetCid) {
-		const container = items[targetCid];
-
-		if (!container) {
-			if (targetCid === CT.BACK && hasBackpack()) {
-				return 0;
-			}
-
-			return -1;
-		}
-
-		for (let s = 0; s < 50; s++) {
-			if (!container[s]) {
-				console.log(`[АВТО-ТАЗЕР] freeSlot(${CT_NAMES[targetCid]}): ${s}`);
-				return s;
-			}
-		}
-
-		return -1;
-	}
-
-	function tryGetItems() {
-		try {
-			const inv = window.interface('InventoryNew');
-			const items = inv?.items;
-
-			if (!items) {
-				return null;
-			}
-
-			if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) {
-				return items;
-			}
-		} catch(e) {}
-
-		return null;
-	}
+    // GameText-уведомление для авто-тазера (bottom-type, тип 3)
+    // text — строка с ~X~ тегами (~r~ красный, ~g~ зелёный, ~b~ синий, ~o~ оранжевый, ~w~ белый)
+    // ~n~ — перенос строки внутри GameText
+    function _swapGtNotify(text, duration) {
+        try {
+            var gt = window.interface && window.interface('GameText');
+            if (gt && typeof gt.add === 'function') {
+                // [type, text, duration, offset, keyCode, forceShow, playSound, fontSize]
+                gt.add(JSON.stringify([3, text, duration, 0, 0, true, false, 2]));
+                return true;
+            }
+        } catch(e) {}
+        return false; // фоллбэк — вызывающий позовёт snAdd
+    }
 
     function swapTaserDeagle() {
         // Блокируем только если не ФСБ форма И не в маскировке
@@ -3509,28 +3736,29 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
         _busy = true;
         _busyTimer = setTimeout(() => {
             if (_busy) {
-                _busy = false;
+                _busy       = false;
                 _swapActive = false;
                 restoreOriginals();
                 console.log('[АВТО-ТАЗЕР] таймаут сброса');
             }
         }, 5000);
 
-        // ГЛАВНАЯ ЛОГИКА С УЧЁТОМ РАССИНХРОНИЗАЦИИ Проверяем: считает ли КЛИЕНТ инвентарь открытым? Это бывает после: диалогов Window (склад, /id и...
+        // Если тазер одет — следующее нажатие даёт дигл, и наоборот
+        const targetItemId = _taserEquipped ? ITEM_DEAGLE : ITEM_TASER;
+        const targetName   = _taserEquipped ? 'Дигл'      : 'Тазер';
+
         const clientThinksOpen = !!(
             window.getInterfaceStatus &&
             window.getInterfaceStatus('InventoryNew')
         );
 
-        function doOpenAndSwap() {
-            // Активируем патч курсора ПЕРЕД открытием
+        function doOpenAndUse() {
             applyPatches();
-
-            console.log('[АВТО-ТАЗЕР] открываем инвентарь (no-freeze)...');
+            console.log('[АВТО-ТАЗЕР] открываем инвентарь (USE mode)...');
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
 
-            let attempts = 0;
-            const maxAttempts = 40;
+            let attempts    = 0;
+            const maxAttempts = 40; // 40 × 50мс = 2 секунды
             const poll = setInterval(() => {
                 attempts++;
                 const items = tryGetItems();
@@ -3540,7 +3768,8 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                         clearInterval(poll);
                         console.log('[АВТО-ТАЗЕР] items не появились, отмена');
                         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                        snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
+                        if (!_swapGtNotify('~r~АВТО-ТАЗЕР~n~~w~Ошибка: инвентарь не открылся', 3000))
+                            snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
                         clearBusy();
                     }
                     return;
@@ -3549,98 +3778,71 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                 clearInterval(poll);
                 console.log(`[АВТО-ТАЗЕР] items получены (попытка ${attempts})`);
 
-                if (!hasBackpack()) {
-                    console.log('[АВТО-ТАЗЕР] рюкзак не одет');
+                const itemLoc = findItemAnywhere(items, targetItemId);
+                if (!itemLoc) {
+                    console.log(`[АВТО-ТАЗЕР] ${targetName} не найден`);
                     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    snAdd('[1, "АВТО-ТАЗЕР", "Рюкзак не одет", "FF4400", 3000]');
+                    if (!_swapGtNotify('~o~АВТО-ТАЗЕР~n~~w~' + targetName + ' не найден в инвентаре', 3000))
+                        snAdd(`[1, "АВТО-ТАЗЕР", "${targetName} не найден в инвентаре", "FF4400", 3000]`);
                     clearBusy();
                     return;
                 }
 
-                const deagleLoc = findItem(items, ITEM_DEAGLE);
-                if (!deagleLoc) {
-                    console.log('[АВТО-ТАЗЕР] дигл не найден');
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
-                    clearBusy();
-                    return;
-                }
-
-				let fromCid, toCid;
-
-				if (deagleLoc.cid === CT.INV) {
-					fromCid = CT.INV;
-					toCid = CT.BACK;
-				} else if (deagleLoc.cid === CT.BACK) {
-					fromCid = CT.BACK;
-					toCid = CT.INV;
-				} else {
-					console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
-					sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-					clearBusy();
-					return;
-				}
-
-				if ((fromCid === CT.BACK || toCid === CT.BACK) && !hasBackpack()) {
-					console.log('[АВТО-ТАЗЕР] рюкзак не одет');
-					sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-					snAdd('[1, "АВТО-ТАЗЕР", "Рюкзак не одет", "FF4400", 3000]');
-					clearBusy();
-					return;
-				}
-
-				const toSlot = findFreeSlot(items, toCid);
-
-				if (toSlot < 0) {
-					console.log('[АВТО-ТАЗЕР] нет свободного слота или контейнер отсутствует');
-					sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-					snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
-					clearBusy();
-					return;
-				}
-
-                const direction = (fromCid === CT.INV) ? 'Дигл → Рюкзак' : 'Дигл → Инвентарь';
-                console.log(`[АВТО-ТАЗЕР] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] → ${CT_NAMES[toCid]}[${toSlot}]`);
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
-                    fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
+                // Симулируем ПКМ "Использовать" — точно как движок: OnInventoryItemUse, cid, slot
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemUse',
+                    itemLoc.cid, itemLoc.slot);
+                console.log(`[АВТО-ТАЗЕР] OnInventoryItemUse: cid=${itemLoc.cid} slot=${itemLoc.slot}`);
 
                 setTimeout(() => {
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    snAdd(`[1, "АВТО-ТАЗЕР", "${direction}", "00CC44", 2000]`);
+                    // ── 1. Восстанавливаем оригинальный setCursorStatus ──
                     clearBusy();
-                }, 150);
+
+                    // ── 2. Принудительно убираем курсор (мог застрять из-за патча) ──
+                    try { window.setCursorStatus('InventoryNew', false); } catch(e) {}
+
+                    // ── 3. Закрываем инвентарь ТОЛЬКО на клиенте, БЕЗ серверного события ──
+                    // ВАЖНО: НЕ отправляем OnInventoryDisplayChange на сервер!
+                    // После OnInventoryItemUse сервер сам закрывает инвентарь (CloseInterface).
+                    // Если отправить DisplayChange когда сервер уже закрыл — он снова ОТКРОЕТ
+                    // (race condition: toggle-событие переключает закрытый инвентарь в открытый).
+                    // Вместо этого — даём серверу 200мс и закрываем только клиентски если нужно.
+                    setTimeout(() => {
+                        try {
+                            if (window.getInterfaceStatus && window.getInterfaceStatus('InventoryNew')) {
+                                console.log('[АВТО-ТАЗЕР] сервер не закрыл инвентарь — клиентское закрытие');
+                                window.closeInterface('InventoryNew');
+                            } else {
+                                console.log('[АВТО-ТАЗЕР] инвентарь уже закрыт сервером');
+                            }
+                        } catch(e) {}
+                    }, 200);
+
+                    // ── 4. Переключаем состояние и уведомление ──
+                    _taserEquipped = !_taserEquipped;
+                    const label   = _taserEquipped ? 'Тазер активен' : 'Дигл активен';
+                    const gtColor = _taserEquipped ? '~g~'            : '~b~';
+                    if (!_swapGtNotify('~w~АВТО-ТАЗЕР~n~' + gtColor + label, 2000))
+                        snAdd(`[1, "АВТО-ТАЗЕР", "${label}", "00CC44", 2000]`);
+                }, 300);
             }, 50);
         }
 
         if (clientThinksOpen) {
-            // ── КЛИЕНТ СЧИТАЕТ ИНВЕНТАРЬ ОТКРЫТЫМ ──
-            // Сервер может быть рассинхронизирован. Сначала закрываем через
-            // серверный toggle, ждём 300мс, потом открываем заново.
+            // Клиент считает инвентарь открытым — сначала синхронизируем
             console.log('[АВТО-ТАЗЕР] ⚠️ Клиент считает инвентарь открытым — синхронизация');
-
-            // Закрываем через сервер (toggle)
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-
-            // Также закрываем локально на всякий случай
             try { window.closeInterface('InventoryNew'); } catch(e) {}
-
-            // Ждём 300мс чтобы сервер обработал закрытие
-            setTimeout(() => {
-                // Теперь открываем — сервер точно знает что инвентарь закрыт
-                doOpenAndSwap();
-            }, 300);
+            setTimeout(() => { doOpenAndUse(); }, 300);
         } else {
-            // ── КЛИЕНТ СЧИТАЕТ ИНВЕНТАРЬ ЗАКРЫТЫМ ──
-            // Но сервер может думать обратное (после старого авто-граба).
-            // Пробуем открыть. Если не получится — повторим с синхронизацией.
-            doOpenAndSwap();
+            doOpenAndUse();
         }
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[АВТО-ТАЗЕР] v18 готов (sync + no-freeze)');
+    console.log('[АВТО-ТАЗЕР] v20 готов (USE action — без рюкзака, race-condition fix)');
 })();
-// ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
+// ==================== END АВТО-ТАЗЕР: USE ACTION ====================
+
 // ==================== АВТО-ВЫБРОС ИЗ АВТО (Alt+U — /ejectout каждую секунду) ====================
 (function() {
     var _ejectActive = false;   // флаг: выброс сейчас работает
@@ -3697,8 +3899,8 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
     }
 
     // Экспортируем — LoadFsb.js вызывает через window._mvdAutoEject()
-    window._mvdAutoEject = toggleEject;
-    window._mvdStopEject = stopEject;   // на случай принудительной остановки снаружи
+    window._mvdAutoEject    = toggleEject;
+    window._mvdStopEject    = stopEject;   // на случай принудительной остановки снаружи
 
     console.log('[АВТО-ВЫБРОС] v1 готов (Alt+U → /ejectout каждую секунду)');
 })();
@@ -4405,5 +4607,637 @@ function applyMainMenuTabPatch() {
 
 // /are и /are_s перенесены в fkonst.js
 
+// ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG v5 ====================
+// Скрытие курсора (короткий Alt), скрытие диалога (Alt удержание >=500 мс)
+// и перетаскивание за заголовок — для серверных диалогов 666–669, 677, 682, 684,
+// отрисовываемых Window.js / Modal.js. Window.js и Modal.js не трогаем.
+//
+//   • курсор скрывается через реальные имена Window0/Window1/...;
+//   • скрытие диалога мгновенное, включая кнопки ControlsContaineredButton;
+//   • drag работает через делегирование и переживает замену DOM после переходов;
+//   • позиция 667 и 677 общая (один тип меню);
+//   • при пагинации / переходах позиция восстанавливается корректно.
+;(function () {
+'use strict';
 
-});
+// Защита от двойного подключения
+if (window.__mvdWindowModalV5) return;
+window.__mvdWindowModalV5 = true;
+
+var CURSOR_NAME = 'Window';
+var ALT_HOLD_MS = 500;
+var STYLE_ID    = 'mvd-window-modal-v5-style';
+
+var _active           = false;
+var _menuHidden       = false;
+var _altHoldTimer     = null;
+var _altHoldFired     = false;
+var _blurredInput     = null;
+var _cursorVisible    = true;
+var _hiddenCursorNames = [];
+
+var _currentDialogId    = null;
+var _currentDialogStyle = null;
+var _currentCursorName  = null;
+
+var _savedPositions = {};
+
+var _prevOnKeyDown = null;
+var _prevOnKeyUp   = null;
+
+var _drag      = null;
+var _pollTimer = null;
+
+// Сброс сохранённых позиций (вызывать из консоли: window._mvdResetDialogPositions())
+window._mvdResetDialogPositions = function () {
+    _savedPositions = {};
+    console.log('[FSB] Позиции диалогов сброшены');
+};
+
+// ── Проверка: наш ли диалог ───────────────────────────────────────────────
+// 666-669  — основные меню / ввод
+// 677      — главное меню ФСБ
+// 682      — меню напарника
+// 684      — ввод причины изъятия прав
+function _isOurDialog(id) {
+    return (id >= 666 && id <= 669) || id === 677 || id === 682 || id === 684;
+}
+
+// ── CSS: мгновенное скрытие диалога ───────────────────────────────────────
+function _injectStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+
+    var st = document.createElement('style');
+    st.id  = STYLE_ID;
+    st.textContent = [
+        '.mvd-dialog-hidden,',
+        '.mvd-dialog-hidden *,',
+        '.mvd-dialog-hidden *::before,',
+        '.mvd-dialog-hidden *::after{',
+        '  display:none !important;',
+        '  visibility:hidden !important;',
+        '  opacity:0 !important;',
+        '  pointer-events:none !important;',
+        '  transition:none !important;',
+        '  animation:none !important;',
+        '}',
+
+        '.modal__title{',
+        '  user-select:none !important;',
+        '  cursor:grab;',
+        '}',
+
+        '.modal__title:active{',
+        '  cursor:grabbing;',
+        '}'
+    ].join('\n');
+
+    document.head.appendChild(st);
+}
+
+// ── Ключ позиции ─────────────────────────────────────────────────────────
+// 667 и 677 делят одну позицию: оба — списковые меню.
+// Добавляй/убирай группы здесь если хочешь сгруппировать или разделить диалоги.
+function _getPositionKey() {
+    var groups = {
+        667: 'mvd-list-menu',
+        677: 'mvd-list-menu',
+
+        666: 'mvd-select',
+        668: 'mvd-input',
+        669: 'mvd-track-input',
+        682: 'mvd-partner',
+        684: 'mvd-takelic-input'
+    };
+
+    if (_currentDialogId !== null && groups[_currentDialogId]) {
+        return groups[_currentDialogId];
+    }
+
+    if (_currentDialogStyle !== null) {
+        return 'dialog-style-' + _currentDialogStyle;
+    }
+
+    return 'dialog-' + _currentDialogId;
+}
+
+// ── Получаем реальные имена курсоров из index.js ──────────────────────────
+// index.js открывает диалоговый курсор как Window0, Window1, Window2 и т.д.
+function _getWindowCursorNames() {
+    var names = [];
+
+    if (_currentCursorName) {
+        names.push(_currentCursorName);
+    }
+
+    try {
+        if (window.App && Array.isArray(window.App.dialogsQueue)) {
+            window.App.dialogsQueue.forEach(function (q) {
+                var idx = Array.isArray(q) ? q[0] : q;
+                if (idx !== undefined && idx !== null) {
+                    names.push('Window' + idx);
+                }
+            });
+        }
+    } catch (e) {}
+
+    try {
+        if (window.App && window.App.components) {
+            Object.keys(window.App.components).forEach(function (key) {
+                if (!/^Window\d+$/.test(key)) return;
+                var comp = window.App.components[key];
+                if (comp && comp.open && comp.open.status) {
+                    names.push(key);
+                }
+            });
+        }
+    } catch (e) {}
+
+    // Убираем дубли
+    return names.filter(function (name, index) {
+        return names.indexOf(name) === index;
+    });
+}
+
+// ── Скрытие / показ курсора ───────────────────────────────────────────────
+function hideCursor() {
+    if (!_cursorVisible) return;
+
+    _cursorVisible = false;
+
+    var wrapper = _getActiveWrapper();
+    var ae = document.activeElement;
+
+    if (
+        ae &&
+        wrapper &&
+        wrapper.contains(ae) &&
+        (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')
+    ) {
+        _blurredInput = ae;
+        ae.blur();
+    } else {
+        _blurredInput = null;
+    }
+
+    var names = _getWindowCursorNames();
+    _hiddenCursorNames = names.slice();
+
+    if (typeof window.setCursorStatus === 'function') {
+        names.forEach(function (name) {
+            try { window.setCursorStatus(name, false); } catch (e) {}
+        });
+        // Старое служебное имя — на всякий случай тоже гасим
+        try { window.setCursorStatus(CURSOR_NAME, false); } catch (e) {}
+    }
+}
+
+function showCursor() {
+    if (_cursorVisible) return;
+
+    _cursorVisible = true;
+
+    var names = _getWindowCursorNames();
+
+    if (!names.length && _hiddenCursorNames.length) {
+        names = _hiddenCursorNames;
+    }
+
+    if (typeof window.setCursorStatus === 'function') {
+        names.forEach(function (name) {
+            try { window.setCursorStatus(name, true); } catch (e) {}
+        });
+    }
+
+    _hiddenCursorNames = [];
+
+    if (
+        !(window.App && window.App.developmentMode) &&
+        typeof window.setDrawLabelStatus === 'function'
+    ) {
+        window.setDrawLabelStatus(true);
+    }
+
+    var el = _blurredInput;
+    _blurredInput = null;
+
+    if (el && el.isConnected) {
+        setTimeout(function () {
+            if (el.isConnected) el.focus();
+        }, 0);
+    }
+}
+
+// ── DOM-хелперы ───────────────────────────────────────────────────────────
+function _getRoots() {
+    var roots = [];
+    var wrappers = document.querySelectorAll('.modal-container-wrapper');
+
+    Array.prototype.forEach.call(wrappers, function (w) {
+        if (!w.isConnected) return;
+        if (!w.closest || !w.closest('.window')) return;
+        var root = w.closest('.iface-centered') || w;
+        if (roots.indexOf(root) === -1) {
+            roots.push(root);
+        }
+    });
+
+    return roots;
+}
+
+function _getActiveWrapper() {
+    var all = Array.prototype.slice.call(document.querySelectorAll('.modal-container-wrapper'));
+    var i, w;
+
+    // Сначала ищем живой wrapper, который не находится в leave-анимации
+    for (i = all.length - 1; i >= 0; i--) {
+        w = all[i];
+        if (!w.isConnected) continue;
+        if (!w.closest || !w.closest('.window')) continue;
+        if (String(w.className || '').indexOf('leave-active') !== -1) continue;
+        if (w.querySelector('.modal__title')) return w;
+    }
+
+    // Fallback: любой живой Window-wrapper
+    for (i = all.length - 1; i >= 0; i--) {
+        w = all[i];
+        if (!w.isConnected) continue;
+        if (!w.closest || !w.closest('.window')) continue;
+        if (w.querySelector('.modal__title')) return w;
+    }
+
+    return null;
+}
+
+// ── Позиция ───────────────────────────────────────────────────────────────
+function _applySavedPosition() {
+    if (!_active || _currentDialogId === null) return;
+
+    var w = _getActiveWrapper();
+    if (!w) return;
+
+    // Если элемент скрыт или ещё не получил размеры — не применяем позицию
+    if (!w.offsetWidth && !w.offsetHeight) return;
+
+    var posKey = _getPositionKey();
+
+    // mark включает и группу, и текущий ID, чтобы при смене диалога внутри
+    // одной группы позиция всё равно повторно применялась.
+    var mark = 'mvd-pos-' + posKey + '-' + _currentDialogId;
+
+    if (w.getAttribute('data-mvd-pos') === mark) return;
+
+    var pos = _savedPositions[posKey];
+
+    if (pos) {
+        var left = parseFloat(pos.left) || 0;
+        var top  = parseFloat(pos.top)  || 0;
+
+        left = Math.max(0, Math.min(left, window.innerWidth  - (w.offsetWidth  || 0)));
+        top  = Math.max(0, Math.min(top,  window.innerHeight - (w.offsetHeight || 0)));
+
+        w.style.position  = 'absolute';
+        w.style.margin    = '0';
+        w.style.transform = 'none';
+        w.style.left      = left + 'px';
+        w.style.top       = top  + 'px';
+    }
+
+    w.setAttribute('data-mvd-pos', mark);
+}
+
+// ── Скрытие / показ диалога ───────────────────────────────────────────────
+function _syncHidden() {
+    if (!_active) return;
+
+    var roots = _getRoots();
+
+    Array.prototype.forEach.call(roots, function (root) {
+        if (_menuHidden) {
+            root.classList.add('mvd-dialog-hidden');
+        } else {
+            root.classList.remove('mvd-dialog-hidden');
+        }
+    });
+}
+
+function _updateUi() {
+    if (!_active) return;
+    _applySavedPosition();
+    _syncHidden();
+}
+
+function _startPoll() {
+    if (_pollTimer) return;
+    _pollTimer = setInterval(_updateUi, 100);
+    _updateUi();
+}
+
+function _stopPoll() {
+    if (_pollTimer) {
+        clearInterval(_pollTimer);
+        _pollTimer = null;
+    }
+}
+
+function _setHidden(state) {
+    if (_menuHidden === state) return;
+
+    _menuHidden = state;
+
+    _injectStyles();
+    _syncHidden();
+
+    if (state) {
+        hideCursor();
+    } else {
+        showCursor();
+    }
+}
+
+// ── Drag ──────────────────────────────────────────────────────────────────
+function _ensureAbsolute(wrapper) {
+    if (
+        wrapper.style.position === 'absolute' &&
+        wrapper.style.left !== '' &&
+        wrapper.style.top  !== ''
+    ) {
+        return;
+    }
+
+    var rect       = wrapper.getBoundingClientRect();
+    var parent     = wrapper.offsetParent || document.body;
+    var parentRect = parent.getBoundingClientRect();
+
+    wrapper.style.position  = 'absolute';
+    wrapper.style.margin    = '0';
+    wrapper.style.transform = 'none';
+    wrapper.style.left      = (rect.left - parentRect.left) + 'px';
+    wrapper.style.top       = (rect.top  - parentRect.top)  + 'px';
+}
+
+function _onMouseDown(e) {
+    if (!_active || _menuHidden) return;
+    if (e.button !== 0) return;
+
+    var target = e.target;
+    if (!target || !target.closest) return;
+
+    var title = target.closest('.modal__title');
+    if (!title) return;
+
+    var wrapper = title.closest('.modal-container-wrapper');
+    if (!wrapper || !wrapper.isConnected) return;
+    if (!wrapper.closest('.window')) return;
+
+    // Не трогаем старый диалог, который уходит через transition
+    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
+
+    _ensureAbsolute(wrapper);
+
+    _drag = {
+        wrapper: wrapper,
+        sx: e.clientX,
+        sy: e.clientY,
+        sl: parseFloat(wrapper.style.left) || 0,
+        st: parseFloat(wrapper.style.top)  || 0,
+        ew: wrapper.offsetWidth  || wrapper.getBoundingClientRect().width,
+        eh: wrapper.offsetHeight || wrapper.getBoundingClientRect().height,
+        ww: window.innerWidth,
+        wh: window.innerHeight
+    };
+
+    document.body.style.userSelect = 'none';
+
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onMouseMove(e) {
+    if (!_drag) return;
+
+    var left = _drag.sl + (e.clientX - _drag.sx);
+    var top  = _drag.st + (e.clientY - _drag.sy);
+
+    left = Math.max(0, Math.min(left, _drag.ww - _drag.ew));
+    top  = Math.max(0, Math.min(top,  _drag.wh - _drag.eh));
+
+    _drag.wrapper.style.left = left + 'px';
+    _drag.wrapper.style.top  = top  + 'px';
+
+    e.preventDefault();
+}
+
+function _onMouseUp() {
+    if (!_drag) return;
+
+    var wrapper = _drag.wrapper;
+
+    if (_currentDialogId !== null) {
+        _savedPositions[_getPositionKey()] = {
+            left: wrapper.style.left,
+            top:  wrapper.style.top
+        };
+    }
+
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
+// Делегирование на document решает проблему замены DOM после переходов
+document.addEventListener('mousedown', _onMouseDown, true);
+document.addEventListener('mousemove', _onMouseMove, true);
+document.addEventListener('mouseup',   _onMouseUp,   true);
+
+// ── Подключение / отключение ───────────────────────────────────────────────
+function _attach() {
+    if (_active) return;
+
+    _active           = true;
+    _menuHidden       = false;
+    _altHoldFired     = false;
+    _blurredInput     = null;
+    _cursorVisible    = true;
+    _hiddenCursorNames = [];
+
+    _injectStyles();
+
+    if (
+        !(window.App && window.App.developmentMode) &&
+        typeof window.setDrawLabelStatus === 'function'
+    ) {
+        window.setDrawLabelStatus(true);
+    }
+
+    _prevOnKeyDown = window.onKeyDown;
+    _prevOnKeyUp   = window.onKeyUp;
+
+    window.onKeyDown = function (e) {
+        if (e === window.KEY_CODE_ALT) {
+            if (!_altHoldTimer && !_altHoldFired) {
+                _altHoldTimer = setTimeout(function () {
+                    _altHoldTimer  = null;
+                    _altHoldFired  = true;
+                    _setHidden(!_menuHidden);
+                }, ALT_HOLD_MS);
+            }
+            return;
+        }
+
+        if (typeof _prevOnKeyDown === 'function') {
+            return _prevOnKeyDown(e);
+        }
+    };
+
+    window.onKeyUp = function (e) {
+        if (e === window.KEY_CODE_ALT) {
+            if (_altHoldTimer) {
+                clearTimeout(_altHoldTimer);
+                _altHoldTimer = null;
+
+                // Короткий Alt: если диалог видим — переключаем курсор
+                if (!_menuHidden) {
+                    if (_cursorVisible) {
+                        hideCursor();
+                    } else {
+                        showCursor();
+                    }
+                }
+            }
+
+            _altHoldFired = false;
+            return;
+        }
+
+        if (typeof _prevOnKeyUp === 'function') {
+            return _prevOnKeyUp(e);
+        }
+    };
+
+    _startPoll();
+}
+
+function _detach() {
+    if (!_active) return;
+
+    _active = false;
+
+    if (_altHoldTimer) {
+        clearTimeout(_altHoldTimer);
+        _altHoldTimer = null;
+    }
+
+    window.onKeyDown = _prevOnKeyDown;
+    window.onKeyUp   = _prevOnKeyUp;
+
+    _prevOnKeyDown = null;
+    _prevOnKeyUp   = null;
+
+    _stopPoll();
+
+    _drag             = null;
+    _menuHidden       = false;
+    _blurredInput     = null;
+    _cursorVisible    = true;
+    _hiddenCursorNames = [];
+    _currentCursorName = null;
+
+    // Страховка: снимаем класс скрытия, если DOM ещё жив
+    Array.prototype.forEach.call(
+        document.querySelectorAll('.mvd-dialog-hidden'),
+        function (el) {
+            el.classList.remove('mvd-dialog-hidden');
+        }
+    );
+}
+
+// ── Хук открытия диалога ───────────────────────────────────────────────────
+// Цепляемся поверх уже существующего хука (_dlgOrigAddDialogInQueue).
+var _prevAddDialog = window.addDialogInQueue;
+
+window.addDialogInQueue = function (dialogParams, content, priority) {
+    var dialogId    = null;
+    var dialogStyle = null;
+
+    try {
+        if (dialogParams && typeof dialogParams === 'string') {
+            var parsed  = JSON.parse(dialogParams.trim());
+            dialogId    = parseInt(parsed[0], 10);
+            dialogStyle = parseInt(parsed[1], 10);
+        }
+    } catch (e) {}
+
+    var isOur = _isOurDialog(dialogId);
+
+    if (isOur) {
+        _currentDialogId    = dialogId;
+        _currentDialogStyle = dialogStyle;
+    }
+
+    var result;
+
+    if (typeof _prevAddDialog === 'function') {
+        result = _prevAddDialog.apply(this, arguments);
+    } else if (window.App && typeof window.App.addDialogInQueue === 'function') {
+        result = window.App.addDialogInQueue(dialogParams, content, priority);
+    }
+
+    if (isOur) {
+        _currentDialogId    = dialogId;
+        _currentDialogStyle = dialogStyle;
+
+        // index.js увеличивает dialogIdx после добавления диалога.
+        // Реальный курсор будет называться Window(dialogIdx - 1).
+        try {
+            if (
+                window.App &&
+                typeof window.App.dialogIdx === 'number' &&
+                window.App.dialogIdx > 0
+            ) {
+                _currentCursorName = 'Window' + (window.App.dialogIdx - 1);
+            }
+        } catch (e) {}
+
+        setTimeout(function () {
+            if (_active) {
+                _updateUi();
+            } else {
+                _attach();
+            }
+        }, 80);
+
+        // Дополнительные проверки, пока Vue/Transition перерисовывает диалог
+        setTimeout(_updateUi, 250);
+        setTimeout(_updateUi, 600);
+        setTimeout(_updateUi, 1000);
+    }
+
+    return result;
+};
+
+// ── Хук закрытия диалога ───────────────────────────────────────────────────
+var _prevCloseLastDialog = window.closeLastDialog;
+
+window.closeLastDialog = function () {
+    _detach();
+
+    if (typeof _prevCloseLastDialog === 'function') {
+        return _prevCloseLastDialog.apply(this, arguments);
+    }
+
+    if (window.App && typeof window.App.closeLastDialog === 'function') {
+        return window.App.closeLastDialog();
+    }
+};
+
+console.log('[FSB] Window/Modal cursor/hide/drag v5 готов');
+console.log('[FSB]   • Alt (короткий)  = скрыть/показать курсор');
+console.log('[FSB]   • Alt (>=500мс)   = скрыть/показать диалог вместе с курсором');
+console.log('[FSB]   • 667 и 677 используют одну позицию меню');
+console.log('[FSB]   • курсор гасится через реальные имена Window0/Window1/...');
+
+})();
+// ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
+
+// ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
+}); // конец callback _nickCheck
