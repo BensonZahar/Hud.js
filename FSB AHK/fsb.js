@@ -343,8 +343,9 @@ const mainMenuOptions = [
     { name: "Auto-cuff (вкл/выкл)",        action: "autocuff" },
     { name: "Авто-снаряжение (вкл/выкл)",  action: "autograb" },
     { name: "Напарник",                    action: "naparnick" },
-    { name: "Вызов адвоката",              action: "advmenu" },
     { name: "Законы",                      action: "laws" },
+    { name: "Вызов адвоката",              action: "advmenu" },
+    { name: "Доклады",                     action: "doklady" },
 ];
 // Короткое экранное уведомление для бинда (тот же GameText, что у остальных уведомлений АХК)
 function _menuBindNote(text) {
@@ -389,12 +390,15 @@ function _menuRunBind(action) {
         case "naparnick":
             showPartnerMenu(_target);
             break;
-        case "advmenu":
-            window.openInterface('AdvMenu');
-            break;
         case "laws":
             window._duranOpenMode = 'laws';
             window.openInterface('Zkm');
+            break;
+        case "advmenu":
+            window.openInterface('AdvMenu');
+            break;
+        case "doklady":
+            window.openInterface('Dokladi');
             break;
     }
 }
@@ -2094,12 +2098,17 @@ const HandleMvdSubCommand = (index) => {
         case "naparnick":
             setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
             break;
-        case "advmenu":
-            window.openInterface('AdvMenu');
-            break;
         case "laws":
             window._duranOpenMode = 'laws';
             window.openInterface('Zkm');
+            break;
+        case "advmenu":
+            window.openInterface('AdvMenu');
+            break;
+        case "doklady":
+            setTimeout(() => {
+                try { window.openInterface('Dokladi'); } catch (e) { console.warn('[FSB] Dokladi open error:', e); }
+            }, 80);
             break;
     }
 };
@@ -2621,8 +2630,9 @@ window.showMvdSubMenu = (e) => {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
     availableSub.push({ name: getPartnerMenuLabel(), id: "naparnick" });
-    availableSub.push({ name: "Вызов адвоката", id: "advmenu" });
     availableSub.push({ name: "Законы", id: "laws" });
+    availableSub.push({ name: "Вызов адвоката", id: "advmenu" });
+    availableSub.push({ name: "Доклады", id: "doklady" });
     shownMvdSubTypes = availableSub;
     let licenseList = 'AHK by konstt<n>';
     availableSub.forEach((license, index) => {
