@@ -30,6 +30,8 @@
 // ║     /cancel…») — предупреждает и даёт кнопку «Отменить» (/cancel)    ║
 // ║   • v1.22: в Telegram при успешном предложении — полный текст        ║
 // ║     сервера «Вы предложили…» (точный шаблон из offer.pwn)            ║
+// ║   • v1.23: Telegram ловит «Вы предложили <ник> купить у Вас…» и шлёт  ║
+// ║     полный текст (запрос ушёл); метка времени [чч:мм:сс] игнорируется ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
@@ -47,7 +49,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.22';
+var VERSION = 'code3 v1.23';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -3276,7 +3278,7 @@ try { (function () {
         return true;
     }
     function cleanMsg(s) {
-        return String(s).replace(/\{btn:[^}]*\}/g, '').replace(/\{v:([^}]*)\}/g, '$1').replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\s+/g, ' ').trim();
+        return String(s).replace(/\{btn:[^}]*\}/g, '').replace(/\{v:([^}]*)\}/g, '$1').replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\s+/g, ' ').trim().replace(/^\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/, '');   // метка времени чата «[16:17:02] » не мешает ^-шаблонам
     }
     function lastGive() { try { return (api() && api().last && api().last()) || null; } catch (e) { return null; } }
     function nickOf(id) {
@@ -3296,8 +3298,9 @@ try { (function () {
     const EVENT_WINDOW = 3 * 60 * 1000;
     const EVENTS = [
         // ── запрос на покупку: ушёл / не ушёл (offer.pwn: SendPlayerOffer → OFFER_TYPE_GIVE_LIC) ──
-        // точный текст из offer.pwn (OFFER_TYPE_GIVE_LIC): «Вы предложили %s купить у Вас лицензию на %s за %s руб»
-        { re: /^Вы предложили\s+.+?\s+купить у Вас лицензию на\s+.+?\s+за\s+[\d\s.,]+руб/i, icon: '📨', title: 'Предложение отправлено', ok: true, cancelBtn: true },
+        // Ловим просто «Вы предложили <ник> купить у Вас» — в Telegram уходит ПОЛНЫЙ текст строки сервера
+        // (на живом сервере: «Вы предложили Ник купить у Вас "Название лицензии" за 85.000 руб»).
+        { re: /Вы предложили\s+\S+\s+купить у\s+[Вв]ас/i, icon: '📨', title: 'Предложение отправлено', ok: true, cancelBtn: true },
         { re: /Используйте\s+\/cancel\s+чтобы отозвать предыдущее предложение/i,    icon: '⚠️', title: 'Запрос НЕ отправлен — активно предыдущее предложение', cancelBtn: true, redoCancel: true,
           hint: 'Сначала отклоните его командой /cancel (кнопка «Отменить»), затем выдайте заново.' },
         // ── итог /cancel (кнопка «Отменить» или ручной /cancel) ──
@@ -3327,7 +3330,7 @@ try { (function () {
         const inWin = !!(l && l.at && now - l.at <= EVENT_WINDOW);                // ответ на недавнюю выдачу
         let cw = false;                                                           // ответ на наш /cancel (его окно — 15 с, даже если выдача была давно)
         if (ev.cancel) { try { const ca = api().cancelAt && api().cancelAt(); cw = !!(ca && now - ca < 15000); } catch (e) {} }
-        if (!inWin && !cw) return false;
+        if (!inWin && !cw && !ev.ok) return false;                                // «Вы предложили…» шлём всегда: эту строку сервер пишет только нам, когда запрос реально ушёл
         if (!ev.cancel) _evAt = now;                                              // сервер ответил на выдачу — сторож (watchGive) молчит
         if (!once('ev|' + ev.title, 3000)) return true;
         const showL = !!(l && inWin);
