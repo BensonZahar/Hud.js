@@ -252,8 +252,6 @@ window.onUpdatePlayersList = function(e) {
                 cachedMyId = id;
             }
         }
-        // FIX: сохраняем полный список — нужен для getPlayerInfoFromList (device, nick, level)
-        window._mvdPlayerList = e;
     } catch(err) {
         console.warn('[PRAVO] Ошибка чтения local.id из onUpdatePlayersList:', err);
     }
@@ -496,6 +494,7 @@ let shownMvdSubTypes = [];
 let lastMenuType = null; // "povsednev" or "omon" or null
 let giveLicenseTo = -1;
 let _giveLicTargetId = -1; // ID игрока для быстрой выдачи лицензии (/givelic)
+let _giveLicNick = '';     // ник цели (из меню игрока / ответа сервера на /id) — для заголовка диалога и сверки перед выдачей
 let targetId = null;
 let currentMenu = null;
 let currentSubMenu = null;
@@ -568,20 +567,31 @@ function _pravoSendCmd(text) {
         engine.trigger("SendChatInput", text);
     }
 }
-// Реальная отправка перевыдачи: /cancel + повтор /givelic (без задержки между ними)
+// Реальная отправка перевыдачи: /id-проверка (если подтверждение старше PRAVO_ID_CHECK_TTL) → /cancel + повтор /givelic (без задержки между ними)
 function _pravoReissueSend(opts) {
     opts = opts || {};
     var d = _lastGiveLicData;
     if (!d) return;
-    var cmd = '/givelic ' + d.targetId + ' ' + d.type + ' ' + d.price;
-    _pravoSendCmd('/cancel');
-    _pravoSendCmd(cmd);
-    console.log('[REISSUE] /cancel + повтор отправлены: ' + cmd);
-    gtAdd(`~g~Авто-перевыдача~n~~w~${d.name} → ID: ${d.targetId} | ${d.price.toLocaleString('ru-RU')} ₽`, 3000, 3);
-    // Hassle: переоткрываем Interaction (пауза 550 мс — даём нотификации появиться)
-    if (opts.hassle) {
-        setTimeout(function() { _pravoUpdateHassleInteraction(d.targetId); }, 550);
-    }
+    var want = _pravoStripListPrefix(d.verifiedNick || d.hintRaw || d.rawNick || '');
+    _pravoVerifyTarget(d.targetId, want, function (res) {   // ID мог сменить владельца с прошлой выдачи — перепроверяем
+        if (_lastGiveLicData !== d) return;
+        if (!_pravoIdGuardPass(res, d.targetId, want)) { _pravoHassleRefresh(d.targetId, 0); return; }
+        d.verifiedNick = (res.ok === true && !res.skipped && res.name) ? res.name : null;
+        _pravoWhenFloodFree(2, function () {
+            if (_lastGiveLicData !== d) return;
+            var cmd = '/givelic ' + d.targetId + ' ' + d.type + ' ' + d.price;
+            d.at = Date.now();
+            _pravoSendCmd('/cancel');
+            _pravoSendCmd(cmd);
+            _pravoRefreshLastNick();
+            console.log('[REISSUE] /cancel + повтор отправлены: ' + cmd);
+            var rnk = _pravoNickDisp(d.targetId) || d.nick || '';
+            _pravoTr('GIVE/перевыдача', cmd, 'ID ' + d.targetId, 'ник: ' + (rnk || '—'), 'тип: ' + d.name);
+            gtAdd('~g~Авто-перевыдача~n~~w~' + d.name + ' → ' + (rnk ? rnk + ' ' : '') + 'ID: ' + d.targetId + ' | ' + Number(d.price).toLocaleString('ru-RU') + ' ₽', 3000, 3);
+            // Hassle: переоткрываем Interaction (пауза 550 мс — даём нотификации появиться)
+            if (opts.hassle) _pravoHassleRefresh(d.targetId, 550);
+        });
+    });
 }
 // Точка входа для ВСЕХ способов перевыдачи (хоткей, мышь/колесо, меню, Hassle-кнопка)
 function _pravoReissueLic(opts) {
@@ -600,6 +610,282 @@ function _pravoReissueLic(opts) {
     return true;
 }
 // ── END АНТИФЛУД-ПЛАНИРОВЩИК ────────────────────────────────────────────────
+
+// ══════════════════════════════════════════════════════════════════════════
+// ПРОВЕРКА НИК ↔ ID ЧЕРЕЗ СЕРВЕРНЫЙ /id (порт из Code3 v1.17–v1.19)
+//   /givelic принимает только ID и ничего не знает про ник. ID в SA-MP переиспользуются, поэтому:
+//     • ID по нику (круговое меню, E+ПКМ, кнопка в круге) узнаём у сервера «/id <ник>»;
+//     • прямо перед выдачей/перевыдачей спрашиваем «/id <ID>» (ответ «Ник, ID: N, уровень: …» или
+//       «Такого игрока нет») и сверяем ник. Совпало → выдаём; нет → отмена и подсказка, у кого сейчас этот ID.
+//   Ответ сервера — единственный источник истины (список игроков для лицензий больше НЕ используется).
+//   Ник цели последней выдачи запоминается в _lastGiveLicData (rawNick) — по нему идут авто-ответы игроку.
+// Настройки (window.*): PRAVO_ID_CHECK (true) · PRAVO_ID_CHECK_STRICT (false: сервер не ответил → выдаём без проверки)
+//   PRAVO_ID_CHECK_TTL (15000 мс: подтверждённая пара не перепроверяется — перевыдача подряд мгновенная)
+//   PRAVO_ID_CHECK_MS (2500 мс: сколько ждать ответ на /id) · PRAVO_LIC_TRACE (true: лог поиска ID)
+// Смотреть из консоли: __pravoLic.trace(80) · __pravoLic.traceText(150) · __pravoLic.lastFail() · __pravoLic.diag()
+// ══════════════════════════════════════════════════════════════════════════
+if (typeof window.PRAVO_ID_CHECK !== 'boolean') window.PRAVO_ID_CHECK = true;
+if (typeof window.PRAVO_ID_CHECK_STRICT !== 'boolean') window.PRAVO_ID_CHECK_STRICT = false;
+if (typeof window.PRAVO_ID_CHECK_TTL !== 'number') window.PRAVO_ID_CHECK_TTL = 15000;
+if (typeof window.PRAVO_ID_CHECK_MS !== 'number') window.PRAVO_ID_CHECK_MS = 2500;
+if (typeof window.PRAVO_LIC_TRACE !== 'boolean') window.PRAVO_LIC_TRACE = true;
+
+// ── Трассировка (кольцевой буфер, переживает перезагрузку скрипта) ──
+var _pravoTrBuf = window.__pravoLicTrace || (window.__pravoLicTrace = []);
+var _pravoTrSeq = window.__pravoLicTraceSeq || 0;
+var _pravoTrPrev = '', _pravoTrPrevAt = 0, _pravoTrSkipped = 0, _pravoLicFail = null;
+function _pravoTrStr(v) {
+    try {
+        if (v === undefined) return 'undefined';
+        if (v === null) return 'null';
+        if (typeof v === 'string') return v;
+        if (typeof v === 'function') return 'fn';
+        if (v instanceof Error) return (v.name || 'Error') + ': ' + v.message;
+        return JSON.stringify(v);
+    } catch (e) { return String(v); }
+}
+function _pravoTrEmit(body) {
+    var d = new Date(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    var ts = p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()) + '.' + ('00' + d.getMilliseconds()).slice(-3);
+    var line = '#' + (++_pravoTrSeq) + ' ' + ts + ' ' + body;
+    window.__pravoLicTraceSeq = _pravoTrSeq;
+    _pravoTrBuf.push(line);
+    if (_pravoTrBuf.length > 400) _pravoTrBuf.splice(0, _pravoTrBuf.length - 400);
+    try { console.log('[PRAVO][LIC] ' + line); } catch (e) {}
+}
+function _pravoTr(tag) {
+    if (window.PRAVO_LIC_TRACE === false) return;
+    try {
+        var parts = [];
+        for (var i = 1; i < arguments.length; i++) parts.push(_pravoTrStr(arguments[i]));
+        var body = tag + (parts.length ? ' | ' + parts.join(' | ') : '');
+        var now = Date.now();
+        if (body === _pravoTrPrev && now - _pravoTrPrevAt < 1500) { _pravoTrSkipped++; _pravoTrPrevAt = now; return; }
+        if (_pravoTrSkipped) { _pravoTrEmit('… предыдущая запись повторилась ещё ' + _pravoTrSkipped + ' раз(а)'); _pravoTrSkipped = 0; }
+        _pravoTrPrev = body; _pravoTrPrevAt = now;
+        _pravoTrEmit(body);
+    } catch (e) {}
+}
+function _pravoNickInfo(n) {
+    if (n === undefined || n === null) return String(n);
+    var s = String(n), out = JSON.stringify(s) + ' (длина ' + s.length + ')';
+    if (/[^A-Za-z0-9_]/.test(s)) { var codes = []; for (var i = 0; i < s.length && i < 40; i++) codes.push(s.charCodeAt(i)); out += ' коды=[' + codes.join(',') + ']'; }
+    return out;
+}
+window.__pravoLic = {
+    trace: function (n) { return n ? _pravoTrBuf.slice(-n) : _pravoTrBuf.slice(); },
+    traceText: function (n) { return (n ? _pravoTrBuf.slice(-n) : _pravoTrBuf).join('\n'); },
+    lastFail: function () { return _pravoLicFail; },
+    diag: function () { return { last: _lastGiveLicData, idOk: _pravoIdOk, idq: !!_pravoIdq, why: _pravoIdWhy, lastResolve: _pravoLastResolve, flood: { rate: _pravoFlood.rate } }; }
+};
+
+// ── Ники ──
+function _pravoStripListPrefix(s) { return String(s === undefined || s === null ? '' : s).replace(/^\s*(?:\[\d{1,2}:\d{2}(?::\d{2})?\]\s*)?(?:\d+\s*[.)]\s*)?/, '').trim(); }
+function _pravoNormNick(s) { return _pravoStripListPrefix(s).split(' ').join('_').toLowerCase(); }
+function _pravoSameNick(name, want) {
+    var raw = _pravoStripListPrefix(name).toLowerCase();
+    want = _pravoNormNick(want);
+    if (raw === want) return true;
+    var t = raw.split(/\s+/);
+    return t.length > 1 && t[t.length - 1] === want;   // перед ником стоит префикс (время и т.п.)
+}
+// ── Ник цели ПОСЛЕДНЕЙ выдачи ──
+// ID в SA-MP переиспользуются, поэтому ник запоминаем в момент /givelic: ответ сервера на «/id <ID>» (verifiedNick),
+// а если сервер не ответил — ник из меню игрока (hintRaw). Ответы сервера («штрафы», «нет денег»…) ника не содержат — берём запомненный.
+function _pravoLastRaw(id) {
+    var l = _lastGiveLicData;
+    return (l && l.nickFresh && String(l.targetId) === String(id) && l.rawNick) ? l.rawNick : null;
+}
+function _pravoLastNickRaw() { var l = _lastGiveLicData; return l ? _pravoLastRaw(l.targetId) : null; }
+function _pravoRefreshLastNick() {
+    var l = _lastGiveLicData; if (!l) return;
+    var rn = _pravoStripListPrefix(l.verifiedNick || l.hintRaw || '') || null;
+    l.rawNick = rn; l.nickFresh = true; l.nickAt = Date.now();
+    if (rn) l.nick = String(rn).split('_').join(' ');
+    _pravoTr('GIVE/ник цели', 'ID ' + l.targetId, 'ник: ' + (rn || '—'), 'источник: ' + (l.verifiedNick ? 'сервер (/id)' : (l.hintRaw ? 'меню игрока' : 'нет')));
+    var w = l._nw || []; l._nw = [];
+    for (var i = 0; i < w.length; i++) { try { w[i](l.rawNick); } catch (er) {} }
+}
+// cb(rawНик|null): сразу, если ник последней выдачи уже определён, иначе — как только определится
+function _pravoWhenNick(id, cb) {
+    var l = _lastGiveLicData;
+    if (l && String(l.targetId) === String(id)) {
+        if (l.nickFresh) return cb(l.rawNick);
+        if (l._nw) { l._nw.push(cb); return; }
+    }
+    cb(null);
+}
+function _pravoAddr(id) { var raw = _pravoLastRaw(id); return raw ? raw.split('_').join(' ') : ('Жетон ' + id); }
+// Ник для показа: «Имя_Фамилия» → «Имя Фамилия» (из подсказки, иначе ник последней выдачи)
+function _pravoNickDisp(id, hint) {
+    var n = _pravoStripListPrefix(hint) || _pravoLastRaw(id);
+    return n ? _pravoStripListPrefix(n).split('_').join(' ') : '';
+}
+
+// ── Серверный /id ──
+var _PRAVO_ID_LINE_RE = /^\s*(?:\[\d{1,2}:\d{2}(?::\d{2})?\]\s*)?(?:\d+\s*[.)]\s*)?(.*?),\s*ID:\s*(\d+),\s*уровень:/;   // «[время] N. Ник, ID: …» → группа 1 = Ник
+var _pravoIdq = null;                          // идущая проверка: { id, want, cb, timer, sentAt, byNick }
+var _pravoIdOk = { id: null, name: '', at: 0 };   // последняя подтверждённая серверная пара ник↔ID
+var _pravoIdWhy = '';                          // почему последний поиск не удался: none | timeout | flood | busy
+var _pravoLastResolve = null;
+function _pravoSrvWhy() {
+    return _pravoIdWhy === 'none' ? 'игрока с таким ником нет (маска/фейк-ник?)' : _pravoIdWhy === 'timeout' ? 'сервер не ответил на /id' : _pravoIdWhy === 'flood' ? 'антифлуд сервера, повторите' : _pravoIdWhy === 'busy' ? 'предыдущая проверка ещё идёт' : 'не удалось определить ID';
+}
+function _pravoWhenFloodFree(n, fn) {          // ждём, пока антифлуд пропустит n команд подряд
+    (function go() {
+        var w = _pravoFloodWait(n);
+        if (w > 0) { setTimeout(go, w + 5); return; }
+        fn();
+    })();
+}
+function _pravoIdCheckFinish(res) {
+    var q = _pravoIdq; if (!q) return;
+    clearTimeout(q.timer); _pravoIdq = null;
+    _pravoTr('ID/ПРОВЕРКА', q.byNick ? 'поиск по нику' : 'ID ' + q.id, 'ждали ник: ' + (q.want || '—'),
+        'итог: ' + (res.ok === true ? 'СОВПАЛО' : res.ok === false ? 'ОТКАЗ ' + res.reason : 'нет ответа ' + res.reason),
+        res.name ? 'сервер назвал: ' + res.name : '', 'за ' + (q.sentAt ? Date.now() - q.sentAt : 0) + 'мс');
+    try { q.cb(res); } catch (e) { console.warn('[PRAVO][LIC] idCheck cb:', e); }
+}
+// cb({ok:true,name} | {ok:false,reason:'mismatch'|'none'|'busy',name?} | {ok:null,reason:'timeout'|'flood'})
+function _pravoVerifyTarget(id, nick, cb) {
+    if (window.PRAVO_ID_CHECK === false) return cb({ ok: true, skipped: true, name: '' });
+    id = String(id).trim();
+    var want = nick ? _pravoNormNick(nick) : '';
+    var ttl = Number(window.PRAVO_ID_CHECK_TTL) || 0;
+    if (_pravoIdOk.id === id && Date.now() - _pravoIdOk.at < ttl && (!want || _pravoSameNick(_pravoIdOk.name, want))) {
+        _pravoTr('ID/ПРОВЕРКА', 'ID ' + id, 'уже подтверждён сервером ' + (Date.now() - _pravoIdOk.at) + 'мс назад', _pravoIdOk.name);
+        return cb({ ok: true, cached: true, name: _pravoIdOk.name });
+    }
+    if (_pravoIdq) return cb({ ok: false, reason: 'busy' });   // предыдущая проверка ещё идёт (двойной тап)
+    _pravoIdq = { id: id, want: want, cb: cb, timer: null, sentAt: 0 };
+    var q = _pravoIdq;
+    _pravoWhenFloodFree(2, function () {           // /id + следующая команда не должны упереться в «Не флудите»
+        if (_pravoIdq !== q) return;
+        q.sentAt = Date.now();
+        q.timer = setTimeout(function () { if (_pravoIdq === q) _pravoIdCheckFinish({ ok: null, reason: 'timeout' }); }, Number(window.PRAVO_ID_CHECK_MS) || 2500);
+        _pravoSendCmd('/id ' + id);
+    });
+}
+// cb({ok:true,id,name} | {ok:false,reason:'none'|'busy'} | {ok:null,reason:'timeout'|'flood'})
+function _pravoLookupIdByNick(nick, cb) {
+    var want = _pravoNormNick(nick || '');
+    if (!want) return cb({ ok: false, reason: 'none' });
+    var ttl = Number(window.PRAVO_ID_CHECK_TTL) || 0;
+    if (_pravoIdOk.id !== null && Date.now() - _pravoIdOk.at < ttl && _pravoSameNick(_pravoIdOk.name, want)) {   // сервер только что сам назвал эту пару
+        _pravoTr('ID/ПОИСК', _pravoNickInfo(nick), 'из подтверждения сервера ' + (Date.now() - _pravoIdOk.at) + 'мс назад', 'ID ' + _pravoIdOk.id);
+        return cb({ ok: true, id: _pravoIdOk.id, name: _pravoIdOk.name, cached: true });
+    }
+    if (_pravoIdq) return cb({ ok: false, reason: 'busy' });
+    _pravoIdq = { id: null, byNick: true, want: want, cb: cb, timer: null, sentAt: 0 };
+    var q = _pravoIdq;
+    _pravoWhenFloodFree(2, function () {
+        if (_pravoIdq !== q) return;
+        q.sentAt = Date.now();
+        q.timer = setTimeout(function () { if (_pravoIdq === q) _pravoIdCheckFinish({ ok: null, reason: 'timeout' }); }, Number(window.PRAVO_ID_CHECK_MS) || 2500);
+        _pravoSendCmd('/id ' + _pravoStripListPrefix(nick).split(' ').join('_'));
+    });
+}
+// cb(id|null) — id строкой; при неудаче причина в _pravoSrvWhy()
+function _pravoResolveId(nick, cb) {
+    _pravoIdWhy = '';
+    _pravoLookupIdByNick(nick, function (res) {
+        var id = null;
+        if (res.ok === true && res.id !== undefined && res.id !== null) {
+            id = String(res.id);
+            _pravoLastResolve = { nick: nick, id: id, how: 'сервер /id (' + (res.name || '') + ')', at: Date.now() };
+            console.log('[PRAVO] ID цели:', nick, '→', id, '| сервер /id');
+            _pravoTr('ID/НАЙДЕН', _pravoNickInfo(nick), '→ ID ' + id);
+        } else {
+            _pravoIdWhy = res.reason || 'timeout';
+            _pravoTr('ID/НЕ НАЙДЕН', _pravoNickInfo(nick), 'сервер /id: ' + _pravoIdWhy);
+            _pravoLicFail = { at: new Date().toISOString(), nick: nick, why: _pravoSrvWhy(), trace: _pravoTrBuf.slice(-60) };
+        }
+        cb(id);
+    });
+}
+// Разбор строк чата: ответ сервера на нашу проверку «/id …» (вызывается из обработчика чата)
+function _pravoIdCheckOnChat(clean) {
+    var q = _pravoIdq; if (!q || !q.sentAt) return;
+    var m = _PRAVO_ID_LINE_RE.exec(clean);
+    if (q.byNick) {   // ищем ID по нику: берём строку с ТОЧНО этим ником (частичные совпадения игнорируем)
+        if (m) {
+            var nm = _pravoStripListPrefix(m[1]);
+            if (_pravoSameNick(nm, q.want)) { _pravoIdOk = { id: m[2], name: nm, at: Date.now() }; _pravoIdCheckFinish({ ok: true, id: m[2], name: nm }); }
+        } else if (clean.indexOf('Такого игрока нет') !== -1) _pravoIdCheckFinish({ ok: false, reason: 'none' });
+        else if (clean.indexOf('Не флудите') !== -1 || clean.indexOf('Пожалуйста, подождите несколько секунд') !== -1) _pravoIdCheckFinish({ ok: null, reason: 'flood' });
+        return;
+    }
+    if (m) {
+        if (m[2] !== q.id) return;                         // строка про другого игрока
+        var name = _pravoStripListPrefix(m[1]);
+        if (!q.want || _pravoSameNick(name, q.want)) { _pravoIdOk = { id: q.id, name: name, at: Date.now() }; _pravoIdCheckFinish({ ok: true, name: name }); }
+        else { _pravoIdOk = { id: null, name: '', at: 0 }; _pravoIdCheckFinish({ ok: false, reason: 'mismatch', name: name }); }
+        return;
+    }
+    if (clean.indexOf('Такого игрока нет') !== -1) { _pravoIdOk = { id: null, name: '', at: 0 }; _pravoIdCheckFinish({ ok: false, reason: 'none' }); }
+    else if (clean.indexOf('Не флудите') !== -1 || clean.indexOf('Пожалуйста, подождите несколько секунд') !== -1) _pravoIdCheckFinish({ ok: null, reason: 'flood' });
+}
+// true — можно слать /givelic. Иначе уже показано уведомление.
+function _pravoIdGuardPass(res, id, nick) {
+    if (res.ok === true) return true;
+    var who = nick ? _pravoStripListPrefix(nick).split('_').join(' ') : '';
+    if (res.ok === false) {
+        if (res.reason === 'busy') return false;
+        if (res.reason === 'none') gtAdd('~r~ID ' + id + '~n~~w~Игрока с таким ID нет — выдача отменена', 4500, 3);
+        else gtAdd('~r~Не тот игрок~n~~w~ID ' + id + ' сейчас у ' + _pravoStripListPrefix(res.name).split('_').join(' ') + (who ? ', а нужен ' + who : '') + ' — выдача отменена', 6000, 3);
+        return false;
+    }
+    if (window.PRAVO_ID_CHECK_STRICT) { gtAdd('~r~Проверка /id~n~~w~Сервер не ответил — выдача отменена', 4000, 3); return false; }
+    gtAdd('~y~Проверка /id~n~~w~Сервер не ответил — выдаю без проверки', 2500, 3);
+    return true;
+}
+function _pravoHassleRefresh(tid, ms) {
+    setTimeout(function () { try { _pravoUpdateHassleInteraction(tid); } catch (e) {} }, ms || 0);
+}
+// ID введён вручную: сначала узнаём у сервера, чей он, и показываем ник в заголовке диалога выбора типа
+function _pravoShowTypeDialogChecked(id) {
+    id = String(id).trim();
+    if (!/^\d+$/.test(id)) {
+        gtAdd('~r~Выдача лицензии~n~~w~ID должен быть числом', 3000, 3);
+        setTimeout(function () { window.showGiveLicIdInputDialog(); }, 0);
+        return;
+    }
+    _pravoVerifyTarget(id, '', function (res) {
+        if (res.ok === true) return window.showGiveLicTypeDialog(id, res.name || '', true);
+        if (res.ok === false && res.reason !== 'busy') { _pravoIdGuardPass(res, id, ''); setTimeout(function () { window.showGiveLicIdInputDialog(); }, 0); return; }
+        window.showGiveLicTypeDialog(id, '', true);   // сервер не ответил — как раньше, без ника
+    });
+}
+// Выдача по индексу типа: /id-проверка → /givelic <ID> <тип> <цена>; запоминает данные для перевыдачи и авто-ответов
+function _pravoGiveByIndex(targetId, idx, nickHint) {
+    var c = _GIVE_LIC_TYPES[idx];
+    if (!c || targetId === null || targetId === undefined || targetId === '' || targetId === -1) return false;
+    var tid = String(targetId).trim();
+    nickHint = _pravoStripListPrefix(nickHint);
+    _pravoVerifyTarget(tid, nickHint, function (res) {   // сверка ник ↔ ID у сервера (/id) — только потом /givelic
+        if (!_pravoIdGuardPass(res, tid, nickHint)) { _pravoHassleRefresh(tid, 0); return; }
+        _pravoWhenFloodFree(1, function () {
+            var vn = (res.ok === true && !res.skipped && res.name) ? res.name : null;
+            var hint = nickHint || vn || '';
+            var cmd = '/givelic ' + tid + ' ' + c.type + ' ' + c.price;
+            var nk = _pravoNickDisp(tid, hint);
+            console.log('[GIVELIC] Отправка команды: ' + cmd + ' | ник: ' + (nk || '—'));
+            _pravoTr('GIVE/отправка', cmd, 'ID ' + tid, 'ник: ' + (nk || '—'), 'тип: ' + c.name, vn ? 'проверено /id' : 'без проверки');
+            _pravoSendCmd(cmd);
+            _lastGiveLicData = { targetId: tid, type: c.type, price: c.price, name: c.name, nick: nk, at: Date.now(), rawNick: null, nickFresh: false, _nw: [], hintRaw: hint || null, verifiedNick: vn };
+            window._lastGiveLicData = _lastGiveLicData;
+            _pravoRefreshLastNick();
+            _pravoHassleRefresh(tid, 350);
+        });
+    });
+    return true;
+}
+window._pravoResolveId = _pravoResolveId;
+window._pravoSrvWhy = _pravoSrvWhy;
+window._pravoVerifyTarget = _pravoVerifyTarget;
+window._pravoGiveByIndex = _pravoGiveByIndex;
+window._pravoIdCheckOnChat = _pravoIdCheckOnChat;
+// ── END ПРОВЕРКА НИК ↔ ID ЧЕРЕЗ /id ───────────────────────────────────────
 
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
@@ -951,62 +1237,6 @@ function escapeRegex(str) {
 }
 // ==================== END CHAT LOGGING HELPERS ====================
 
-// ── Поиск ника по ID из актуального списка игроков ────────────────────────
-// Возвращает строку-ник или null. Список живёт в window._mvdPlayerList и
-// обновляется движком через onUpdatePlayersList (каждые ~30с + по запросу).
-function getNickByIdFromList(id) {
-    try {
-        const list = window._mvdPlayerList;
-        if (!list) return null;
-        const strId = String(id);
-        if (list.local && String(list.local.id) === strId) return list.local.name;
-        if (Array.isArray(list.players)) {
-            const found = list.players.find(p => String(p.id) === strId);
-            return found ? found.name : null;
-        }
-        return null;
-    } catch (e) { return null; }
-}
-
-// ── Поиск ID по нику из актуального списка игроков ────────────────────────
-// Возвращает числовой/строковый ID или null. Используется там, где раньше
-// отправлялась команда /id <ник> ради получения ID через ответ чата.
-function getIdByNickFromList(nick) {
-    try {
-        const list = window._mvdPlayerList;
-        if (!list || !nick) return null;
-        if (list.local && list.local.name === nick) return list.local.id;
-        if (Array.isArray(list.players)) {
-            const found = list.players.find(p => p.name === nick);
-            return found ? found.id : null;
-        }
-        return null;
-    } catch (e) { return null; }
-}
-
-// ── Полная информация об игроке по ID из списка ────────────────────────────
-// Возвращает { nick, level, device } где device = 'Radmir' (ПК) или 'Hassle' (телефон).
-// Все поля null если игрок не найден в списке.
-function getPlayerInfoFromList(id) {
-    try {
-        const list = window._mvdPlayerList;
-        if (!list) return { nick: null, level: null, device: null };
-        const strId = String(id);
-        let player = null;
-        if (list.local && String(list.local.id) === strId) {
-            player = list.local;
-        } else if (Array.isArray(list.players)) {
-            player = list.players.find(p => String(p.id) === strId) || null;
-        }
-        if (!player) return { nick: null, level: null, device: null };
-        return {
-            nick:   player.name   || null,
-            level:  player.level  != null ? player.level : null,
-            device: player.mobile ? 'Hassle' : 'Radmir'
-        };
-    } catch (e) { return { nick: null, level: null, device: null }; }
-}
-
 // ── Hassle: показать/обновить постоянный Interaction вместо хоткея ───────────
 // Вызывается при загрузке профиля, открытии подменю, после выдачи/перевыдачи.
 // targetId == -1 допустим — кнопка «Выдать лицензию» не привязана к конкретному игроку.
@@ -1048,7 +1278,7 @@ function _pravoUpdateHassleInteraction(targetId) {
 
     // Авто-перевыдача — показываем только если есть сохранённая цель
     if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
-        var _rNickRaw = getNickByIdFromList(_lastGiveLicData.targetId);
+        var _rNickRaw = _pravoLastNickRaw();
         var _rDisplay = _rNickRaw
             ? _rNickRaw.split('_').join(' ')
             : _lastGiveLicData.name;
@@ -1121,7 +1351,7 @@ function _pravoGetOwnItems() {
     items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
     // Авто-перевыдача — показываем только если есть сохранённая цель
     if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
-        var _rNickRaw = getNickByIdFromList(_lastGiveLicData.targetId);
+        var _rNickRaw = _pravoLastNickRaw();
         var _rDisplay = _rNickRaw
             ? _rNickRaw.split('_').join(' ')
             : _lastGiveLicData.name;
@@ -1290,27 +1520,12 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
     var pending = false, bypass = false, pendTimer = null;
 
-    function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
-
     function parseNick(params) {
         try {
             var p = (typeof params === 'string') ? JSON.parse(params.replace(/\n/, '\\n')) : params;
             var raw = Array.isArray(p) ? p[0] : null;
             return (typeof raw === 'string') ? raw.trim().split(' ').join('_') : '';
         } catch (e) { return ''; }
-    }
-
-    function findId(nick) {
-        try {
-            var list = window._mvdPlayerList, n = norm(nick);
-            if (!list || !nick) return null;
-            if (list.local && norm(list.local.name) === n) return list.local.id;
-            if (Array.isArray(list.players)) {
-                var f = list.players.find(function (p) { return norm(p.name) === n; });
-                return f ? f.id : null;
-            }
-        } catch (e) {}
-        return null;
     }
 
     function notify(text) {
@@ -1334,16 +1549,8 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         } catch (e) {}
     }
 
-    function resolveId(nick, tries, cb) {
-        var id = findId(nick);
-        if (id !== null) return cb(id);
-        if (tries >= 4) return cb(null);
-        // список игроков обновляется редко — просим движок обновить
-        if (tries === 0 && typeof window.updatePlayerList === 'function') {
-            try { window.updatePlayerList(); } catch (e) {}
-        }
-        setTimeout(function () { resolveId(nick, tries + 1, cb); }, 250);
-    }
+    // ID цели — у сервера («/id <ник>»), список игроков не используется
+    function resolveId(nick, tries, cb) { window._pravoResolveId(nick, cb); }
 
     function done() {
         pending = false;
@@ -1366,7 +1573,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             if (!pending) return;
             if (id === null) {
                 showNormal(params);
-                notify('~r~Круговое меню~n~~w~Не удалось определить ID игрока');
+                notify('~y~Круговое меню~n~~w~/id: ' + window._pravoSrvWhy() + ' — откроется обычное меню');
                 return;
             }
             done();
@@ -1374,7 +1581,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             console.log('[PRAVO] 🪪 Круговое меню: выдача лицензии → "' + nick + '" | ID: ' + id);
             tellServerClosed();
             setTimeout(function () {
-                if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id);
+                if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id, nick);
             }, 80);
         });
     }
@@ -1409,24 +1616,11 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 //
 // Как это работает: сервер (MenuInteraction / OnEntitySelected) кладёт ник цели
 // в params[0] при openInterface('PlayerInteraction', ...) — именно его интерфейс
-// показывает как «Взаимодействие с Имя Фамилия». ID в params нет, поэтому ищем его
-// по нику в window._mvdPlayerList (его уже заполняет onUpdatePlayersList).
+// показывает как «Взаимодействие с Имя Фамилия». ID в params нет — он узнаётся у сервера
+// командой «/id <ник>» (_pravoResolveId) в момент выдачи лицензии.
 (function _pravoInteractionTargetLog() {
     if (window.__pravoIntTargetLog) return;
     window.__pravoIntTargetLog = true;
-
-    function findId(nick) {
-        try {
-            var list = window._mvdPlayerList;
-            if (!list || !nick) return null;
-            if (list.local && list.local.name === nick) return list.local.id;
-            if (Array.isArray(list.players)) {
-                var f = list.players.find(function (p) { return p.name === nick; });
-                return f ? f.id : null;
-            }
-        } catch (e) {}
-        return null;
-    }
 
     function parseParams(params) {
         try {
@@ -1440,24 +1634,12 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         var raw = p && p[0];
         if (typeof raw !== 'string' || !raw) return;
 
-        // сервер шлёт «Ivan_Petrov»; на случай пробелов пробуем оба варианта
+        // сервер шлёт «Ivan_Petrov»
         var nick = raw.trim();
-        var nickAlt = nick.split(' ').join('_');
 
-        function report(idSuffix) {
-            var id = findId(nick);
-            if (id === null) id = findId(nickAlt);
-            window._pravoLastInteractionTarget = { nick: nick, id: id, src: src, time: Date.now() };
-            console.log('[PRAVO] 🎯 PlayerInteraction (' + src + '): цель "' + nick + '" | ID: '
-                + (id !== null ? id : 'не найден в списке игроков') + (idSuffix || ''));
-            return id;
-        }
-
-        if (report() === null && typeof window.updatePlayerList === 'function') {
-            // список игроков обновляется раз в ~30с — просим движок обновить и пробуем ещё раз
-            try { window.updatePlayerList(); } catch (e) {}
-            setTimeout(function () { report(' (после обновления списка)'); }, 700);
-        }
+        // ID по списку игроков больше не определяем — он узнаётся у сервера через /id в момент выдачи лицензии
+        window._pravoLastInteractionTarget = { nick: nick, id: null, src: src, time: Date.now() };
+        console.log('[PRAVO] 🎯 PlayerInteraction (' + src + '): цель "' + nick + '" | ID определится через /id при выдаче');
     }
 
     // openInterface('PlayerInteraction', params)
@@ -1499,7 +1681,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // Как работает: комбинация шлёт на сервер то же событие, что и клавиша R
 // (MenuInt_OnPlayerKey) — сервер определяет цель, на которую ты навёл ПКМ, и
 // открывает PlayerInteraction. Блок ловит это открытие (openInterface), достаёт ник
-// из params[0], находит ID в window._mvdPlayerList, прячет и закрывает радиальное
+// из params[0], узнаёт ID у сервера («/id <ник>»), прячет и закрывает радиальное
 // меню и открывает showGiveLicTypeDialog(ID).
 // Работает только у Лицензёра (как и GIVELIC_KEY) и только в правительственном скине.
 // Обычный ПКМ + R не затронут. С версии «Круговое меню» ОТКЛЮЧЕНО по умолчанию;
@@ -1526,21 +1708,6 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
     function notify(text) {
         try { if (typeof gtAdd === 'function') gtAdd(text, 3000, 3); } catch (e) {}
-    }
-
-    function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
-
-    function findId(nick) {
-        try {
-            var list = window._mvdPlayerList, n = norm(nick);
-            if (!list || !nick) return null;
-            if (list.local && norm(list.local.name) === n) return list.local.id;
-            if (Array.isArray(list.players)) {
-                var f = list.players.find(function (p) { return norm(p.name) === n; });
-                return f ? f.id : null;
-            }
-        } catch (e) {}
-        return null;
     }
 
     // Прячем радиальное меню на время «невидимого» открытия, чтобы оно не мигало
@@ -1617,16 +1784,8 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'MenuInt_OnPlayerKey'); // как клавиша R
     }
 
-    function resolveId(nick, tries, cb) {
-        var id = findId(nick);
-        if (id !== null) return cb(id);
-        if (tries >= 4) return cb(null);
-        // список игроков обновляется редко — просим движок обновить
-        if (tries === 0 && typeof window.updatePlayerList === 'function') {
-            try { window.updatePlayerList(); } catch (e) {}
-        }
-        setTimeout(function () { resolveId(nick, tries + 1, cb); }, 250);
-    }
+    // ID цели — у сервера («/id <ник>»), список игроков не используется
+    function resolveId(nick, tries, cb) { window._pravoResolveId(nick, cb); }
 
     function onInteractionOpened(params) {
         if (armTimer) { clearTimeout(armTimer); armTimer = null; }
@@ -1640,7 +1799,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         function fail() {
             restoreMenu(); // не смогли определить цель — показываем обычное меню
             console.warn('[PRAVO] ⚠ Быстрая выдача: не удалось определить ID. params =', params);
-            notify('~r~Выдача лицензии~n~~w~Не удалось определить ID цели');
+            notify('~r~Выдача лицензии~n~~w~' + (nick ? '/id: ' + window._pravoSrvWhy() : 'Не удалось определить ID цели'));
         }
         if (!nick) return fail();
 
@@ -1653,7 +1812,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             closeInteraction();
             disarm();
             setTimeout(function () {
-                if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id);
+                if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id, nick);
             }, 80);
         });
     }
@@ -1734,7 +1893,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // Если нативный способ не удался (нет нужных методов у компонента / нет свободного сектора), включается
 // запасная кнопка-DOM поверх круга (нажатие открывает старый диалог выбора лицензии).
 //
-// Ник цели — params[0] при openInterface/updateParams('PlayerInteraction'), ID — из window._mvdPlayerList.
+// Ник цели — params[0] при openInterface/updateParams('PlayerInteraction'), ID — у сервера через «/id <ник>».
 // Условия показа: window._pravoCircleAllowed (Лицензёр в правительственном скине; на мобилке ещё помощник)
 //   + на ПК и на мобилке обязательно включённая в установщике «Быстрая выдача лицензии»
 //   (задан хоткей GIVELIC_KEY или включён LICENSOR_HELPER_ENABLED) — иначе пункта в круге нет.
@@ -1770,8 +1929,6 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     var SVG_NS = 'http://www.w3.org/2000/svg';
     var lastNick = '', busy = false, capBox = null, warned = false;
     var labelsOn = false;   // labelsOn — мы сами включили ники (setDrawLabelStatus(true))
-
-    function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
 
 
     function notify(text) {
@@ -1847,19 +2004,6 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         return { clean: clean, nickFromParams: nickFromParams, read: read, event: event, last: function () { return ev; } };
     })();
 
-    function findId(nick) {
-        try {
-            var list = window._mvdPlayerList, n = norm(nick);
-            if (!list || !nick) return null;
-            if (list.local && norm(list.local.name) === n) return list.local.id;
-            if (Array.isArray(list.players)) {
-                var f = list.players.find(function (p) { return norm(p.name) === n; });
-                return f ? f.id : null;
-            }
-        } catch (e) {}
-        return null;
-    }
-
     function dbg() {
         if (!window.PRAVO_MOBLIC_DEBUG) return;
         try { console.log.apply(console, ['[PRAVO][MOBLIC]'].concat([].slice.call(arguments))); } catch (e) {}
@@ -1910,11 +2054,11 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     // Определяем ID цели по нику; список игроков обновляется редко — просим движок обновить и ждём до ~1с
 
     // Выдача по индексу типа лицензии (Права / Проф. права / …); запасной путь — старый диалог
-    function giveLicense(id, idx) {
+    function giveLicense(id, idx, nick) {
         try {
-            if (typeof window.pravoGiveLicenseByIndex === 'function' && window.pravoGiveLicenseByIndex(id, idx)) return;
+            if (typeof window.pravoGiveLicenseByIndex === 'function' && window.pravoGiveLicenseByIndex(id, idx, nick)) return;
         } catch (er) { console.warn('[PRAVO] выдача лицензии из круга:', er); }
-        if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id);
+        if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id, nick);
     }
 
     // ══════════════ НАТИВНЫЙ РЕЖИМ: пункт внутри vm.menu ══════════════
@@ -2106,9 +2250,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         var typeIdx = (typeof o._pravoLicIdx === 'number') ? o._pravoLicIdx : i;
         busy = true;
         try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
-        withTargetId(function (id) {
+        withTargetId(function (id, nick) {
             closeMenu();
-            setTimeout(function () { busy = false; giveLicense(id, typeIdx); }, 80);
+            setTimeout(function () { busy = false; giveLicense(id, typeIdx, nick); }, 80);
         });
     }
 
@@ -2328,11 +2472,11 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         return best;
     }
 
-    function openDialog(id) {
+    function openDialog(id, nick) {
         closeMenu();
         setTimeout(function () {
             busy = false;
-            if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id);
+            if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id, nick);
         }, 80);
     }
     function onClick(e) {
@@ -2563,35 +2707,18 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         } catch (er) { dbg('ОШИБКА в tick:', er); }
     }
 
-    // ID цели по нику — ник перечитываем с экрана в момент нажатия; список игроков обновляется редко —
-    // просим движок обновить и ждём до ~1с
+    // ID цели — ник перечитываем с экрана в момент нажатия, ID узнаём у сервера («/id <ник>»)
     function withTargetId(cb) {
         var vm = getVm();
         var t = vm ? Target.read(vm, S) : { nick: '', src: 'нет компонента' };
         var nick = t.nick || S.nick || '';
         dbg('withTargetId: на экране=' + JSON.stringify(t.nick) + ' (' + t.src + ') | S.nick=' + JSON.stringify(S.nick) + ' | режим=' + (S.mode || '—'));
         if (!nick) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
-        var id = findId(nick);
-        if (id !== null) return cb(id);
-        try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (er) {}
-        var tries = 0;
-        var timer = setInterval(function () {
-            if (!isOpen()) { clearInterval(timer); busy = false; return; }
-            var v2 = getVm(), t2 = v2 ? Target.read(v2, S) : null;
-            if (t2 && t2.nick && t2.nick !== nick) {
-                clearInterval(timer); busy = false;
-                dbg('ЦЕЛЬ СМЕНИЛАСЬ', nick + ' → ' + t2.nick, 'пока искали ID');
-                notify('~r~Выдача лицензии~n~~w~Цель изменилась, повторите');
-                return;
-            }
-            var f = findId(nick);
-            if (f !== null) { clearInterval(timer); return cb(f); }
-            if (++tries >= 4) {
-                clearInterval(timer);
-                busy = false;
-                notify('~r~Выдача лицензии~n~~w~Не удалось определить ID игрока');
-            }
-        }, 250);
+        window._pravoResolveId(nick, function (id) {
+            if (!isOpen()) { busy = false; dbg('меню закрыли, пока искали ID'); return; }
+            if (id === null) { busy = false; notify('~r~Выдача лицензии~n~~w~/id: ' + window._pravoSrvWhy()); return; }
+            cb(id, nick);
+        });
     }
 
     // события открытия/обновления только «подталкивают» движок — решает он сам по состоянию компонента
@@ -3326,9 +3453,26 @@ const setupChatHandler = () => {
                 // SMS: «Подождите несколько секунд...» (с большой П, без «Пожалуйста,») = часть не ушла; эхо «SMS: ... | Получатель: ...» = ушла
                 if (message.includes('Подождите несколько секунд')) { try { _pravoSmsOnWait(); } catch (_) {} }
                 else if (message.indexOf('SMS:') !== -1 && message.indexOf('Получатель:') !== -1) { try { _pravoSmsOnAck(); } catch (_) {} }
+                // Ответ сервера на нашу проверку «/id …» (ник ↔ ID) — порт из Code3
+                const _idClean = message.replace(/\{[0-9a-fA-F]{6}\}/g, '');
+                const _idPending = !!(_pravoIdq && _pravoIdq.sentAt);
+                try { _pravoIdCheckOnChat(_idClean); } catch (_ic) { console.warn('[PRAVO][LIC] idCheck:', _ic); }
+                // Подсказки по последней выдаче
+                if (_lastGiveLicData && _lastGiveLicData.at && Date.now() - _lastGiveLicData.at < 20000 && _isLicensorRank()) {
+                    // Меню игрока открывается с 8 м, а /givelic требует не дальше 6 м
+                    if (_idClean.indexOf('Игрок находится слишком далеко') !== -1 && !(window._pravoFarHintAt && Date.now() - window._pravoFarHintAt < 3000)) {
+                        window._pravoFarHintAt = Date.now();
+                        gtAdd('~y~Игрок далеко~n~~w~ID ' + _lastGiveLicData.targetId + (_lastGiveLicData.nick ? ' (' + _lastGiveLicData.nick + ')' : '') + ' · /givelic работает до 6 м, меню открывается с 8 м. Если рядом — проверьте ID', 4500, 3);
+                    }
+                    // /givelic не принят: у нас ещё висит предыдущее предложение — его надо отозвать (/cancel)
+                    if (_idClean.indexOf('чтобы отозвать предыдущее предложение') !== -1 && !(window._pravoBusyHintAt && Date.now() - window._pravoBusyHintAt < 3000)) {
+                        window._pravoBusyHintAt = Date.now();
+                        gtAdd('~y~Запрос НЕ отправлен~n~~w~Есть активное предложение — отзовите его: /cancel', 5000, 3);
+                    }
+                }
                 if (message.includes('отказался от Вашего предложения') ||
                     message.includes('слишком далеко') ||   // сервер: "Игрок находится слишком далеко"
-                    message.includes('Такого игрока нет')) {
+                    (message.includes('Такого игрока нет') && !_idPending)) {   // ответ на наш /id — не отмена проверки документов
 
                     if (_docCheckActive) {
                         console.log('[PRAVO] 🚫 Проверка документов отменена (отказ/далеко/нет игрока)');
@@ -3347,8 +3491,8 @@ const setupChatHandler = () => {
                 if (message.includes('У человека есть неоплаченные штрафы') && _lastGiveLicData) {
                     const _fId = _lastGiveLicData.targetId;
                     setTimeout(() => {
-                        // Пытаемся взять ник из списка игроков, фолбэк — "Жетон ID"
-                        const _fNickRaw = getNickByIdFromList(_fId);
+                        // Ник цели — из ответа сервера на /id (или из меню игрока), фолбэк — "Жетон ID"
+                        const _fNickRaw = _pravoLastRaw(_fId);
                         const _fAddr   = _fNickRaw
                             ? _fNickRaw.split('_').join(' ')   // Ivan_Petrov → Ivan Petrov
                             : `Жетон ${_fId}`;
@@ -3402,7 +3546,7 @@ const setupChatHandler = () => {
                     const _bHoursMatch = _bClean.match(/Осталось\s+(\d+)\s+час/i);
                     const _bHours = _bHoursMatch ? _bHoursMatch[1] : null;
                     setTimeout(() => {
-                        const _bNickRaw = getNickByIdFromList(_bId);
+                        const _bNickRaw = _pravoLastRaw(_bId);
                         const _bAddr = _bNickRaw
                             ? _bNickRaw.split('_').join(' ')
                             : `Жетон ${_bId}`;
@@ -3423,7 +3567,7 @@ const setupChatHandler = () => {
                     const _ld = _lastGiveLicData;
                     const _noMoney = message.includes('У покупателя недостаточно денег');
                     setTimeout(() => {
-                        const _nickRaw = getNickByIdFromList(_ld.targetId);
+                        const _nickRaw = _pravoLastRaw(_ld.targetId);
                         const _addr = _nickRaw ? _nickRaw.split('_').join(' ') : `Жетон ${_ld.targetId}`;
                         const _priceStr = Number(_ld.price).toLocaleString('ru-RU').replace(/\s/g, ' ');
                         const _LIC_PHRASE = {
@@ -4195,6 +4339,26 @@ window.showMvdSubMenu = (e) => {
 
     // ── Переключение на 123 + восстановление ников после mount клавиатуры ────
     // Три уровня: interface() → Vue internal → DOM-клик по кнопке "123"
+    // Клавиатура у чата и у диалога ОДНА. Раньше _pravoKbDialogId залипал, если диалог ID закрыли (Отмена/ESC/игра закрыла) —
+    // и следующая отправка чата/команды уходила как «ответ диалога 678»: открывалась выдача лицензии с этим текстом.
+    // Теперь ввод считается ответом диалога, только если наш диалог ID РЕАЛЬНО открыт (.input-window, поле ввода внутри него).
+    window._pravoDlgInputVisible = function() {
+        try {
+            var ci = window.currentKeyboardInput;
+            if (ci && typeof ci.closest === 'function') return !!ci.closest('.input-window');
+            return !!document.querySelector('.input-window');
+        } catch (e) { return false; }
+    };
+    window._pravoKbDialogLive = function() { return !!window._pravoKbDialogId && window._pravoDlgInputVisible(); };
+    window._pravoKbDialogDrop = function(why) {
+        if (window._pravoKbDialogId) console.log('[PRAVO-KB] сброс диалога ID: ' + why);
+        window._pravoKbDialogId = null;
+    };
+    setInterval(function() {   // диалог ID не появился за 3 с или уже закрыт (ESC/игра) — сбросить, чтобы не перехватить чат
+        if (window._pravoKbDialogId && Date.now() - (window._pravoKbDialogAt || 0) > 3000 && !window._pravoDlgInputVisible()) {
+            window._pravoKbDialogDrop('диалога ID нет на экране');
+        }
+    }, 500);
     window._pravoScheduleKeyboardNumeric = function() {
         window._pravoIsOurKeyboard = true;
         var _a = 0;
@@ -4282,6 +4446,7 @@ window.showMvdSubMenu = (e) => {
                                              ? String(this.text)
                                              : ((window.currentKeyboardInput && window.currentKeyboardInput.value) || '');
                                 var _sid = window._pravoKbDialogId || null;
+                                if (_sid && !window._pravoKbDialogLive()) { window._pravoKbDialogDrop('отправка при закрытом диалоге — обычный ввод (чат/команда)'); _sid = null; }
 
                                 // Сбрасываем ДО _orig.apply() — Enter-fallback (ниже) увидит null и не задублирует
                                 if (_sid) window._pravoKbDialogId = null;
@@ -4333,6 +4498,7 @@ window.showMvdSubMenu = (e) => {
         if ((e.key !== 'Enter' && e.keyCode !== 13) || e.isTrusted) return;
         var sid = window._pravoKbDialogId;
         if (!sid) return;
+        if (!window._pravoKbDialogLive()) { window._pravoKbDialogDrop('Enter при закрытом диалоге — обычный ввод'); return; }
         window._pravoKbDialogId = null;
         var sv = (window.currentKeyboardInput && window.currentKeyboardInput.value) || '';
         if (sv.trim() !== '') {
@@ -4350,6 +4516,7 @@ window.showMvdSubMenu = (e) => {
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
     window._pravoKbDialogId = 668; // FIX: авто-подтверждение через клавиатуру
+    window._pravoKbDialogAt = Date.now();
     window._pravoScheduleKeyboardNumeric && window._pravoScheduleKeyboardNumeric();
     window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
 };
@@ -4367,40 +4534,27 @@ const _GIVE_LIC_TYPES = [
 // Диалог 678 — ввод ID игрока для /givelic
 window.showGiveLicIdInputDialog = () => {
     window._pravoKbDialogId = 678; // FIX: авто-подтверждение через клавиатуру
+    window._pravoKbDialogAt = Date.now();
     window._pravoScheduleKeyboardNumeric && window._pravoScheduleKeyboardNumeric();
     window.addDialogInQueue(`[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]`, "", 0);
 };
 
 // Диалог 679 — выбор типа лицензии после ввода ID
-window.showGiveLicTypeDialog = (id) => {
+window.showGiveLicTypeDialog = (id, nickHint) => {
     _giveLicTargetId = id;
+    _giveLicNick = _pravoStripListPrefix(nickHint);
+    const _nk = _pravoNickDisp(id, _giveLicNick);
     let list = 'Выберите тип лицензии:<n>';
     _GIVE_LIC_TYPES.forEach((t, i) => {
         list += `${i + 1}. ${t.name}  [${t.price.toLocaleString('ru-RU')} ₽]<n>`;
     });
-    window.addDialogInQueue(`[679,4,"Выдача лицензии | ID: ${id}","","Выдать","Отмена",0,0]`, list, 0);
+    window.addDialogInQueue(`[679,4,"Выдача лицензии | ID: ${id}${_nk ? ' | ' + _nk : ''}","","Выдать","Отмена",0,0]`, list, 0);
 };
 // Прямая выдача по индексу типа лицензии — для выбора в кольце PlayerInteraction (без диалога 679).
 // Делает то же, что ветка диалога 679: шлёт /givelic, запоминает данные для авто-перевыдачи, обновляет Interaction.
-window.pravoGiveLicenseByIndex = (targetId, idx) => {
-    const chosen = _GIVE_LIC_TYPES[idx];
-    if (!chosen || targetId === null || targetId === undefined || targetId === '') return false;
-    const cmd = `/givelic ${targetId} ${chosen.type} ${chosen.price}`;
-    console.log(`[GIVELIC] (круг) Отправка команды: ${cmd}`);
-    if (typeof __mvdPrevSendChatInput === "function") {
-        __mvdPrevSendChatInput(cmd);
-    } else {
-        engine.trigger("SendChatInput", cmd);
-    }
-    _lastGiveLicData = {
-        targetId: targetId,
-        type:     chosen.type,
-        price:    chosen.price,
-        name:     chosen.name
-    };
-    window._lastGiveLicData = _lastGiveLicData;
-    setTimeout(function () { _pravoUpdateHassleInteraction(targetId); }, 350);
-    return true;
+window.pravoGiveLicenseByIndex = (targetId, idx, nickHint) => {
+    // /id-проверка ник ↔ ID → /givelic → запоминание данных для авто-перевыдачи и авто-ответов (см. _pravoGiveByIndex)
+    return _pravoGiveByIndex(targetId, idx, nickHint);
 };
 // ==================== END /givelic ====================
 window.sendClientEventCustom = (event, ...args) => {
@@ -4460,6 +4614,7 @@ window.sendClientEventCustom = (event, ...args) => {
             }
         }
         else if (args[1] === 668) { // Диалог ввода ID
+            window._pravoKbDialogId = null; // диалог закрыт (любой кнопкой) — клавиатура больше не «его»
             const inputId = args[4];
             // Читаем action из currentAction (биндинги) или _mvdMenuPendingAction (fallback)
             const resolvedAction = currentAction || window._mvdMenuPendingAction || null;
@@ -4484,13 +4639,16 @@ window.sendClientEventCustom = (event, ...args) => {
             // Бинд на конкретную лицензию (lic_<тип>) оставляет здесь выбранный тип (актуален 60 с)
             const _pend = window._pravoPendingLic;
             window._pravoPendingLic = null;
+            window._pravoKbDialogId = null; // диалог закрыт (любой кнопкой) — клавиатура больше не «его»
             if (args[2] === 1) {
-                const inputId = (args[4] || '').trim();
+                const inputId = String(args[4] || '').trim();
                 if (inputId) {
                     if (_pend && (Date.now() - _pend.ts) < 60000) {
+                        // выдача по бинду lic_<тип>: сверка ID у сервера делается внутри
                         setTimeout(() => window.pravoGiveLicenseByIndex(inputId, _pend.idx), 50);
                     } else {
-                        setTimeout(() => window.showGiveLicTypeDialog(inputId), 50);
+                        // ID введён вручную: спрашиваем у сервера, чей он, и показываем ник в заголовке выбора типа
+                        setTimeout(() => _pravoShowTypeDialogChecked(inputId), 50);
                     }
                 }
             } else {
@@ -4506,32 +4664,12 @@ window.sendClientEventCustom = (event, ...args) => {
             if (args[2] === 1) {
                 const idx = parseInt(args[3]);
                 if (idx >= 0 && idx < _GIVE_LIC_TYPES.length) {
-                    const chosen = _GIVE_LIC_TYPES[idx];
-                    const cmd = `/givelic ${_giveLicTargetId} ${chosen.type} ${chosen.price}`;
-                    console.log(`[GIVELIC] Отправка команды: ${cmd}`);
-                    // Отправляем напрямую на сервер, минуя наш перехватчик
-                    if (typeof __mvdPrevSendChatInput === "function") {
-                        __mvdPrevSendChatInput(cmd);
-                    } else {
-                        engine.trigger("SendChatInput", cmd);
-                    }
-                    // ── Сохраняем данные для Авто-перевыдачи ──────────────────────────────
-                    _lastGiveLicData = {
-                        targetId: _giveLicTargetId,
-                        type:     chosen.type,
-                        price:    chosen.price,
-                        name:     chosen.name
-                    };
-                    window._lastGiveLicData = _lastGiveLicData;
-                    console.log(`[GIVELIC] Данные сохранены для авто-перевыдачи: ${chosen.name} → ID: ${_giveLicTargetId}`);
-                    // ── Hassle: проверяем устройство цели и показываем Interaction ──────────
-                    // Захватываем _giveLicTargetId ДО его сброса в -1 ниже.
-                    (function(_savedTid) {
-                        setTimeout(function() { _pravoUpdateHassleInteraction(_savedTid); }, 350);
-                    })(_giveLicTargetId);
+                    // /id-проверка → /givelic → данные для авто-перевыдачи (аргументы берутся по значению — сброс ниже не мешает)
+                    _pravoGiveByIndex(_giveLicTargetId, idx, _giveLicNick);
                 }
             }
             _giveLicTargetId = -1; // сброс после выбора или отмены
+            _giveLicNick = '';
         }
     } else {
         window.sendClientEventHandle(event, ...args);
