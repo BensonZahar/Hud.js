@@ -3284,7 +3284,7 @@ function sendAdminSpamAlert(adminMsg) {
     _adminSpamCancel = false;
 
     const TOTAL_PINGS = 4;    // было 9 — меньше спама в чате, меньше API-вызовов
-    const INTERVAL_MS = 1200; // было 2000 — пинги чаще, но их меньше
+    const INTERVAL_MS = 1500; // FIX: ≥1 сообщения/сек на чат нельзя (лимит Telegram) — 1500 мс укладывается без 429
     const replyMarkup = getNotificationReplyMarkup();
 
     config.chatIds.forEach(chatId => {
@@ -3292,8 +3292,9 @@ function sendAdminSpamAlert(adminMsg) {
         let mainMessageId = null; // стабильное сообщение с кнопками — стоит на месте
 
         function buildMainText() {
+            // FIX: счётчик пингов убран из карточки — карточка больше не редактируется,
+            // иначе клавиатура перерисовывалась под пальцем и откатывала открытое подменю
             return `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
-                   `⚠️ Пинг ${pingCount}/${TOTAL_PINGS}\n` +
                    `<code>${adminMsg.replace(/</g, '&lt;')}</code>`;
         }
 
@@ -3339,15 +3340,8 @@ function sendAdminSpamAlert(adminMsg) {
                     else _adminSpamActive = false;
                 });
             } else {
-                // Следующие разы — редактируем счётчик (кнопки не двигаются)
-                tgApi('editMessageText', {
-                    chat_id: chatId,
-                    message_id: mainMessageId,
-                    text: buildMainText(),
-                    parse_mode: 'HTML',
-                    reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-                }, () => {}, () => {});
-
+                // FIX: карточку с кнопками больше НЕ редактируем (раньше editMessageText + reply_markup
+                // каждые 1.2 с — кнопки не нажимались, подменю откатывалось). Только отдельные пинги.
                 // Отдельный пинг со звуком — пропадёт сам
                 sendPingNotification();
 
@@ -3361,13 +3355,16 @@ function sendAdminSpamAlert(adminMsg) {
 }
 function sendToTelegram(message, silent = false, replyMarkup = null, onMessageSent = null) {
     config.chatIds.forEach(chatId => {
-        tgApi('sendMessage', {
+        // FIX: у sendMessage не было обработчика ошибок — при сбое сети/5xx сообщение (например, от админа)
+        // пропадало молча. Теперь один повтор через 2 с. 4xx (кроме 429, его ретраит tgApi) не повторяем.
+        const payload = {
             chat_id: chatId,
             text: message,
             parse_mode: 'HTML',
             disable_notification: silent,
             reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-        }, data => {
+        };
+        const onOk = data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             if (!data || !data.result) return;
             const messageId = data.result.message_id;
@@ -3375,6 +3372,16 @@ function sendToTelegram(message, silent = false, replyMarkup = null, onMessageSe
                 globalState.lastPaydayMessageIds.push({ chatId, messageId });
             }
             if (typeof onMessageSent === 'function') onMessageSent(chatId, messageId);
+        };
+        tgApi('sendMessage', payload, onOk, (status) => {
+            if (status === 'network' || (typeof status === 'number' && status >= 500)) {
+                debugLog(`[SEND] сбой отправки (${status}) — повтор через 2с`);
+                setTimeout(() => tgApi('sendMessage', payload, onOk, (s2) => {
+                    console.warn(`[SEND] сообщение не доставлено в ${chatId}: ${s2}`);
+                }), 2000);
+            } else {
+                console.warn(`[SEND] сообщение не доставлено в ${chatId}: ${status}`);
+            }
         });
     });
 }
@@ -5186,12 +5193,12 @@ function checkTelegramCommands() {
 
     // -1 = свежий старт с пустой очередью; слать Telegram offset=0 (получать всё новое)
     const effectiveOffset = config.lastUpdateId < 0 ? 0 : config.lastUpdateId + 1;
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${effectiveOffset}&timeout=25&allowed_updates=${encodeURIComponent('["message","callback_query"]')}`;
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${effectiveOffset}&timeout=10&allowed_updates=${encodeURIComponent('["message","callback_query"]')}`;
     const xhr = new XMLHttpRequest();
     _pollXhr = xhr;
     window._hassleCurrentPollXhr = xhr; // FIX: для hassleCleanupHooks
     xhr.open('GET', url, true);
-    xhr.timeout = 30000;
+    xhr.timeout = 15000; // FIX: был 30000 при timeout=25 — мёртвое соединение висело до 30 с
     xhr.onload = function() {
         if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
         if (__hassleStale()) return; // ответ пришёл уже старой копии — не обрабатываем (новая получит его сама)
@@ -5227,7 +5234,12 @@ function checkTelegramCommands() {
         } else {
             // FIX: раньше при 409/429/401/5xx опрос перезапускался с задержкой 0 мс (бесконечный цикл)
             let delay = 2000;
-            if (xhr.status === 409) delay = 3000;
+            if (xhr.status === 409) {
+                delay = 3000;
+                // FIX: 409 = два getUpdates на одном токене (второй запущенный экземпляр) — нажатия делятся между ними
+                window.__hassle409 = (window.__hassle409 || 0) + 1;
+                console.warn(`[POLL] 409 Conflict #${window.__hassle409}: этот токен опрашивает ещё кто-то (второй экземпляр/аккаунт с тем же токеном)`);
+            }
             else if (xhr.status === 401 || xhr.status === 404) {
                 delay = 60000;
                 debugLog(`[POLL] Токен отклонён (HTTP ${xhr.status}) — проверьте BOT_TOKENS в List.js. Повтор через 60с`);
@@ -5669,11 +5681,14 @@ function processUpdates(updates) {
             const isForThisBot = isGlobalCommand ||
                 (callbackUniqueId && callbackUniqueId === uniqueId) ||
                 (update.callback_query.message.text && update.callback_query.message.text.includes(displayName)) ||
+                (update.callback_query.message.caption && update.callback_query.message.caption.includes(displayName)) ||
                 (update.callback_query.message.reply_to_message &&
                 update.callback_query.message.reply_to_message.text &&
                 update.callback_query.message.reply_to_message.text.includes(displayName));
             if (!isForThisBot) {
                 debugLog(`Игнорируем callback_query, так как он не для этого бота (${displayName}): ${message}`);
+                // FIX: раньше игнор был невидим. Если кнопка «молчит» — смотри эту строку в консоли
+                console.warn(`[CB-IGNORED] ${displayName}: data="${message}" chat=${chatId} msg=${messageId} text=${JSON.stringify(String((update.callback_query.message.text || update.callback_query.message.caption || '')).slice(0, 60))}`);
                 continue;
             }
             // Отвечаем только если кнопка наша — один бот, без конкуренции
@@ -7062,9 +7077,8 @@ function initializeChatMonitor() {
                 config.lastPodbrosTime = currentTime;
             } else {
                 debugLog('Обнаружен администратор!');
-                const replyMarkup = getNotificationReplyMarkup();
-                sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-                // 9 пингов каждые 2 сек — каждый удаляет предыдущий, последний остаётся
+                // FIX: раньше здесь уходило ещё одно сообщение с теми же кнопками (дубль карточки).
+                // Теперь карточку с кнопками шлёт только sendAdminSpamAlert — один стабильный экземпляр.
                 sendAdminSpamAlert(msg);
             }
         }
