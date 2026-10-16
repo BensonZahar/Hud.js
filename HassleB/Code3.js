@@ -28,6 +28,10 @@
 // ║   • v1.21: Telegram пишет, УШЁЛ ли запрос на покупку (ответ сервера  ║
 // ║     «Вы предложили…»), а если висит прошлое предложение («Используйте ║
 // ║     /cancel…») — предупреждает и даёт кнопку «Отменить» (/cancel)    ║
+// ║   • v1.22: фикс — «Вы предложили…» не доходило до Telegram: строки   ║
+// ║     чата с префиксом-временем «[ЧЧ:ММ:СС]» не проходили по «^…»;     ║
+// ║     плюс запасной путь: главный перехват чата шлёт строки и в        ║
+// ║     Telegram-модуль (хук OnChatAddMessage там ставился один раз)     ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
@@ -45,7 +49,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.21';
+var VERSION = 'code3 v1.22';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -1800,6 +1804,7 @@ function onChat(message) {
     if (msg === _lastChat.msg && now - _lastChat.at < 150) return;
     _lastChat.msg = msg; _lastChat.at = now;
     if (!licensorReady()) return;   // не правительственный скин или не Лицензёр — ничего не делаем
+    try { if (typeof window.__code3TgEvent === 'function') window.__code3TgEvent(msg); } catch (eTg) {}   // ответы сервера на /givelic → Telegram (запасной путь)
 
     // Сервер сказал «Не флудите» — подтягиваем нашу модель антифлуда к реальному счётчику
     if (msg.indexOf('Пожалуйста, подождите несколько секунд') !== -1) floodServerSaid(true);
@@ -3313,16 +3318,23 @@ try { (function () {
         { re: /^\*?\s*Такого игрока нет/i,                                icon: '❓', title: 'Такого игрока нет', redo: false },
         { re: /^Вы выдали\s/i,                                            icon: '✅', title: 'Лицензия выдана', redo: false, silent: false }
     ];
+    // «[21:30:27] Вы предложили…» → «Вы предложили…» (время перед строкой ломало все шаблоны с «^»)
+    function stripTime(t) { return String(t).replace(/^\s*\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/, ''); }
     function handleEvent(text) {
         if (!ready()) return false;
+        text = stripTime(text);
         const ev = EVENTS.find(function (e) { return e.re.test(text); });
-        if (!ev) return false;
+        if (!ev) {
+            if (/предложил|отозвал|активных предложений/i.test(text) && !/^\s*-\s/.test(text)) c3Dbg('[LIC] строка про предложение не распознана: ' + JSON.stringify(text.slice(0, 160)));
+            return false;
+        }
         if (/^\s*-\s/.test(text) || PLAYER_MSG_RE.test(text)) return false;       // строки чата игроков — не события
         const l = lastGive(), now = Date.now();
         const inWin = !!(l && l.at && now - l.at <= EVENT_WINDOW);                // ответ на недавнюю выдачу
         let cw = false;                                                           // ответ на наш /cancel (его окно — 15 с, даже если выдача была давно)
         if (ev.cancel) { try { const ca = api().cancelAt && api().cancelAt(); cw = !!(ca && now - ca < 15000); } catch (e) {} }
-        if (!inWin && !cw) return false;
+        if (!inWin && !cw) { c3Dbg('[LIC] «' + ev.title + '» пропущено: нет недавней выдачи (последняя: ' + (l && l.at ? Math.round((now - l.at) / 1000) + ' с назад' : 'нет') + ')'); return false; }
+        c3Dbg('[LIC] событие сервера: ' + ev.title);
         if (!ev.cancel) _evAt = now;                                              // сервер ответил на выдачу — сторож (watchGive) молчит
         if (!once('ev|' + ev.title, 3000)) return true;
         const showL = !!(l && inWin);
@@ -3362,6 +3374,11 @@ try { (function () {
         return true;
     }
 
+    // Запасной вход для главного перехвата чата (Hud.chat.add + постоянная перепроверка хука): OnChatAddMessage здесь ставился один раз,
+    // а Code.js его перезаписывает при переинициализации чата. Дубль отсекает once() в handleEvent.
+    window.__code3TgEvent = function (raw) {
+        try { if (!ready()) return false; const m = String(raw); if (PLAYER_MSG_RE.test(m)) return false; return handleEvent(cleanMsg(m)); } catch (e) { c3Dbg('[LIC] event(alt) error: ' + e.message); return false; }
+    };
     function onChat(raw, colorArg) {
         if (!ready()) return;   // форма не правительственная или звание не Лицензёр — в Telegram ничего не пересылаем
         const msg = String(raw);
