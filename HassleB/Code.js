@@ -2572,6 +2572,7 @@ function _dbg3Tick() {
 
     // Спавн
     _dbg3Watch('isPlayerConnected', '🎮 Спавн', d.isPlayerConnected, true, v => v ? '✅ в игре' : '❌ не в игре');
+    if (!d.isPlayerConnected && config.isSitting) _mvSetSitting(false);   // реконнект/респавн — присед сбрасывается
 
     // Позиция
     const posChanged = _dbg3Last.posX !== undefined && d.posX !== null &&
@@ -3558,6 +3559,73 @@ function _mvKeyTap(path, ms) {
     }
     h.timer = window.setTimeout(function () { _mvRelease(path); }, ms || 100);
 }
+
+// ── Состояние «сидит / стоит» ────────────────────────────────
+// В клиенте нет ни события, ни поля с состоянием приседа: Crouch — нативная способность Unity (старт и стоп
+// по нажатию <Keyboard>/c, т.е. переключатель), JS её не видит. Раньше config.isSitting менялся только
+// когда присел САМ бот → присел руками (двойной тап по джойстику в Hud.js), встал сам, респавн — и
+// inline-кнопка «Сесть/Встать» врала и не обновлялась.
+// Теперь каждое нажатие C (и наше, и родное из Hud.js) проходит через window.onScreenControlTouchStart —
+// ставим на неё обёртку и переворачиваем флаг на каждом Start; кнопка в Telegram перерисовывается сразу.
+var _MV_CROUCH = '<Keyboard>/c';
+var MOVE_MENU_TTL_MS = 15 * 60 * 1000;    // сколько после последней отрисовки меню движения «живо» и перерисовывается само
+var _mvSit = window.__hassleMvSit = window.__hassleMvSit || { menus: {} };   // chatId:messageId → { chatId, messageId, isNotif, at }
+
+function _mvTrackMenu(chatId, messageId, isNotif) {
+    _mvSit.menus[_ctlKey(chatId, messageId)] = { chatId: chatId, messageId: messageId, isNotif: !!isNotif, at: Date.now() };
+    var keys = Object.keys(_mvSit.menus);
+    if (keys.length > 30) keys.sort(function (a, b) { return _mvSit.menus[a].at - _mvSit.menus[b].at; })
+        .slice(0, keys.length - 30).forEach(function (k) { delete _mvSit.menus[k]; });
+}
+function _mvUntrackMenu(chatId, messageId) { delete _mvSit.menus[_ctlKey(chatId, messageId)]; }
+
+// Перерисовать открытые меню движения (кроме сообщения, на которое сейчас нажали — его перерисует сам обработчик)
+function _mvRefreshSitMenus() {
+    var cur = _ctl.cur, now = Date.now();
+    Object.keys(_mvSit.menus).forEach(function (k) {
+        var m = _mvSit.menus[k];
+        if (!m) return;
+        if (now - m.at > MOVE_MENU_TTL_MS) { delete _mvSit.menus[k]; return; }
+        if (cur && String(cur.chatId) === String(m.chatId) && String(cur.messageId) === String(m.messageId)) return;
+        try { showMovementControlsMenu(m.chatId, m.messageId, m.isNotif); } catch (e) { debugLog('[MOVE] обновление меню: ' + (e && e.message)); }
+    });
+}
+function _mvSetSitting(v) {
+    v = !!v;
+    if (config.isSitting === v) return;
+    config.isSitting = v;
+    debugLog('[MOVE] присед: ' + (v ? 'сидит' : 'стоит'));
+    _mvRefreshSitMenus();
+}
+
+// Постоянный обработчик на window: обёртка (она переживает /reload) всегда зовёт актуальную копию скрипта
+window.__hassleMvOnCrouch = function () { _mvSetSitting(!config.isSitting); };
+function _mvCrouchHooked() {
+    return typeof window.onScreenControlTouchStart === 'function' && !!window.onScreenControlTouchStart.__hassleCrouchHook;
+}
+function _mvEnsureCrouchHook() {
+    try {
+        var cur = window.onScreenControlTouchStart;
+        if (typeof cur !== 'function' || cur.__hassleCrouchHook) return _mvCrouchHooked();
+        var wrapped = function (path) {
+            if (path === _MV_CROUCH) { try { if (typeof window.__hassleMvOnCrouch === 'function') window.__hassleMvOnCrouch(); } catch (e) {} }
+            return cur.apply(this, arguments);
+        };
+        wrapped.__hassleCrouchHook = true;
+        window.onScreenControlTouchStart = wrapped;
+        if (window.onScreenControlTouchStart !== wrapped) debugLog('[MOVE] хук приседа не встал: window.onScreenControlTouchStart только для чтения');
+    } catch (e) { debugLog('[MOVE] хук приседа не встал: ' + (e && e.message)); }
+    return _mvCrouchHooked();
+}
+// Нажать «присесть/встать» (переключатель). С хуком флаг переворачивается по факту нажатия;
+// без хука (функция недоступна) — как раньше, по желаемому состоянию want.
+function _mvToggleCrouch(want) {
+    var hooked = _mvEnsureCrouchHook();
+    _mvKeyTap(_MV_CROUCH, 500);   // бросает исключение, если экранные контролы недоступны
+    if (!hooked) _mvSetSitting(typeof want === 'boolean' ? want : !config.isSitting);
+}
+_mvEnsureCrouchHook();
+setInterval(_mvEnsureCrouchHook, 5000);   // движок мог переопределить функцию (HUD перемонтирован) — ставим заново
 
 // ── Шаги стиком (очередь) ────────────────────────────────────
 var _mvQueue = [];
@@ -4863,6 +4931,7 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
             ...backButton
         ]
     };
+    _mvTrackMenu(chatId, messageId, isNotification);   // при приседе (в т.ч. руками в игре) кнопка перерисуется сама
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showLocalSoobOptionsMenu(chatId, messageId) {
@@ -5610,6 +5679,7 @@ function processUpdates(updates) {
             // Отвечаем только если кнопка наша — один бот, без конкуренции
             answerCallbackQuery(callbackQueryId);
             _ctlOnCallback(update.callback_query);   // запоминаем исходное сообщение (текст + кнопки) для «Назад»
+            if (!message.startsWith('move_')) _mvUntrackMenu(chatId, messageId);   // ушли из меню движения — не перерисовывать его поверх другого меню
             // Обработка команд
             if (message.startsWith(`show_controls_`)) {
                 showControlsMenu(chatId, messageId);
@@ -5864,30 +5934,19 @@ function processUpdates(updates) {
                     debugLog(errorMsg);
                     sendToTelegram(errorMsg, false, null);
                 }
-            } else if (message.startsWith("move_sit_")) {
+            } else if (message.startsWith("move_sit_") || message.startsWith("move_stand_")) {
                 const isNotif = message.endsWith('_notification');
+                const wantSit = message.startsWith("move_sit_");
+                const sitWord = wantSit ? 'Сесть' : 'Встать';
                 try {
-                    _mvKeyTap("<Keyboard>/c", 500);
-                    config.isSitting = true;
-                    sendMovementNotice(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`);
-                    showMovementControlsMenu(chatId, messageId, isNotif);
+                    _mvToggleCrouch(wantSit);
+                    sendMovementNotice(`✅ <b>Команда "${sitWord}" отправлена ${displayName}</b>`);
                 } catch (err) {
-                    const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Сесть"\n<code>${err.message}</code>`;
+                    const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "${sitWord}"\n<code>${err.message}</code>`;
                     debugLog(errorMsg);
                     sendToTelegram(errorMsg, false, null);
                 }
-            } else if (message.startsWith("move_stand_")) {
-                const isNotif = message.endsWith('_notification');
-                try {
-                    _mvKeyTap("<Keyboard>/c", 500);
-                    config.isSitting = false;
-                    sendMovementNotice(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`);
-                    showMovementControlsMenu(chatId, messageId, isNotif);
-                } catch (err) {
-                    const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Встать"\n<code>${err.message}</code>`;
-                    debugLog(errorMsg);
-                    sendToTelegram(errorMsg, false, null);
-                }
+                showMovementControlsMenu(chatId, messageId, isNotif);   // кнопку перерисовываем всегда, даже если уведомление упало
             } else if (message.startsWith("back_to_notification_")) {
                 _ctlBackToBase(chatId, messageId);
             } else if (message.startsWith("pause_enter_")) {
@@ -7801,8 +7860,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 7) {
                 // Сесть/Встать
                 try {
-                    _mvKeyTap("<Keyboard>/c", 500);
-                    config.isSitting = !config.isSitting;
+                    _mvToggleCrouch();
                     const actionText = config.isSitting ? 'Сесть' : 'Встать';
                     showScreenNotification("Hassle", `Команда "${actionText}" выполнена`);
                     sendToTelegram(`✅ <b>Команда "${actionText}" для ${displayName}</b>`, false, null);
