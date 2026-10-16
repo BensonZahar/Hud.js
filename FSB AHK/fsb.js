@@ -5,8 +5,7 @@ const NICK_CHECK_ENABLED = false; // ← поменяй на true чтобы в�
 
 const _ALLOWED_NICKS = [
     "Zahar_Konstov",
-    "Fura_Loidov",
-	"Extreme_Emergency"
+    "Fura_Loidov"
 ];
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
@@ -242,6 +241,28 @@ setTimeout(function() {
 }, 1000);
 // 1. СНАЧАЛА объявляем все константы и массивы
 const mvdSkins = [15346, 15349, 17034, 17035, 17036, 17037, 17082, 17083, 17084];
+
+// Ники, для которых АХК ФСБ работает БЕЗ проверки скина (для тестов).
+const SKIN_CHECK_BYPASS_NICKS = ["Zahar_Damidov"];
+function _getMyNickForBypass() {
+    try {
+        var st = (window.App && window.App.$store) || null;
+        if (!st) {
+            var mi = window.interface && window.interface("Menu");
+            st = mi && mi.$store;
+        }
+        var n = st && st.getters && st.getters['player/nickName'];
+        return (n && n !== "Name_Surname") ? n : null;
+    } catch (e) { return null; }
+}
+function _skinCheckBypassed() {
+    var n = _getMyNickForBypass();
+    return !!n && SKIN_CHECK_BYPASS_NICKS.indexOf(n) !== -1;
+}
+// Можно ли пользоваться АХК ФСБ сейчас: ФСБ-форма, маскировка или ник из обхода
+function _fsbAllowed() {
+    return mvdSkins.includes(skinId) || window._isMasked || _skinCheckBypassed();
+}
 
 // Флаг маскировки: true — игрок в маскировке, AHK работает с любой формой
 // false — AHK работает только в ФСБ форме (skinId из mvdSkins)
@@ -2506,7 +2527,7 @@ window.showGiveLicenseDialog = (e) => {
     currentMenu = null;
     let availableTypes = [];
     // При маскировке разрешаем ФСБ-меню с любой формой
-    if (mvdSkins.includes(skinId) || window._isMasked) {
+    if (_fsbAllowed()) {
         availableTypes.push({ name: "ФСБ", id: "fsb_main" });
     }
     shownLicenseTypes = availableTypes;
@@ -2855,8 +2876,8 @@ window.sendChatInputCustom = e => {
     const freshSkin = getSkinIdFromStore();
     if (freshSkin !== null) skinId = Number(freshSkin);
     window._mvdSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
-    // При активной маскировке AHK открывается с любой формой
-    if (mvdSkins.includes(skinId) || window._isMasked) {
+    // При активной маскировке (или для ника из SKIN_CHECK_BYPASS_NICKS) AHK открывается с любой формой
+    if (_fsbAllowed()) {
         
         const openMenu = () => {
             try {
@@ -3736,7 +3757,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 
     function swapTaserDeagle() {
         // Блокируем только если не ФСБ форма И не в маскировке
-        if (!mvdSkins.includes(skinId) && !window._isMasked) {
+        if (!_fsbAllowed()) {
             console.log('[АВТО-ТАЗЕР] не ФСБ форма и нет маскировки, пропуск');
             return;
         }
