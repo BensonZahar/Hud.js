@@ -30,6 +30,8 @@
 // ║  Команды в игровом чате (на сервер не уходят):                       ║
 // ║   /ozv — проверка (проиграть + статус) · /ozv on · /ozv off          ║
 // ║   /ozv engine · /ozv html · /ozv auto — способ воспроизведения       ║
+// ║   /ozv uved — эталонный звук из старой версии (проверка движка)      ║
+// ║   /ozv slot 8 — другой канал звука · /ozv status — только статус     ║
 // ║  Консоль: __ozv.test() · __ozv.status() · __ozv.play()               ║
 // ║                                                                      ║
 // ║  Настройки (необязательно): window.OZV_OPTS = { ... } или            ║
@@ -40,7 +42,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__ozvCleanup === 'function') { try { window.__ozvCleanup(); } catch (e) {} }
 
-var VERSION = 'ozv v1.0';
+var VERSION = 'ozv v1.1';
 var GEN = (window.__ozvGen = (window.__ozvGen || 0) + 1);   // номер запуска: метка на чате, чтобы не вешать обёртку дважды
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
@@ -63,8 +65,8 @@ var OPTS = (function () {
         BRANCH: 'main',
         FILE_ADMIN: 'HassleB/Озвучка/Администратор.mp3',   // путь к файлу в репозитории
         ENGINE: 'auto',           // 'auto' — родной playSound игры, если есть; 'engine' — только он; 'html' — только HTMLAudio
-        VOLUME: 1.5,              // громкость (родной playSound принимает >1; для HTMLAudio ограничивается 1). Умножается на globalVolume игры
-        SLOT: 41,                 // канал звука движка (0–9 заняты игрой: клики UI, казино, такси) — наш не должен перебивать их
+        VOLUME: 0,                // 0 — громкость игры (globalVolume), как в старой версии Code.js (там playSound(url, false, 1.0) → слот 1, громкость по умолчанию). >0 — своя громкость, например 1.5
+        SLOT: 1,                  // канал звука движка. Слот 1 — тот, что точно работал в старой версии. Слоты 0–9 игра использует и для UI (клики), поэтому клик может оборвать звук; пробуйте /ozv slot 8
         COOLDOWN_MS: 4000,        // не чаще одного раза за это время (админ часто шлёт несколько строк подряд)
         SOUND_PRIVATE: true,      // личное сообщение от администратора
         SOUND_NOTICE: true,       // «[Уведомление от администратора] …»
@@ -86,7 +88,7 @@ var OPTS = (function () {
 function dbg() { if (!OPTS.DEBUG) return; try { console.log.apply(console, ['[OZV][dbg]'].concat([].slice.call(arguments))); } catch (e) {} }
 
 // ── Запоминаем выбор пользователя (/ozv on|off, /ozv engine|html|auto) ──
-var LS_ON = 'hassle_ozv_enabled', LS_MODE = 'hassle_ozv_engine';
+var LS_ON = 'hassle_ozv_enabled', LS_MODE = 'hassle_ozv_engine', LS_SLOT = 'hassle_ozv_slot';
 function lsGet(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
 (function () {
@@ -94,6 +96,8 @@ function lsSet(k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
     if (on === '0') OPTS.ENABLED = false; else if (on === '1') OPTS.ENABLED = true;
     var md = lsGet(LS_MODE);
     if (md === 'engine' || md === 'html' || md === 'auto') OPTS.ENGINE = md;
+    var sl = parseInt(lsGet(LS_SLOT), 10);
+    if (!isNaN(sl) && sl >= 0 && sl <= 60) OPTS.SLOT = sl;
 })();
 
 // ══════════════════════════ ССЫЛКА НА ФАЙЛ ══════════════════════════
@@ -166,10 +170,12 @@ function gameVolume() {
 }
 
 // Родной звук игры: Sound_Create2D через window.playSound (http-ссылки поддерживаются — см. isValidHttpUrl в index.js)
-function playEngine(url, vol) {
+// Вызов такой же, как в старой версии Code.js: playSound(url, false, слот, громкость). Громкость 0 → движок берёт globalVolume сам.
+// onEnd (необязательно) — колбэк движка OnSoundEnded: по нему /ozv понимает, что звук реально отыграл
+function playEngine(url, vol, onEnd) {
     if (typeof window.playSound !== 'function') return false;
-    try { if (typeof window.stopSound === 'function') window.stopSound(OPTS.SLOT); } catch (e) {}
-    window.playSound(url, false, OPTS.SLOT, vol);
+    if (typeof onEnd === 'function') window.playSound(url, false, OPTS.SLOT, vol, true, onEnd);
+    else window.playSound(url, false, OPTS.SLOT, vol);
     return true;
 }
 
@@ -190,20 +196,24 @@ function playHtml(url, vol) {
 }
 
 var _lastPlay = { at: 0, via: '', url: '' };
-function play(key, reason) {
+var _stats = { seen: 0, hits: 0, last: '', lastAt: 0 };   // seen — сколько строк чата увидел наш перехват (доказывает, что он жив), hits — сколько раз сработал звук
+var KNOWN_GOOD_URL = 'https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3';   // звук из старой рабочей версии Code.js — для проверки «/ozv uved»
+function play(key, reason, urlOverride, onEnd) {
     key = key || 'admin';
-    var url = soundUrl(key);
+    var url = urlOverride || soundUrl(key);
     if (!url) return false;
     var gv = gameVolume();
-    if (gv <= 0) { dbg('звук игры выключен (globalVolume = 0) — пропуск'); return false; }
-    var vol = Math.max(0.05, OPTS.VOLUME * gv);
+    if (gv <= 0) { warn('громкость игры = 0 (window.globalVolume) — звук не запускаю. Поднимите громкость в настройках игры или задайте OZV_OPTS.VOLUME (например 1.5)'); if (!(OPTS.VOLUME > 0)) return false; }
+    var engVol = OPTS.VOLUME > 0 ? OPTS.VOLUME : 0;          // 0 → движок берёт globalVolume сам
+    var htmlVol = OPTS.VOLUME > 0 ? OPTS.VOLUME * gv : gv;   // HTMLAudio ограничим 1 внутри playHtml
     var via = '';
     if (OPTS.ENGINE !== 'html') {
-        try { if (playEngine(url, vol)) via = 'engine'; } catch (e) { warn('playSound упал:', e && e.message); }
+        try { if (playEngine(url, engVol, onEnd)) via = 'engine'; } catch (e) { warn('playSound упал:', e && e.message); }
     }
-    if (!via && OPTS.ENGINE !== 'engine') { playHtml(url, vol); via = 'html'; }
+    if (!via && OPTS.ENGINE !== 'engine') { playHtml(url, htmlVol); via = 'html'; }
     _lastPlay = { at: Date.now(), via: via || 'нет способа', url: url };
-    log('🔊 ' + key + (reason ? ' (' + reason + ')' : '') + ' → ' + (via || 'нет способа воспроизведения'));
+    log('🔊 ' + key + (reason ? ' (' + reason + ')' : '') + ' → ' + (via || 'нет способа воспроизведения') +
+        (via === 'engine' ? ' · playSound(url, false, ' + OPTS.SLOT + ', ' + engVol + ')' : '') + ' · ' + url);
     return !!via;
 }
 
@@ -266,12 +276,15 @@ function trigger(reason, text) {
     var now = Date.now();
     if (now - _lastAt < OPTS.COOLDOWN_MS) { dbg('пауза — пропуск (' + reason + ')'); return false; }
     _lastAt = now;
-    dbg('сработало:', reason, text ? String(text).slice(0, 120) : '');
+    _stats.hits++; _stats.last = reason; _stats.lastAt = now;
+    log('🔔 админ → ' + reason + (text ? ': ' + String(text).replace(/\{[0-9A-Fa-f]{6}\}/g, '').slice(0, 100) : ''));
     return play('admin', reason);
 }
 
 function onChatLine(raw, color) {
-    if (_dead || !OPTS.ENABLED || typeof raw !== 'string') return;
+    if (_dead || typeof raw !== 'string') return;
+    _stats.seen++;
+    if (!OPTS.ENABLED) return;
     var r = classify(raw, color);
     if (!r) return;
     if (OPTS[REASON_OPT[r]] === false || !OPTS[REASON_OPT[r]]) { dbg('тип «' + r + '» выключен в OPTS'); return; }
@@ -360,16 +373,37 @@ function say(text) {
     return false;
 }
 function statusText() {
-    return '[OZV] ' + VERSION + ' · звук админа: ' + (OPTS.ENABLED ? 'ВКЛ' : 'ВЫКЛ') + ' · способ: ' + OPTS.ENGINE +
-        (_lastPlay.via ? ' (последний: ' + _lastPlay.via + ')' : '') + ' · файл: ' + (_blobUrl ? 'доступен' : (_blobFailedAt ? 'НЕ загрузился' : 'не проверен'));
+    return '[OZV] ' + VERSION + ' · звук админа: ' + (OPTS.ENABLED ? 'ВКЛ' : 'ВЫКЛ') + ' · способ: ' + OPTS.ENGINE + ' · слот: ' + OPTS.SLOT +
+        ' · громкость игры: ' + gameVolume() + ' · playSound: ' + (typeof window.playSound === 'function' ? 'есть' : 'НЕТ') +
+        ' · файл на GitHub: ' + (_blobUrl ? 'доступен' : (_blobFailedAt ? 'НЕ загрузился' : 'не проверен')) +
+        ' · строк чата перехвачено: ' + _stats.seen + (_chatHooked ? '' : ' (Hud-чат не найден!)') +
+        ' · срабатываний на админа: ' + _stats.hits + (_stats.last ? ' (последнее: ' + _stats.last + ')' : '');
 }
-function handleCmd(arg) {
+// Проигрываем и ждём ответ движка (OnSoundEnded): так видно, звучал ли файл на самом деле
+function testPlay(label, urlOverride) {
+    var done = false;
+    var ok = play('admin', 'тест «' + label + '»', urlOverride, function () { done = true; say('[OZV] ✅ движок сообщил: звук «' + label + '» отыграл'); });
+    say('[OZV] запущен «' + label + '» · способ: ' + (_lastPlay.via || '—') + ' · слот ' + OPTS.SLOT + (ok ? '' : ' · НЕ запущен'));
+    if (ok && _lastPlay.via === 'engine') {
+        setTimeout(function () {
+            if (!done && !_dead) say('[OZV] ⚠️ за 12 с движок не сообщил, что «' + label + '» отыграл — звука, скорее всего, не было. Если эталон «/ozv uved» играет, а админ — нет, проблема в файле/пути; если не играют оба — в слоте: «/ozv slot 8»');
+        }, 12000);
+    }
+}
+function handleCmd(arg, arg2) {
+    if (arg === 'slot') {
+        var n = parseInt(arg2, 10);
+        if (isNaN(n) || n < 0 || n > 60) { say('[OZV] слот сейчас ' + OPTS.SLOT + ' · задать: /ozv slot 8 (0–60)'); return; }
+        OPTS.SLOT = n; lsSet(LS_SLOT, String(n)); say('[OZV] слот звука: ' + n); testPlay('Администратор'); return;
+    }
+    if (arg === 'uved' || arg === 'old') { testPlay('эталон uved.mp3 из старой версии', KNOWN_GOOD_URL); return; }
+    if (arg === 'status' || arg === 'статус') { say(statusText()); return; }
     if (arg === 'on' || arg === '1' || arg === 'вкл') { OPTS.ENABLED = true; lsSet(LS_ON, '1'); say('[OZV] звук админа включён'); return; }
     if (arg === 'off' || arg === '0' || arg === 'выкл') { OPTS.ENABLED = false; lsSet(LS_ON, '0'); say('[OZV] звук админа выключен'); return; }
     if (arg === 'engine' || arg === 'html' || arg === 'auto') { OPTS.ENGINE = arg; lsSet(LS_MODE, arg); say('[OZV] способ воспроизведения: ' + arg); }
     // /ozv, /ozv test, а также после смены способа — сразу проигрываем для проверки
-    var ok = play('admin', 'тест');
-    say(statusText() + (ok ? '' : ' · звук не запущен'));
+    say(statusText());
+    testPlay('Администратор');
     if (!_blobUrl && !_blobBusy) fetchBlob(function (u) { say(u ? '[OZV] mp3 на GitHub доступен' : '[OZV] mp3 на GitHub НЕ загрузился — проверьте путь: ' + OPTS.FILE_ADMIN); }, 1);
 }
 (function installCommand() {
@@ -379,8 +413,8 @@ function handleCmd(arg) {
     var prev = origWin || origVar;
     var mine = function (e) {
         if (!_dead && typeof e === 'string') {
-            var m = e.trim().match(/^\/ozv(?:\s+(\S+))?\s*$/i);
-            if (m) { try { handleCmd((m[1] || '').toLowerCase()); } catch (er) { warn('/ozv:', er && er.message); } return; }
+            var m = e.trim().match(/^\/ozv(?:\s+(\S+))?(?:\s+(\S+))?\s*$/i);
+            if (m) { try { handleCmd((m[1] || '').toLowerCase(), m[2] || ''); } catch (er) { warn('/ozv:', er && er.message); } return; }
         }
         if (typeof prev === 'function') return prev.apply(this, arguments);
     };
