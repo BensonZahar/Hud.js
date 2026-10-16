@@ -5,7 +5,8 @@ const NICK_CHECK_ENABLED = false; // ← поменяй на true чтобы в�
 
 const _ALLOWED_NICKS = [
     "Zahar_Konstov",
-    "Fura_Loidov"
+    "Fura_Loidov",
+	"Extreme_Emergency"
 ];
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
