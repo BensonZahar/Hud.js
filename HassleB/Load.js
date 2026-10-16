@@ -309,6 +309,10 @@ function sendCodeLoadedNotification(filename, commitInfo) {
 // и каждое событие (чат, диалог, авторизация) срабатывает N раз.
 // ============================================================
 function hassleCleanupHooks() {
+    // Ozv (озвучка) подклеен после Code3 и стоит поверх — снимаем его самым первым
+    if (typeof window.__ozvCleanup === 'function') {
+        try { window.__ozvCleanup(); console.log('[Hassle Cleanup] Ozv снят'); } catch(e) {}
+    }
     // Code3 (помощник лицензёра) стоит поверх хуков Code.js/Code2.js — снимаем его первым
     if (typeof window.__code3Cleanup === 'function') {
         try { window.__code3Cleanup(); console.log('[Hassle Cleanup] Code3 снят'); } catch(e) {}
@@ -377,6 +381,15 @@ async function initializeScripts() {
             window.__CODE2_TEXT__ += '\n;\n' + _code3Text;
         } catch (e3) {
             console.warn('⚠️ Code3.js не загружен (бот работает без помощника лицензёра):', e3 && e3.message);
+        }
+        // Ozv.js (озвучка: mp3 с GitHub, когда пишет администратор) — тоже подклеиваем к тексту Code2, чтобы он видел sendAdminSpamAlert из Code.js.
+        // Подклеиваем через вложенный eval в try: если Ozv.js не загрузился или в нём ошибка — Code2/Code3 это не ломает, бот работает как раньше.
+        try {
+            console.log('📥 Загрузка текста Ozv.js...');
+            const _ozvText = await fetchRawText('Ozv.js');
+            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(_ozvText) + '); } catch (eOzv) { console.warn("[OZV] не запущен:", eOzv && eOzv.message); }\n';
+        } catch (e4) {
+            console.warn('⚠️ Ozv.js не загружен (бот работает без озвучки):', e4 && e4.message);
         }
 
         // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
