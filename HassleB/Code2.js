@@ -1890,7 +1890,13 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
     // ═══════════════════════════════════════════════════════════
     (function _ftSetupInterfaceProxy() {
         try {
-            const _origIface = window.interface;
+            // FIX: оригинал запоминаем ОДИН раз на window, а Load.js (hassleCleanupHooks) возвращает его перед перезагрузкой.
+            // Раньше каждый /reload наслаивал ещё одну обёртку поверх прежней: window.interface() вызывается игрой постоянно,
+            // цепочка росла с каждой перезагрузкой (тормоза), а чтение профиля MainMenu шло через стопку старых обёрток.
+            if (typeof window._hassleOrig_interface !== 'function' && typeof window.interface === 'function') {
+                window._hassleOrig_interface = window.interface;
+            }
+            const _origIface = window._hassleOrig_interface;
             if (typeof _origIface !== 'function') {
                 debugLog('[TRACKER] window.interface не найден — Proxy пропущен');
                 return;
@@ -1951,7 +1957,11 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
     // ═══════════════════════════════════════════════════════════
     (function _ftHookInterfaceStatus() {
         try {
-            const _origStatus = window.getInterfaceStatus;
+            // FIX: то же, что и для window.interface — оригинал один раз на window, чтобы хуки не копились при /reload
+            if (typeof window._hassleOrig_getInterfaceStatus !== 'function' && typeof window.getInterfaceStatus === 'function') {
+                window._hassleOrig_getInterfaceStatus = window.getInterfaceStatus;
+            }
+            const _origStatus = window._hassleOrig_getInterfaceStatus;
             if (typeof _origStatus !== 'function') {
                 debugLog('[TRACKER] getInterfaceStatus не найден — хук пропущен');
                 return;
