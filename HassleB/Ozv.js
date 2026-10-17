@@ -4,8 +4,8 @@
 // ║  родной window.playSound игры.                           ║
 // ║                                                          ║
 // ║  ВСЕ ЗВУКИ ИЗНАЧАЛЬНО ВЫКЛЮЧЕНЫ. Включаются в Telegram:  ║
-// ║  Функции → «🔊 Озвучка» → выбрать событие →              ║
-// ║  «этот аккаунт» / «все аккаунты» → ВКЛ / ВЫКЛ.           ║
+// ║  Функции → «🔊 Озвучка» → выбрать событие → кнопка       ║
+// ║  «Этот аккаунт» или «Все аккаунты» (красная ↔ зелёная).  ║
 // ║  Там же есть «Все звуки» и кнопка «Проверить звук».      ║
 // ║                                                          ║
 // ║  Как ловим события (Code.js / Code2.js / Code3.js        ║
@@ -276,24 +276,28 @@ function showList(chatId, messageId, uid) {
     editMessageText(chatId, messageId,
         '🔊 <b>Озвучка</b> · ' + esc(who()) + '\n\n' +
         '🟢 — звук включён, 🔴 — выключен (изначально всё выключено).\n' +
-        'Выберите событие — затем для кого применить: для этого аккаунта или для всех.',
+        'Выберите событие — затем нажмите «Этот аккаунт» или «Все аккаунты»: кнопка переключает красную/зелёную.',
         { inline_keyboard: rows });
 }
-// Одно событие (или «Все звуки»): для кого и ВКЛ / ВЫКЛ
+// Одно событие (или «Все звуки»): две кнопки-переключатели — «Этот аккаунт» и «Все аккаунты».
+// Красная = выключено, зелёная = включено; нажатие переключает. «Все аккаунты» ставит всем то же состояние, что получится у этого.
 function showKey(chatId, messageId, key, uid) {
     var all = key === 'all', ev = BY_KEY[key];
-    var nowTxt = all ? ('включено ' + enabledCount() + ' из ' + EVENTS.length) : (PREFS[key] ? '🟢 ВКЛ' : '🔴 ВЫКЛ');
+    var n = enabledCount(), total = EVENTS.length;
+    var cur = all ? n === total : !!PREFS[key];       // сейчас включено?
+    var part = all && n > 0 && n < total;             // «Все звуки»: включена только часть
+    var tgt = (cur ? 'off' : 'on') + '_' + key + '_' + uid;   // нажатие переводит в противоположное состояние
+    var ico = cur ? '🟢' : part ? '🟡' : '🔴', st = cur ? 'success' : part ? undefined : 'danger';
     var rows = [
-        [btn('👤 Этот · 🔔 ВКЛ', 'ozv_s_l_on_' + key + '_' + uid, 'success'), btn('👤 Этот · 🔕 ВЫКЛ', 'ozv_s_l_off_' + key + '_' + uid, 'danger')],
-        [btn('👥 Все · 🔔 ВКЛ', 'ozv_s_g_on_' + key + '_' + uid, 'success'), btn('👥 Все · 🔕 ВЫКЛ', 'ozv_s_g_off_' + key + '_' + uid, 'danger')]
+        [btn(ico + ' Этот аккаунт', 'ozv_s_l_' + tgt, st), btn(ico + ' Все аккаунты', 'ozv_s_g_' + tgt, st)]
     ];
     if (!all) rows.push([btn('▶️ Проверить звук', 'ozv_t_' + key + '_' + uid)]);
     rows.push([btn('⬅️ К списку озвучки', 'ozv_m_' + uid)]);
     editMessageText(chatId, messageId,
         '🔊 <b>Озвучка: ' + esc(all ? 'все звуки' : ev.label) + '</b>\n' +
         (all ? '' : 'Файл: <code>' + esc(ev.file + '.mp3') + '</code>\n') +
-        'Сейчас (' + esc(who()) + '): ' + nowTxt + '\n\n' +
-        'Для кого применить?\n👤 Этот — только ' + esc(who()) + '\n👥 Все — все аккаунты',
+        'Сейчас (' + esc(who()) + '): ' + (all ? 'включено ' + n + ' из ' + total : (cur ? '🟢 ВКЛ' : '🔴 ВЫКЛ')) + '\n\n' +
+        'Нажмите кнопку, чтобы ' + (cur ? 'выключить' : 'включить') + ':\n👤 только ' + esc(who()) + '\n👥 на всех аккаунтах',
         { inline_keyboard: rows });
 }
 
@@ -323,7 +327,7 @@ function handleCb(cq, p) {
     if (p.scope === 'global') {
         try { broadcastGlobalCommand('ozv_set', (p.on ? 'on' : 'off') + '_' + p.key); } catch (e) { dbg('broadcast: ' + e.message); }   // остальным аккаунтам; у себя уже применили
     }
-    showList(chatId, messageId, p.uid);   // остаёмся в списке — можно сразу выбрать следующее событие
+    showKey(chatId, messageId, p.key, p.uid);   // остаёмся на экране события — кнопки сразу меняют цвет
 }
 
 if (menuReady()) {
