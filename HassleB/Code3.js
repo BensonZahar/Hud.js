@@ -3162,7 +3162,9 @@ try { (function () {
             case 'cancel': {   // кнопка «Отменить»: /cancel — отозвать своё исходящее предложение (если /givelic не прошёл из-за прошлого — тоже оно)
                 if (!once('cancel', 3000)) break;   // двойное нажатие
                 const okc = !!api().cancel();
-                sendToTelegram(okc
+                // нажали «Отменить» под самим тихим предложением — итог (отозвано) придёт правкой этого же сообщения, отдельное «/cancel отправлен» не шлём
+                const onOffer = !!(okc && offerFresh() && _offerMsg.msgs.some(function (m) { return String(m.cid) === String(chatId) && m.mid === messageId; }));
+                if (!onOffer) sendToTelegram(okc
                     ? '🗑 <b>/cancel отправлен (' + esc(displayName) + ')</b>\n⏳ <i>Жду ответ сервера: отозвано ли предложение…</i>'
                     : '❌ <b>Не удалось отправить /cancel (' + esc(displayName) + ')</b>', true, null);
                 try {   // у сообщения, под которым нажали, убираем кнопку «Отменить» (остальные остаются)
@@ -3325,7 +3327,7 @@ try { (function () {
         { re: /Используйте\s+\/cancel\s+чтобы отозвать предыдущее предложение/i,    icon: '⚠️', title: 'Запрос НЕ отправлен — активно предыдущее предложение', cancelBtn: true, redoCancel: true,
           hint: 'Сначала отклоните его командой /cancel (кнопка «Отменить»), затем выдайте заново.' },
         // ── итог /cancel (кнопка «Отменить» или ручной /cancel) ──
-        { re: /^Вы отозвали\s+св[оё]е\s+(?:последнее\s+)?предложение/i,             icon: '🗑', title: 'Предложение отозвано', cancel: true, redo: true },
+        { re: /^Вы отозвали\s+св[оё]е\s+(?:последнее\s+)?предложение/i,             icon: '🗑', title: 'Предложение отозвано', cancel: true, redo: true, end: true },
         { re: /^У Вас нет активных предложений/i,                                    icon: 'ℹ️', title: 'Активных предложений нет — отменять нечего', cancel: true },
         // ── отказы сервера ──
         { re: /У человека есть неоплаченные штрафы/i,                    icon: '⚠️', title: 'Есть неоплаченные штрафы', redo: true },
@@ -3337,23 +3339,26 @@ try { (function () {
         { re: /Заключ[её]нному нельзя продать/i,                          icon: '⛓', title: 'Заключённому нельзя продать эту лицензию', redo: false },
         { re: /^Стоимость данной лицензии составляет/i,                   icon: '💰', title: 'Цена не совпала со стоимостью лицензии', redo: false },
         { re: /^Некорректный тип лицензии/i,                              icon: '❓', title: 'Некорректный тип лицензии', redo: false },
-        { re: /отказался от Вашего предложения/i,                         icon: '❌', title: 'Отказался от предложения', redo: true },
+        { re: /отказался от Вашего предложения/i,                         icon: '❌', title: 'Отказался от предложения', redo: true, end: true },
+        // offer.pwn: ClearPlayerOfferTimer — у покупателя 15 с на решение, потом продавцу приходит эта строка
+        { re: /^Игрок не принял решение по Вашему предложению/i,          icon: '⌛', title: 'Время вышло — игрок не принял предложение', redo: true, end: true },
         { re: /^\*?\s*Игрок (?:находится )?слишком далеко/i,            icon: '📏', title: 'Игрок слишком далеко', redo: true },
         { re: /^\*?\s*Такого игрока нет/i,                                icon: '❓', title: 'Такого игрока нет', redo: false },
         { re: /^Вы выдали\s/i,                                            icon: '✅', title: 'Лицензия выдана', redo: false, silent: false, sold: true }
     ];
     // Сообщение «📨 Вы предложили …», отправленное тихо: при покупке («Вы выдали …») правим его на «✅ Лицензия выдана», а не шлём второе.
-    // { at, msgs: [{cid, mid}], targetId } — msgs заполняется, когда Telegram вернул id сообщения.
+    // { at, msgs: [{cid, mid}], targetId, text } — msgs заполняется, когда Telegram вернул id сообщения.
+    // Правится при любом исходе: куплено («Вы выдали»), отказ, время вышло («Игрок не принял решение»), отзыв (/cancel).
     let _offerMsg = null;
-    const OFFER_EDIT_TTL = 15 * 60 * 1000;   // сколько помним тихое предложение (покупатель может подумать)
+    const OFFER_EDIT_TTL = 3 * 60 * 1000;   // сколько помним тихое предложение (на решение у покупателя 15 с — offer.pwn: GetOfferDecinisionTime)
     function offerFresh() { return !!(_offerMsg && Date.now() - _offerMsg.at <= OFFER_EDIT_TTL); }
-    // Превращаем сообщение-предложение в «Лицензия выдана»; id сообщения может ещё не прийти — ждём до ~6 с, потом шлём новым сообщением
-    function applySold(rec, body, markup, tries) {
+    // Превращаем сообщение-предложение в итоговое («Лицензия выдана» / «Отказался» / «Время вышло» / «Отозвано»); id сообщения может ещё не прийти — ждём до ~6 с, потом шлём новым сообщением
+    function applyOfferEdit(rec, body, markup, tries) {
         if (rec.msgs.length) {
             rec.msgs.forEach(function (m) { editMessageText(m.cid, m.mid, body, markup); });
             return;
         }
-        if (tries < 8) { setTimeout(function () { applySold(rec, body, markup, tries + 1); }, 700); return; }
+        if (tries < 8) { setTimeout(function () { applyOfferEdit(rec, body, markup, tries + 1); }, 700); return; }
         sendToTelegram(body, false, markup);
     }
     function handleEvent(text) {
@@ -3365,8 +3370,8 @@ try { (function () {
         const inWin = !!(l && l.at && now - l.at <= EVENT_WINDOW);                // ответ на недавнюю выдачу
         let cw = false;                                                           // ответ на наш /cancel (его окно — 15 с, даже если выдача была давно)
         if (ev.cancel) { try { const ca = api().cancelAt && api().cancelAt(); cw = !!(ca && now - ca < 15000); } catch (e) {} }
-        const soldEdit = !!(ev.sold && offerFresh() && /лиценз/i.test(text));   // покупка по тихому предложению — даже если окно EVENT_WINDOW уже прошло
-        if (!inWin && !cw && !ev.ok && !soldEdit) return false;                              // «Вы предложили…» шлём всегда: эту строку сервер пишет только нам, когда запрос реально ушёл
+        const offerEdit = !!((ev.sold || ev.end) && offerFresh() && (!ev.sold || /лиценз/i.test(text)));   // исход тихого предложения — правим его сообщение
+        if (!inWin && !cw && !ev.ok && !offerEdit) return false;                              // «Вы предложили…» шлём всегда: эту строку сервер пишет только нам, когда запрос реально ушёл
         if (!ev.cancel) _evAt = now;                                              // сервер ответил на выдачу — сторож (watchGive) молчит
         if (!once('ev|' + ev.title, 3000)) return true;
         const showL = !!(l && inWin);
@@ -3379,21 +3384,22 @@ try { (function () {
             if (showL) rows.push([btn('🪪 Выдать лицензию (ID ' + l.targetId + ')', PFX + 'to|' + l.targetId + '|' + uniqueId)]);
             if (ev.ok) {
                 // «Предложение отправлено»: только полный текст сервера (лицензия и цена в нём уже есть). Тихо; id сообщения запоминаем для правки при покупке
-                const rec = { at: Date.now(), msgs: [], targetId: showL ? l.targetId : null };
+                const rec = { at: Date.now(), msgs: [], targetId: showL ? l.targetId : null, text: text };
                 _offerMsg = rec;
                 sendToTelegram(ev.icon + ' <b>' + esc(text) + '</b>\n(' + esc(displayName) + ')', !!ev.silent, rows.length ? { inline_keyboard: rows } : null,
                     function (cid, mid) { rec.msgs.push({ cid: cid, mid: mid }); });
                 return;
             }
+            const edRec = ((ev.sold || ev.end) && offerFresh()) ? _offerMsg : null;   // сообщение с тихим предложением, если оно ещё «живое»
             const body = ev.icon + ' <b>' + ev.title + '</b>\n' +
                 (showL ? '🪪 ' + esc(l.name) + ' → ' + esc(nick || 'игрок') + ' [ID: ' + esc(l.targetId) + ']\n' : '') +
+                (ev.end && edRec && edRec.text ? '📨 ' + esc(edRec.text) + '\n' : '') +   // что именно предлагали (лицензия и цена)
                 (ev.hint ? '👉 ' + esc(ev.hint) + '\n' : '') +
                 '<i>' + esc(text) + '</i>\n(' + esc(displayName) + ')';
             const markup = rows.length ? { inline_keyboard: rows } : null;
-            if (ev.sold && offerFresh()) {   // покупатель купил — правим тихое сообщение с предложением, второе не шлём
-                const rec = _offerMsg;
+            if (edRec) {   // исход предложения — правим тихое сообщение с предложением, второе не шлём (кнопка «Отменить» пропадает)
                 _offerMsg = null;
-                applySold(rec, body, markup, 0);
+                applyOfferEdit(edRec, body, markup, 0);
                 return;
             }
             sendToTelegram(body, !!ev.silent, markup);
