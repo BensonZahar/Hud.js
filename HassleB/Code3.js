@@ -2897,6 +2897,13 @@ try { (function () {
     // Дописываем к нему «💬 Ответ ▾» — «Место» / «Ценовая политика» уходят сразу в разговор (без /p), как под репликой собеседника.
     const CARD_TALK_RE = /^📞\s*<b>(?:Звонок|Исходящий звонок)[^\n]*<\/b>\n[\s\S]*?🟢\s*<i>Идёт разговор/;
     const CARD_NUM_RE = /Номер:\s*<code>(\d+)<\/code>/;
+    // Реплика собеседника из Code2 (addLine): «💬 <b>Ник</b> (аккаунт)\n<code>текст</code>» + кнопки «Ответить / Положить» (callback phn_r_…).
+    // К ней дописываем «💬 Ответ ▾» (текст уходит сразу в разговор), поэтому отдельное сообщение «📞 текст · в разговоре» больше не шлём.
+    const CARD_LINE_RE = /^💬\s*<b>[^\n]*<\/b>[^\n]*\n<code>/;
+    function isCallLineCard(payload) {
+        return typeof payload.text === 'string' && CARD_LINE_RE.test(payload.text) &&
+               typeof payload.reply_markup === 'string' && payload.reply_markup.indexOf('"phn_r_') !== -1;
+    }
     function talkCardNum(text) {   // null — это не карточка разговора; иначе номер собеседника ('' если в карточке его нет)
         if (typeof text !== 'string' || !CARD_TALK_RE.test(text)) return null;
         const nm = text.match(CARD_NUM_RE);
@@ -2907,15 +2914,22 @@ try { (function () {
         const wrappedApi = function (method, payload, onSuccess, onError, retryCount) {
             try {
                 if (method === 'sendMessage' && !retryCount && payload && typeof payload.text === 'string' && typeof payload.reply_markup === 'string' && ready()) {
-                    const tn = talkCardNum(payload.text);   // карточка разговора (отправлена сразу в состоянии «Идёт разговор»)
-                    const mc = (tn === null && CALL_CARD_BTN) ? payload.text.match(CARD_CALL_RE) : null, ms = (tn !== null || mc) ? null : payload.text.match(CARD_SMS_RE);
-                    if (tn !== null || mc || ms) {
-                        const num = tn !== null ? tn : (mc || ms)[1], kind = tn !== null ? 'talk' : mc ? 'call' : 'sms';
+                    let tn = talkCardNum(payload.text);   // карточка разговора (отправлена сразу в состоянии «Идёт разговор»)
+                    let lineNum = null;                  // реплика собеседника из Code2 — «Ответ» дописываем к ней (номер берём из активного звонка)
+                    if (tn === null && isCallLineCard(payload)) {
+                        let act = null;
+                        try { act = api().callActive && api().callActive(); } catch (e) {}
+                        lineNum = (act && act.num) || '';
+                    }
+                    const mc = (tn === null && lineNum === null && CALL_CARD_BTN) ? payload.text.match(CARD_CALL_RE) : null, ms = (tn !== null || mc || lineNum !== null) ? null : payload.text.match(CARD_SMS_RE);
+                    if (tn !== null || lineNum !== null || mc || ms) {
+                        const isLine = lineNum !== null;
+                        const num = tn !== null ? tn : isLine ? lineNum : (mc || ms)[1], kind = (tn !== null || isLine) ? 'talk' : mc ? 'call' : 'sms';
                         const kb = JSON.parse(payload.reply_markup);
                         if (kb && Array.isArray(kb.inline_keyboard) && !kb.inline_keyboard.some(arIsRow)) {
                             kb.inline_keyboard.push(arOpenRow(num, kind));
                             payload = Object.assign({}, payload, { reply_markup: JSON.stringify(kb) });
-                            if (tn === null) {
+                            if (tn === null && !isLine) {
                                 _cards.push({ num: num, kind: kind, at: Date.now() });
                                 while (_cards.length > 20) _cards.shift();
                             }
@@ -3011,7 +3025,7 @@ try { (function () {
     // Формат строки чата (phone.pwn): «[Тел] Ник: текст». Пересылаем только реплики того, с кем идёт разговор
     // (свои реплики и «[Тел]» чужих звонков рядом игнорируем).
     const CALL_TALK_RE = /^\[Тел\]\s*(.+?):\s+([\s\S]+)$/;
-    function handleCallTalk(cm) {
+    function handleCallTalk(cm, colorArg) {
         const tm = cm.match(CALL_TALK_RE);
         if (!tm) return false;
         let act = null;
@@ -3020,6 +3034,12 @@ try { (function () {
         const who = tm[1].trim(), text = tm[2].trim(), num = act.num || '';
         if (!text) return true;
         if (!once('talk|' + num + '|' + text, 1500)) return true;   // дубль строки чата
+        // Реплику собеседника уже шлёт модуль PHONE & OFFERS (Code2): «💬 Ник / текст» с кнопками «Ответить / Положить».
+        // Второе сообщение не шлём — кнопка «Ответ ▾» дописывается прямо к сообщению Code2 (см. обёртку tgApi: CARD_LINE_RE).
+        // Своё сообщение остаётся только запасным вариантом, когда Code2 реплику не отправит (звонки/SMS выключены или цвет строки не жёлтый).
+        let code2Sends = false;
+        try { code2Sends = !!config.phoneNotifications && typeof normalizeColor === 'function' && normalizeColor(colorArg) === '0xFFFF00'; } catch (e) {}
+        if (code2Sends) return true;
         _ownSend = true;
         try {
             sendToTelegram('📞 <b>' + esc(text) + '</b>\n👤 ' + esc(who) + (num ? ' · т.' + esc(num) : '') + ' · в разговоре\n(' + esc(displayName) + ')', false,
@@ -3300,7 +3320,8 @@ try { (function () {
         // ── запрос на покупку: ушёл / не ушёл (offer.pwn: SendPlayerOffer → OFFER_TYPE_GIVE_LIC) ──
         // Ловим просто «Вы предложили <ник> купить у Вас» — в Telegram уходит ПОЛНЫЙ текст строки сервера
         // (на живом сервере: «Вы предложили Ник купить у Вас "Название лицензии" за 85.000 руб»).
-        { re: /Вы предложили\s+\S+\s+купить у\s+[Вв]ас/i, icon: '📨', title: 'Предложение отправлено', ok: true, cancelBtn: true },
+        // silent: предложение приходит БЕЗ звука; когда игрок купит («Вы выдали …»), это же сообщение правится на «Лицензия выдана» (см. _offerMsg / sold)
+        { re: /Вы предложили\s+\S+\s+купить у\s+[Вв]ас/i, icon: '📨', title: 'Предложение отправлено', ok: true, cancelBtn: true, silent: true },
         { re: /Используйте\s+\/cancel\s+чтобы отозвать предыдущее предложение/i,    icon: '⚠️', title: 'Запрос НЕ отправлен — активно предыдущее предложение', cancelBtn: true, redoCancel: true,
           hint: 'Сначала отклоните его командой /cancel (кнопка «Отменить»), затем выдайте заново.' },
         // ── итог /cancel (кнопка «Отменить» или ручной /cancel) ──
@@ -3319,8 +3340,22 @@ try { (function () {
         { re: /отказался от Вашего предложения/i,                         icon: '❌', title: 'Отказался от предложения', redo: true },
         { re: /^\*?\s*Игрок (?:находится )?слишком далеко/i,            icon: '📏', title: 'Игрок слишком далеко', redo: true },
         { re: /^\*?\s*Такого игрока нет/i,                                icon: '❓', title: 'Такого игрока нет', redo: false },
-        { re: /^Вы выдали\s/i,                                            icon: '✅', title: 'Лицензия выдана', redo: false, silent: false }
+        { re: /^Вы выдали\s/i,                                            icon: '✅', title: 'Лицензия выдана', redo: false, silent: false, sold: true }
     ];
+    // Сообщение «📨 Вы предложили …», отправленное тихо: при покупке («Вы выдали …») правим его на «✅ Лицензия выдана», а не шлём второе.
+    // { at, msgs: [{cid, mid}], targetId } — msgs заполняется, когда Telegram вернул id сообщения.
+    let _offerMsg = null;
+    const OFFER_EDIT_TTL = 15 * 60 * 1000;   // сколько помним тихое предложение (покупатель может подумать)
+    function offerFresh() { return !!(_offerMsg && Date.now() - _offerMsg.at <= OFFER_EDIT_TTL); }
+    // Превращаем сообщение-предложение в «Лицензия выдана»; id сообщения может ещё не прийти — ждём до ~6 с, потом шлём новым сообщением
+    function applySold(rec, body, markup, tries) {
+        if (rec.msgs.length) {
+            rec.msgs.forEach(function (m) { editMessageText(m.cid, m.mid, body, markup); });
+            return;
+        }
+        if (tries < 8) { setTimeout(function () { applySold(rec, body, markup, tries + 1); }, 700); return; }
+        sendToTelegram(body, false, markup);
+    }
     function handleEvent(text) {
         if (!ready()) return false;
         const ev = EVENTS.find(function (e) { return e.re.test(text); });
@@ -3330,7 +3365,8 @@ try { (function () {
         const inWin = !!(l && l.at && now - l.at <= EVENT_WINDOW);                // ответ на недавнюю выдачу
         let cw = false;                                                           // ответ на наш /cancel (его окно — 15 с, даже если выдача была давно)
         if (ev.cancel) { try { const ca = api().cancelAt && api().cancelAt(); cw = !!(ca && now - ca < 15000); } catch (e) {} }
-        if (!inWin && !cw && !ev.ok) return false;                                // «Вы предложили…» шлём всегда: эту строку сервер пишет только нам, когда запрос реально ушёл
+        const soldEdit = !!(ev.sold && offerFresh() && /лиценз/i.test(text));   // покупка по тихому предложению — даже если окно EVENT_WINDOW уже прошло
+        if (!inWin && !cw && !ev.ok && !soldEdit) return false;                              // «Вы предложили…» шлём всегда: эту строку сервер пишет только нам, когда запрос реально ушёл
         if (!ev.cancel) _evAt = now;                                              // сервер ответил на выдачу — сторож (watchGive) молчит
         if (!once('ev|' + ev.title, 3000)) return true;
         const showL = !!(l && inWin);
@@ -3342,14 +3378,25 @@ try { (function () {
             if (showL && ev.redo) rows.push([reissueBtn(l.targetId)]);
             if (showL) rows.push([btn('🪪 Выдать лицензию (ID ' + l.targetId + ')', PFX + 'to|' + l.targetId + '|' + uniqueId)]);
             if (ev.ok) {
-                // «Предложение отправлено»: только полный текст сервера (лицензия и цена в нём уже есть)
-                sendToTelegram(ev.icon + ' <b>' + esc(text) + '</b>\n(' + esc(displayName) + ')', !!ev.silent, rows.length ? { inline_keyboard: rows } : null);
+                // «Предложение отправлено»: только полный текст сервера (лицензия и цена в нём уже есть). Тихо; id сообщения запоминаем для правки при покупке
+                const rec = { at: Date.now(), msgs: [], targetId: showL ? l.targetId : null };
+                _offerMsg = rec;
+                sendToTelegram(ev.icon + ' <b>' + esc(text) + '</b>\n(' + esc(displayName) + ')', !!ev.silent, rows.length ? { inline_keyboard: rows } : null,
+                    function (cid, mid) { rec.msgs.push({ cid: cid, mid: mid }); });
                 return;
             }
-            sendToTelegram(ev.icon + ' <b>' + ev.title + '</b>\n' +
+            const body = ev.icon + ' <b>' + ev.title + '</b>\n' +
                 (showL ? '🪪 ' + esc(l.name) + ' → ' + esc(nick || 'игрок') + ' [ID: ' + esc(l.targetId) + ']\n' : '') +
                 (ev.hint ? '👉 ' + esc(ev.hint) + '\n' : '') +
-                '<i>' + esc(text) + '</i>\n(' + esc(displayName) + ')', !!ev.silent, rows.length ? { inline_keyboard: rows } : null);
+                '<i>' + esc(text) + '</i>\n(' + esc(displayName) + ')';
+            const markup = rows.length ? { inline_keyboard: rows } : null;
+            if (ev.sold && offerFresh()) {   // покупатель купил — правим тихое сообщение с предложением, второе не шлём
+                const rec = _offerMsg;
+                _offerMsg = null;
+                applySold(rec, body, markup, 0);
+                return;
+            }
+            sendToTelegram(body, !!ev.silent, markup);
         };
         if (showL) { try { const a = api(); if (a && typeof a.whenNick === 'function') a.whenNick(l.targetId, send); else send(); } catch (e) { send(); } }   // ждём, пока ник цели определится (ответ сервера на /id)
         else send();
@@ -3384,7 +3431,7 @@ try { (function () {
         const msg = String(raw);
         const m = msg.match(PLAYER_MSG_RE);
         if (!m) {
-            try { const cm = cleanMsg(msg); if (!handleIncoming(cm) && !handleCallTalk(cm) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { c3Dbg('[LIC] event error: ' + e.message); }
+            try { const cm = cleanMsg(msg); if (!handleIncoming(cm) && !handleCallTalk(cm, colorArg) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { c3Dbg('[LIC] event error: ' + e.message); }
             return;
         }
         if (!config.licAllMessages) return;
