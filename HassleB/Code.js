@@ -7047,7 +7047,7 @@ function initializeChatMonitor() {
         const myNick = config.accountInfo.nickname;
         const isAdminPrivateMsg = normalizeColor(i) === '0xFF9945' &&
             myNick &&
-            new RegExp('администратор\\s+\\S+\\[\\d+\\]\\s+для\\s+' + myNick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\[', 'i').test(msg);
+            new RegExp('(?:администратор|агент\\s+поддержки)\\s+\\S+\\[\\d+\\]\\s+для\\s+' + myNick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\[', 'i').test(msg);
         // [A] в рации — тихое уведомление без звука и спама
         const isAdminRadioMsg = msg.includes("[A]") && msg.includes("((") && chatRadius === CHAT_RADIUS.RADIO;
         // Сервер шлёт цели: «Администратор Nick[ID] подбросил Вас». Копия «[A] ... подбросил X[ID]» уходит админам и подбросом для нас не является
@@ -8113,7 +8113,7 @@ let _kacTimer   = null;
 
 // ── Парсинг ника администратора из сообщения ──────────────────
 function parseAdminName(msg) {
-    const m = msg.match(/[Аа]дминистратор\s+([A-Za-z_]+)\[/);
+    const m = msg.match(/(?:[Аа]дминистратор|[Аа]гент\s+поддержки)\s+([A-Za-z_]+)\[/);
     return m ? m[1].toLowerCase() : 'unknown';
 }
 
@@ -8220,7 +8220,7 @@ window.OnChatAddMessage = function(e, colorArg, t) {
 
     // Формат 1 — FF9945 прямой PM
     const isPrivatePM = colorNorm === '0xFF9945' &&
-        /администратор\s+\S+\[\d+\]\s+для\s+/i.test(msg);
+        /(?:администратор|агент\s+поддержки)\s+\S+\[\d+\]\s+для\s+/i.test(msg);
 
     // Формат 2 — {FF4444} broadcast уведомление
     const isBroadcastPM =
