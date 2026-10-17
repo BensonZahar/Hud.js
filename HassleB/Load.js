@@ -117,82 +117,57 @@ function setupChatHook() {
 
 setupChatHook();
 
-// Загрузить текст файла с GitHub (без eval) — XHR с retry
-function fetchRawText(filename, retries = 5) {
-    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/HassleB/${filename}`;
+// Загрузить текст файла с GitHub (без eval) — XHR с retry.
+// FIX 1: к адресу добавляется ?t=<время>. raw.githubusercontent отдаёт Cache-Control: max-age=300, и браузер игры
+//        5 минут отдавал СТАРЫЙ файл — «перезагрузилось, но код прежний» (особенно сразу после коммита).
+// FIX 2: 404 — не временная ошибка, повторять её бессмысленно. Раньше отсутствующий (необязательный) Ozv.js
+//        задерживал каждую перезагрузку на 5 повторов × 2 с = 10 секунд.
+function fetchRawText(filename, retries = 4) {
+    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/HassleB/${filename}?t=${Date.now()}`;
     return new Promise((resolve, reject) => {
+        const retry = (why, permanent) => {
+            if (!permanent && retries > 0) {
+                console.warn(`⚠️ ${why} для ${filename}, повтор... (${retries} осталось)`);
+                setTimeout(() => fetchRawText(filename, retries - 1).then(resolve).catch(reject), 1500);
+            } else {
+                const err = new Error(`Не удалось загрузить ${filename}: ${why}`);
+                err.permanent = !!permanent;
+                reject(err);
+            }
+        };
         const xhr = new XMLHttpRequest();
         xhr.open('GET', url, true);
+        xhr.timeout = 20000; // зависший запрос раньше мог держать всю перезагрузку бесконечно
         xhr.onload = function() {
             if (xhr.status >= 200 && xhr.status < 300) {
                 console.log(`✅ Текст ${filename} получен`);
                 resolve(xhr.responseText);
+            } else if (xhr.status === 404) {
+                retry(`HTTP 404`, true);
             } else {
-                if (retries > 0) {
-                    console.warn(`⚠️ HTTP ${xhr.status} для ${filename}, повтор... (${retries} осталось)`);
-                    setTimeout(() => fetchRawText(filename, retries - 1).then(resolve).catch(reject), 2000);
-                } else {
-                    reject(new Error(`Не удалось загрузить текст ${filename}`));
-                }
+                retry(`HTTP ${xhr.status}`, false);
             }
         };
-        xhr.onerror = function() {
-            if (retries > 0) {
-                console.warn(`⚠️ Ошибка сети ${filename}, повтор... (${retries} осталось)`);
-                setTimeout(() => fetchRawText(filename, retries - 1).then(resolve).catch(reject), 2000);
-            } else {
-                reject(new Error(`Сетевая ошибка при загрузке текста ${filename}`));
-            }
-        };
+        xhr.onerror = function() { retry('Ошибка сети', false); };
+        xhr.ontimeout = function() { retry('Таймаут', false); };
         xhr.send();
     });
 }
 
-// Функция загрузчика с retry
-function loadScriptFromGitHub(filename, retries = 5) {
-    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/HassleB/${filename}`;
+// Выполнить уже загруженный текст скрипта (eval в области видимости Load.js — как и раньше)
+function evalLoadedScript(filename, text) {
+    try {
+        eval(text);
+        console.log(`✅ Скрипт ${filename} выполнен успешно`);
+    } catch (err) {
+        console.error(`❌ Ошибка выполнения ${filename}:`, err);
+        throw err;
+    }
+}
 
-    return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-
-        xhr.onload = function () {
-            if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                    eval(xhr.responseText);
-                    console.log(`✅ Скрипт ${filename} загружен и выполнен успешно`);
-                    resolve();
-                } catch (err) {
-                    console.error(`❌ Ошибка выполнения ${filename}:`, err);
-                    reject(err);
-                }
-            } else {
-                console.error(`HTTP error! status: ${xhr.status} для ${url}`);
-                if (retries > 0) {
-                    console.log(`🔄 Повторная попытка ${filename}... Осталось попыток: ${retries - 1}`);
-                    setTimeout(() => {
-                        loadScriptFromGitHub(filename, retries - 1).then(resolve).catch(reject);
-                    }, 2000);
-                } else {
-                    reject(new Error(`Не удалось загрузить ${filename} после всех попыток`));
-                }
-            }
-        };
-
-        xhr.onerror = function () {
-            console.error(`Ошибка сети при загрузке ${filename}`);
-            if (retries > 0) {
-                console.log(`🔄 Повторная попытка ${filename}... Осталось попыток: ${retries - 1}`);
-                setTimeout(() => {
-                    loadScriptFromGitHub(filename, retries - 1).then(resolve).catch(reject);
-                }, 2000);
-            } else {
-                reject(new Error(`Не удалось загрузить ${filename} после всех попыток`));
-            }
-        };
-
-        xhr.send();
-    });
+// Функция загрузчика с retry (оставлена для совместимости)
+function loadScriptFromGitHub(filename, retries = 4) {
+    return fetchRawText(filename, retries).then(text => evalLoadedScript(filename, text));
 }
 
 // Функция для применения конфигурации пользователя
@@ -309,6 +284,12 @@ function sendCodeLoadedNotification(filename, commitInfo) {
 // и каждое событие (чат, диалог, авторизация) срабатывает N раз.
 // ============================================================
 function hassleCleanupHooks() {
+    // FIX: если /reload пришёлся на момент «тихого» чтения профиля MainMenu — снимаем обёртку window.interface
+    // с «приёмником» прошлой копии и сбрасываем на сервере «меню открыто». Иначе ответ сервера уходил в
+    // приёмник старой копии, а новая копия не получала статистику вообще (3 неудачных попытки подряд).
+    if (typeof window.__hassleProfileUnwrap === 'function') {
+        try { window.__hassleProfileUnwrap(); console.log('[Hassle Cleanup] Обёртка чтения профиля снята'); } catch(e) {}
+    }
     // Ozv (озвучка) подклеен после Code3 и стоит поверх — снимаем его самым первым
     if (typeof window.__ozvCleanup === 'function') {
         try { window.__ozvCleanup(); console.log('[Hassle Cleanup] Ozv снят'); } catch(e) {}
@@ -344,6 +325,17 @@ function hassleCleanupHooks() {
         }
         console.log('[Hassle Cleanup] sendClientEventCustom восстановлен');
     }
+    // FIX: Code2.js оборачивает window.interface и window.getInterfaceStatus (трекер PlayersOnline) при КАЖДОМ eval,
+    // и раньше эти обёртки копились стопкой — игра вызывает interface() постоянно, цепочка росла с каждым /reload.
+    // Оригиналы Code2 теперь запоминает на window; возвращаем их, Code2 обернёт заново один раз.
+    if (typeof window._hassleOrig_interface === 'function') {
+        window.interface = window._hassleOrig_interface;
+        console.log('[Hassle Cleanup] window.interface восстановлен');
+    }
+    if (typeof window._hassleOrig_getInterfaceStatus === 'function') {
+        window.getInterfaceStatus = window._hassleOrig_getInterfaceStatus;
+        console.log('[Hassle Cleanup] getInterfaceStatus восстановлен');
+    }
     // OnChatAddMessage: Code.js ставит новую функцию, Code2.js оборачивает её.
     // Сбрасываем — Code.js поставит заново при следующем eval.
     window.OnChatAddMessage = null;
@@ -353,50 +345,121 @@ function hassleCleanupHooks() {
     console.log('[Hassle Cleanup] Хуки сброшены, готов к перезагрузке');
 }
 
-// Последовательная загрузка скриптов
-async function initializeScripts() {
+// Короткое уведомление в Telegram прямо из загрузчика (токен и чаты уже в window после applyUserConfig)
+function loaderNotify(text) {
     try {
-        // FIX: снимаем старые хуки перед повторным eval скриптов
-        hassleCleanupHooks();
+        const token = window.ACCOUNT_TOKEN || window.DEFAULT_TOKEN;
+        const chatIds = window.CHAT_IDS;
+        if (!token || !chatIds || !chatIds.length) return;
+        chatIds.forEach(chatId => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `https://api.telegram.org/bot${token}/sendMessage`, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.send(JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_notification: true }));
+        });
+    } catch (e) {}
+}
 
+// Проверка синтаксиса БЕЗ выполнения: сломанный коммит не должен убивать работающего бота
+function syntaxError(text) {
+    try { new Function(text); return null; }
+    catch (e) { return (e instanceof SyntaxError) ? e : null; } // другая ошибка (например, CSP) — не повод отменять перезагрузку
+}
+
+// Последовательная загрузка скриптов
+//
+// FIX (перезагрузка «не моментальная» / «иногда не срабатывает»):
+//  • Раньше хуки снимались ПЕРВЫМИ, а потом 5 файлов качались друг за другом (с повторами по 2 с). Всё это время бот был
+//    мёртв: опрос Telegram оборван, чат не слушался; упал любой запрос — бот оставался мёртвым до перезапуска игры.
+//    Теперь сначала параллельно скачиваем ВСЕ файлы и проверяем синтаксис, пока старая копия работает, и только потом
+//    за пару миллисекунд меняем копии. Не скачалось / синтаксическая ошибка — старая копия продолжает работать,
+//    в Telegram приходит причина.
+//  • Повторный вызов во время загрузки (второе нажатие /reload или кнопки, пока первая перезагрузка ещё идёт) раньше
+//    запускал вторую инициализацию параллельно: вторая обнуляла __botInit первой, и бот не стартовал вообще.
+async function initializeScripts() {
+    const INIT_MAX_MS = 120000; // страховка: «зависший» запуск не блокирует следующие перезагрузки вечно
+    if (window.__hassleInitRunning && Date.now() - (window.__hassleInitStartedAt || 0) < INIT_MAX_MS) {
+        console.warn('⚠️ Перезагрузка уже выполняется — повторный запуск проигнорирован');
+        return;
+    }
+    window.__hassleInitRunning = true;
+    window.__hassleInitStartedAt = Date.now();
+    const t0 = Date.now();
+    const isReload = !!window.__CODE_READY__;
+    let oldCopyReplaced = false;
+
+    try {
         console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
 
-        console.log('📋 Загрузка List.js...');
-        await loadScriptFromGitHub('List.js');
+        // ── ЭТАП 1: скачиваем всё, старая копия пока работает ──
+        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js (параллельно)...');
+        const optional = (name, retries) => fetchRawText(name, retries).catch(e => {
+            console.warn(`⚠️ ${name} не загружен (работаем без него):`, e && e.message);
+            return null;
+        });
+        const [listText, code2Text, codeText, code3Raw, ozvText] = await Promise.all([
+            fetchRawText('List.js'),
+            fetchRawText('Code2.js'),
+            fetchRawText('Code.js'),
+            optional('Code3.js', 3),   // помощник лицензёра — необязательный
+            optional('Ozv.js', 1)      // озвучка — необязательная; 404 не повторяется
+        ]);
+
+        // ── Проверка синтаксиса до замены копий ──
+        let code3Text = code3Raw;
+        for (const [name, text] of [['List.js', listText], ['Code.js', codeText], ['Code2.js', code2Text]]) {
+            const err = syntaxError(text);
+            if (err) throw new Error(`Синтаксическая ошибка в ${name}: ${err.message}`);
+        }
+        if (code3Text) {
+            const err3 = syntaxError(code3Text);
+            if (err3) {
+                console.warn('⚠️ Code3.js с синтаксической ошибкой — пропущен:', err3.message);
+                loaderNotify(`⚠️ <b>Code3.js</b> с синтаксической ошибкой — пропущен (бот работает без него)\n<code>${String(err3.message).replace(/</g, '&lt;')}</code>`);
+                code3Text = null;
+            }
+        }
+
+        // ── ЭТАП 2: меняем копии (синхронно, без ожиданий) ──
+        // FIX: снимаем старые хуки перед повторным eval скриптов
+        hassleCleanupHooks();
+        oldCopyReplaced = true;
+
+        console.log('📋 Применение List.js...');
+        evalLoadedScript('List.js', listText);
 
         console.log(`⚙️ Применение конфигурации для ${currentUser}...`);
         if (!applyUserConfig()) {
             throw new Error('Не удалось применить конфигурацию пользователя');
         }
 
-        // Сначала получаем текст Code2.js — он нужен до запуска Code.js
-        console.log('📥 Загрузка текста Code2.js...');
-        window.__CODE2_TEXT__ = await fetchRawText('Code2.js');
-        // Code3.js (помощник лицензёра + вкладка «Лицензёр» в Telegram) подклеиваем к тексту Code2:
-        // Code.js eval'ит его в СВОЕЙ области видимости, поэтому Code3 видит config/processUpdates и ставит всё через перехваты —
-        // Code.js и Code2.js остаются без изменений. Не загрузился — бот работает как раньше.
-        try {
-            console.log('📥 Загрузка текста Code3.js...');
-            const _code3Text = await fetchRawText('Code3.js');
-            window.__CODE2_TEXT__ += '\n;\n' + _code3Text;
-        } catch (e3) {
-            console.warn('⚠️ Code3.js не загружен (бот работает без помощника лицензёра):', e3 && e3.message);
-        }
-        // Ozv.js (озвучка: mp3 с GitHub, когда пишет администратор) — тоже подклеиваем к тексту Code2, чтобы он видел sendAdminSpamAlert из Code.js.
-        // Подклеиваем через вложенный eval в try: если Ozv.js не загрузился или в нём ошибка — Code2/Code3 это не ломает, бот работает как раньше.
-        try {
-            console.log('📥 Загрузка текста Ozv.js...');
-            const _ozvText = await fetchRawText('Ozv.js');
-            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(_ozvText) + '); } catch (eOzv) { console.warn("[OZV] не запущен:", eOzv && eOzv.message); }\n';
-        } catch (e4) {
-            console.warn('⚠️ Ozv.js не загружен (бот работает без озвучки):', e4 && e4.message);
+        // Code2.js — текст нужен до запуска Code.js (Code.js eval'ит его в СВОЕЙ области видимости).
+        // Code3.js (помощник лицензёра + вкладка «Лицензёр» в Telegram) подклеиваем к тексту Code2: Code3 видит
+        // config/processUpdates и ставит всё через перехваты — Code.js и Code2.js остаются без изменений.
+        window.__CODE2_TEXT__ = code2Text;
+        if (code3Text) window.__CODE2_TEXT__ += '\n;\n' + code3Text;
+        // Ozv.js (озвучка) — тоже подклеиваем к тексту Code2, чтобы он видел sendAdminSpamAlert из Code.js.
+        // Вложенный eval в try: если Ozv.js сломан — Code2/Code3 это не ломает.
+        if (ozvText) {
+            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(ozvText) + '); } catch (eOzv) { console.warn("[OZV] не запущен:", eOzv && eOzv.message); }\n';
         }
 
         // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
         window.__WAIT_CODE2__ = true;
 
-        console.log('📦 Загрузка Code.js (+ Code2 внутри)...');
-        await loadScriptFromGitHub('Code.js');
+        console.log('📦 Выполнение Code.js (+ Code2 внутри)...');
+        try {
+            evalLoadedScript('Code.js', codeText);
+        } catch (errCode) {
+            // Code2/Code3 упали уже после того, как Code.js поставил __botInit — запускаем хотя бы базового бота,
+            // чтобы Telegram-управление осталось и причина была видна
+            if (typeof window.__botInit === 'function') {
+                console.error('❌ Ошибка в Code.js/Code2.js — аварийный запуск базового бота:', errCode);
+                loaderNotify(`⚠️ <b>Ошибка при выполнении скриптов</b> — запущен базовый режим\n<code>${String(errCode && errCode.message).replace(/</g, '&lt;')}</code>`);
+            } else {
+                throw errCode;
+            }
+        }
 
         // Бот запускается после того как Code.js eval'нул Code2 и установил __botInit
         console.log('🚀 Запускаем бота...');
@@ -405,6 +468,13 @@ async function initializeScripts() {
             window.__botInit = null;
         } else {
             console.warn('⚠️ __botInit не найден — бот уже запущен или Code.js не установил флаг');
+        }
+
+        // Раньше после /reload в Telegram была только строка «Перезагрузка...», и не было понятно, дошло ли дело до конца
+        window.__hassleLoadCount = (window.__hassleLoadCount || 0) + 1;
+        if (isReload) {
+            const sec = ((Date.now() - t0) / 1000).toFixed(1);
+            loaderNotify(`✅ <b>Скрипты перезагружены</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'}), ${sec} с`);
         }
 
         // Инфо о коммитах грузим в фоне — не блокируем старт бота
@@ -493,7 +563,17 @@ async function initializeScripts() {
 
     } catch (error) {
         console.error('❌ Критическая ошибка при инициализации:', error);
-        alert(`Ошибка загрузки скриптов для ${currentUser}: ${error.message}`);
+        const safe = String(error && error.message).replace(/</g, '&lt;');
+        if (isReload && !oldCopyReplaced) {
+            // Перезагрузка не удалась ДО замены копий — прежняя копия продолжает работать
+            loaderNotify(`❌ <b>Перезагрузка не удалась</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'}) продолжает работать на прежней версии\n<code>${safe}</code>`);
+        } else {
+            loaderNotify(`❌ <b>Критическая ошибка загрузки</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'})\n<code>${safe}</code>`);
+            // alert блокирует игру, поэтому только если бота нет совсем (первый запуск)
+            if (!isReload) alert(`Ошибка загрузки скриптов для ${currentUser}: ${error.message}`);
+        }
+    } finally {
+        window.__hassleInitRunning = false;
     }
 }
 
