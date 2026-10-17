@@ -32,6 +32,9 @@
 // ║     сервера «Вы предложили…» (точный шаблон из offer.pwn)            ║
 // ║   • v1.23: Telegram ловит «Вы предложили <ник> купить у Вас…» и шлёт  ║
 // ║     полный текст (запрос ушёл); метка времени [чч:мм:сс] игнорируется ║
+// ║   • v1.24: после покупки/«уже есть» кнопка «Перевыдать» пропадает    ║
+// ║     (игра, Telegram, старые сообщения игрока); итог предложения      ║
+// ║     больше не теряется при двух выдачах подряд и сбое правки         ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
@@ -49,7 +52,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.23';
+var VERSION = 'code3 v1.24';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -644,7 +647,7 @@ function showLicMenu() {
     menuItems = [{ id: 'givelic', name: 'Выдача лицензии' },
                  { id: 'circle',  name: 'Круговое меню | ' + onOff(STATE.circle) },
                  { id: 'tea',     name: 'Просьба о чае | ' + onOff(STATE.tea) }];
-    if (OPTS.AUTO_REISSUE && STATE.last) {
+    if (OPTS.AUTO_REISSUE && STATE.last && !STATE.last.done) {
         menuItems.push({ id: 'reissue', name: 'Авто-перевыдача | {00FF00}' + STATE.last.name + ' [ID: ' + STATE.last.targetId + ']' + ((nickDisp(STATE.last.targetId) || STATE.last.nick) ? ' ' + (nickDisp(STATE.last.targetId) || STATE.last.nick) : '') });
     }
     var list = 'Помощник лицензёра<n>';
@@ -843,7 +846,24 @@ var _reissueCancelAt = 0;     // когда перевыдача отправи�
 var _reissueNoCancelAt = 0;   // когда перевыдача ушла БЕЗ /cancel (если сервер всё же скажет «Используйте /cancel» — один автоповтор с отзывом)
 var _reissueRetryDone = false;
 function _c3OfferPending() { return !!(_offerOut && Date.now() - _offerOut.at <= _offerOut.ttl); }
+// ── Выдача завершена ──
+// «Вы выдали "<лицензия>" игроку <ник> за N руб» (покупатель нажал Y) или «У покупателя уже есть этот тип лицензии».
+// После этого «Перевыдать» этому игроку бессмысленно (сервер ответит «уже есть этот тип лицензии»): убираем её и в игре, и в Telegram.
+// «Выдать лицензию» (другую) остаётся. Сервер держит ОДНО исходящее предложение (offer.pwn: O_OUTCOMIG_PLAYER), поэтому итог всегда относится к последней выдаче.
+var C3_SOLD_RE = /^\s*Вы выдали\s+(?:лицензию\s+)?[«"“`'].+?[»"”`']\s+игроку\s/;
+function _c3DoneOnChat(c) {
+    var l = STATE.last; if (!l || l.done || !l.at) return;
+    var why = null;
+    if (C3_SOLD_RE.test(c)) { if (Date.now() - l.at <= 60000) why = 'куплено'; }          // покупатель решает 15 с + проверка штрафов
+    else if (/^\s*У покупателя уже есть этот тип лицензии/.test(c)) { if (Date.now() - l.at <= 20000) why = 'уже есть'; }
+    if (!why) return;
+    l.done = why; l.doneAt = Date.now();
+    tr('GIVE/готово', why, 'ID ' + l.targetId, 'тип: ' + l.name);
+    setTimeout(updatePanel, 0);
+    try { if (typeof window.__code3TgDone === 'function') window.__code3TgDone(l); } catch (eT) {}   // Telegram: убрать «Перевыдать» под старыми сообщениями игрока
+}
 function _c3OfferOnChat(clean) {
+    try { _c3DoneOnChat(String(clean).replace(/^\s*\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/, '')); } catch (eD) {}
     var c = String(clean).replace(/^\s*\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/, '');
     if (/^\s*Вы (?:предложили|сделали предложение)\s/.test(c)) {   // «- текст (Ник)[id]» (чат игроков) сюда не попадает — начинается с «-»
         _offerOut = { at: Date.now(), ttl: /купить у\s+[Вв]ас\s+["«']?лицензи/i.test(c) ? 20000 : 45000 };   // лицензию покупатель решает 15 с
@@ -863,6 +883,7 @@ function reissueSend() {
             if (_dead || STATE.last !== d) return;
             var cmd = '/givelic ' + d.targetId + ' ' + d.type + ' ' + d.price;
             d.at = Date.now();
+            d.done = null; d.doneAt = 0;   // новая попытка выдачи — прошлый итог больше не действует
             var hang = _c3OfferPending();   // /cancel — только если предложение реально висит (после отказа по штрафам и т.п. слот свободен)
             if (hang) { _reissueCancelAt = Date.now(); rawSend('/cancel'); }
             else { _reissueNoCancelAt = Date.now(); _reissueRetryDone = false; }
@@ -911,6 +932,11 @@ function cancelOffer() {
     return true;
 }
 function doReissue() {
+    if (STATE.last && STATE.last.done) {
+        gtAdd('~y~Перевыдача не нужна~n~~w~' + (STATE.last.done === 'куплено' ? 'Игрок уже купил эту лицензию' : 'У игрока уже есть эта лицензия') + ' · для другой — «Выдать лицензию»', 3500, 3);
+        setTimeout(updatePanel, 0);
+        return;
+    }
     if (!OPTS.AUTO_REISSUE) return;
     if (!STATE.last) {
         gtAdd('~r~Авто-перевыдача~n~~w~Нет данных — сначала выдайте лицензию через меню', 3500, 3);
@@ -929,7 +955,7 @@ function panelAllowed() { return !!OPTS.PANEL && licensorReady() && isMobile(); 
 function ownItems() {
     if (!panelAllowed()) return [];
     var items = [[INT_MENU, 'Лицензёр: меню']];
-    if (OPTS.AUTO_REISSUE && STATE.last) {
+    if (OPTS.AUTO_REISSUE && STATE.last && !STATE.last.done) {
         var raw = lastRaw(STATE.last.targetId);
         var who = raw ? stripListPrefix(raw).split('_').join(' ') : STATE.last.name;
         items.push([INT_REISSUE, 'Перевыдать на ' + STATE.last.name + ': ' + who]);
@@ -2633,7 +2659,7 @@ window.__code3 = {
     types: LIC_TYPES,
     ready: licensorReady,
     give: function (id, idx) { return licensorReady() && giveByIndex(String(id), idx); },
-    reissue: function () { if (!licensorReady() || !STATE.last) return false; reissueLic(); return true; },
+    reissue: function () { if (!licensorReady() || !STATE.last || STATE.last.done) return false; reissueLic(); return true; },
     cancel: function () { return cancelOffer(); },                       // /cancel — отозвать своё исходящее предложение (кнопка «Отменить» в Telegram)
     cancelAt: function () { return _cancelAt; },
     reissueCancelAt: function () { return _reissueCancelAt; },
@@ -2757,7 +2783,7 @@ try { (function () {
             [btn('🪪 Выдача лицензий', PFX + 'types|' + uid, 'primary')]
         ];
         rows.push([btn('❌ Отменить предложение (/cancel)', PFX + 'cancel|' + uid, 'danger')]);
-        if (last) rows.push([btn('🔁 Перевыдать: ' + last.name + ' → ' + last.targetId, PFX + 'reissue|' + uid)]);
+        if (last && !last.done) rows.push([btn('🔁 Перевыдать: ' + last.name + ' → ' + last.targetId, PFX + 'reissue|' + uid)]);
         rows.push([btn('⬅️ Вернуться назад', 'show_functions_' + uid)]);
         editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
     }
@@ -2806,6 +2832,11 @@ try { (function () {
         if (!ready()) { sendToTelegram(notReadyText(), false, null); return false; }
         const last = lastGive();
         if (!last) { sendToTelegram('❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null); return false; }
+        if (last.done && String(last.targetId) === String(tid)) {
+            sendToTelegram('ℹ️ <b>Перевыдача не нужна (' + esc(displayName) + ')</b>\n' + (last.done === 'куплено' ? 'Игрок уже купил эту лицензию.' : 'У игрока уже есть эта лицензия.') + ' Для другой — «Выдать лицензию».', true, null);
+            refreshPlayerKeyboards(tid);
+            return false;
+        }
         if (String(last.targetId) !== String(tid)) {
             sendToTelegram('⚠️ <b>Перевыдача отменена (' + esc(displayName) + ')</b>\nПоследняя выдача была другому игроку: ID <code>' + esc(last.targetId) + '</code> (' + esc(nickOf(last.targetId) || '—') + ').', false, null);
             return false;
@@ -2850,7 +2881,7 @@ try { (function () {
     }
     function wrapRows(rows, id, text) {   // быстрые кнопки — сверху, «Выдача лицензии» — снизу
         // «🔁 Перевыдать» — прямо над «Выдача лицензии» (только если последняя выдача была этому игроку); внутри меню лицензий её больше нет
-        return quickRows(id, text).concat(rows, (ready() && isTarget(id)) ? [[reissueBtn(id)]] : [], ready() ? [licOpenRow(id)] : []);
+        return quickRows(id, text).concat(rows, (ready() && canReissue(id)) ? [[reissueBtn(id)]] : [], ready() ? [licOpenRow(id)] : []);
     }
     function playerMarkup(id, text) {
         let rows = [];
@@ -3176,6 +3207,8 @@ try { (function () {
             case 'reissue':
                 if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
                 {
+                    const lg0 = lastGive();
+                    if (lg0 && lg0.done) { reissueFor(lg0.targetId); break; }
                     const giveAt = Date.now(), lg = lastGive(), okRe = !!api().reissue();
                     if (okRe && lg) watchGive(giveAt, lg.targetId);
                     if (!okRe) sendToTelegram('❌ <b>Нет данных для перевыдачи (' + esc(displayName) + ')</b>', false, null);
@@ -3336,6 +3369,8 @@ try { (function () {
         } catch (e) { return null; }
     }
     function isTarget(id) { const l = lastGive(); return !!(l && String(l.targetId) === String(id)); }
+    // «Перевыдать» имеет смысл, только пока лицензию не купили (и не ответили «уже есть»): после этого — только «Выдать лицензию»
+    function canReissue(id) { const l = lastGive(); return !!(l && String(l.targetId) === String(id) && !l.done); }
     function reissueBtn(id, label) {
         const l = lastGive();
         return btn(label || ('🔁 Перевыдать: ' + (l ? l.name : 'лицензию')), PFX + 're|' + id + '|' + uniqueId, 'primary');
@@ -3369,7 +3404,7 @@ try { (function () {
         { re: /^Игрок не принял решение по Вашему предложению/i,          icon: '⌛', title: 'Время вышло — игрок не принял предложение', redo: true, end: true },
         { re: /^\*?\s*Игрок (?:находится )?слишком далеко/i,            icon: '📏', title: 'Игрок слишком далеко', redo: true },
         { re: /^\*?\s*Такого игрока нет/i,                                icon: '❓', title: 'Такого игрока нет', redo: false },
-        { re: /^Вы выдали\s/i,                                            icon: '✅', title: 'Лицензия выдана', redo: false, silent: false, sold: true }
+        { re: /^Вы выдали\s+(?:лицензию\s+)?[«"“`'].+?[»"”`']\s+игроку\s/i,                                            icon: '✅', title: 'Лицензия выдана', redo: false, silent: false, sold: true }
     ];
     // Сообщение «📨 Вы предложили …», отправленное тихо: при покупке («Вы выдали …») правим его на «✅ Лицензия выдана», а не шлём второе.
     // { at, msgs: [{cid, mid}], targetId, text } — msgs заполняется, когда Telegram вернул id сообщения.
@@ -3378,9 +3413,57 @@ try { (function () {
     const OFFER_EDIT_TTL = 3 * 60 * 1000;   // сколько помним тихое предложение (на решение у покупателя 15 с — offer.pwn: GetOfferDecinisionTime)
     function offerFresh() { return !!(_offerMsg && Date.now() - _offerMsg.at <= OFFER_EDIT_TTL); }
     // Превращаем сообщение-предложение в итоговое («Лицензия выдана» / «Отказался» / «Время вышло» / «Отозвано»); id сообщения может ещё не прийти — ждём до ~6 с, потом шлём новым сообщением
+    // Правка сообщения с предложением. Раньше при сбое правки (сеть / 429 / сообщение удалено) Code.js молча писал в лог и итог терялся —
+    // теперь при любой ошибке (кроме «message is not modified») итог уходит НОВЫМ сообщением в тот же чат.
+    function editOrResend(m, body, markup) {
+        if (typeof tgApi !== 'function') { editMessageText(m.cid, m.mid, body, markup); return; }
+        const kb = markup ? JSON.stringify(markup) : undefined;
+        tgApi('editMessageText', { chat_id: m.cid, message_id: m.mid, text: body, parse_mode: 'HTML', reply_markup: kb },
+            function () { c3Dbg('[LIC] итог предложения: сообщение ' + m.mid + ' исправлено'); },
+            function (status, resp) {
+                let d = ''; try { d = JSON.parse(resp).description || ''; } catch (e) {}
+                if (/not modified/i.test(d)) return;
+                c3Dbg('[LIC] итог предложения: правка не удалась (' + status + ' ' + d + ') → шлю новым сообщением');
+                try { tgApi('sendMessage', { chat_id: m.cid, text: body, parse_mode: 'HTML', disable_notification: false, reply_markup: kb }); } catch (e2) { sendToTelegram(body, false, markup); }
+            });
+    }
+    // Сервер сообщает ПРОДАВЦУ только о покупке, отказе, истечении 15 с и отзыве. Если покупатель нажал Y, но покупка не прошла
+    // (нет денег / далеко / лицензия уже есть / слишком быстро), offer.pwn очищает предложение и пишет об этом только покупателю —
+    // сообщение «📨 Вы предложили…» навсегда оставалось «живым» с кнопкой «Отменить». Через OFFER_STALE_MS без итога закрываем его.
+    const OFFER_STALE_MS = 22000;   // 15 с у покупателя (ClearPlayerOfferTimer) + запас
+    function staleOffer(rec) {
+        try {
+            if (_offerMsg !== rec) return;   // итог уже пришёл — сообщение исправлено
+            _offerMsg = null;
+            const l = lastGive();
+            const same = !!(l && rec.targetId !== null && rec.targetId !== undefined && String(l.targetId) === String(rec.targetId));
+            const rows = [];
+            if (same && !l.done) rows.push([reissueBtn(l.targetId)]);
+            if (same) rows.push([btn('🪪 Выдать лицензию (ID ' + l.targetId + ')', PFX + 'to|' + l.targetId + '|' + uniqueId)]);
+            const body = '⌛ <b>Предложение уже не активно</b>\n📨 ' + esc(rec.text) + '\n' +
+                '<i>Итога от сервера нет: продавцу он приходит только при покупке, отказе, истечении времени или отзыве. Скорее всего, игрок нажал Y, но покупка не прошла (нет денег, далеко или такая лицензия уже есть).</i>\n(' + esc(displayName) + ')';
+            c3Dbg('[LIC] предложение без итога ' + OFFER_STALE_MS + ' мс → закрываю сообщение');
+            applyOfferEdit(rec, body, rows.length ? { inline_keyboard: rows } : null, 0);
+        } catch (e) { c3Dbg('[LIC] staleOffer error: ' + e.message); }
+    }
+    // После покупки убираем «🔁 Перевыдать» под уже отправленными сообщениями этого игрока (раньше она оставалась до ближайшей перерисовки)
+    function refreshPlayerKeyboards(id) {
+        try {
+            if (!ready()) return;
+            const ctl = window.__hassleCtl || {};
+            const keys = Object.keys(_playerMsgs).filter(function (k) { return String(_playerMsgs[k].id) === String(id); }).slice(-4);
+            keys.forEach(function (k, i) {
+                if ((ctl.dirty && ctl.dirty[k]) || (ctl.onMenuText && ctl.onMenuText[k])) return;   // на сообщении сейчас меню «Управление»: при «Назад» клавиатура соберётся заново — уже без «Перевыдать»
+                const ent = _playerMsgs[k], p = k.split(':');
+                const cid = /^-?\d+$/.test(p[0]) ? Number(p[0]) : p[0];
+                setTimeout(function () { try { editMessageReplyMarkup(cid, parseInt(p[1], 10), playerMarkup(ent.id, ent.text)); } catch (e) {} }, 350 * i);   // небольшой разнос — не упираемся в лимит Telegram
+            });
+        } catch (e) { c3Dbg('[LIC] refreshPlayerKeyboards error: ' + e.message); }
+    }
+    window.__code3TgDone = function (l) { try { refreshPlayerKeyboards(l.targetId); } catch (e) {} };
     function applyOfferEdit(rec, body, markup, tries) {
         if (rec.msgs.length) {
-            rec.msgs.forEach(function (m) { editMessageText(m.cid, m.mid, body, markup); });
+            rec.msgs.forEach(function (m) { editOrResend(m, body, markup); });
             return;
         }
         if (tries < 8) { setTimeout(function () { applyOfferEdit(rec, body, markup, tries + 1); }, 700); return; }
@@ -3395,7 +3478,7 @@ try { (function () {
         const inWin = !!(l && l.at && now - l.at <= EVENT_WINDOW);                // ответ на недавнюю выдачу
         let cw = false;                                                           // ответ на наш /cancel (его окно — 15 с, даже если выдача была давно)
         if (ev.cancel) { try { const ca = api().cancelAt && api().cancelAt(); cw = !!(ca && now - ca < 15000); } catch (e) {} }
-        const offerEdit = !!((ev.sold || ev.end) && offerFresh() && (!ev.sold || /лиценз/i.test(text)));   // исход тихого предложения — правим его сообщение
+        const offerEdit = !!((ev.sold || ev.end) && offerFresh());   // исход тихого предложения — правим его сообщение
         if (!inWin && !cw && !ev.ok && !offerEdit) return false;                              // «Вы предложили…» шлём всегда: эту строку сервер пишет только нам, когда запрос реально ушёл
         if (ev.redoCancel) {   // «Используйте /cancel…» сразу после перевыдачи без /cancel — Code3 сам отзовёт и повторит, сообщение не нужно
             let rec = false;
@@ -3408,7 +3491,7 @@ try { (function () {
             if (ri && !(ev.end && offerFresh())) return true;   // (если висело тихое предложение — оно правится на «отозвано», это не лишнее сообщение)
         }
         if (!ev.cancel) _evAt = now;                                              // сервер ответил на выдачу — сторож (watchGive) молчит
-        if (!once('ev|' + ev.title, 3000)) return true;
+        if (!once('ev|' + ev.title + '|' + text, 3000)) { c3Dbg('[LIC] дубль строки сервера пропущен: «' + ev.title + '»'); return true; }   // ключ — название + текст: две разные покупки подряд не склеиваются
         const showL = !!(l && inWin);
         const send = function () {
             const nick = showL ? nickOf(l.targetId) : null;
@@ -3420,7 +3503,9 @@ try { (function () {
             if (ev.ok) {
                 // «Предложение отправлено»: только полный текст сервера (лицензия и цена в нём уже есть). Тихо; id сообщения запоминаем для правки при покупке
                 const rec = { at: Date.now(), msgs: [], targetId: showL ? l.targetId : null, text: text };
+                if (_offerMsg && _offerMsg !== rec) { try { if (_offerMsg.timer) clearTimeout(_offerMsg.timer); staleOffer(_offerMsg); } catch (eS) {} }   // новое предложение — прошлое уже закончилось
                 _offerMsg = rec;
+                rec.timer = setTimeout(function () { staleOffer(rec); }, OFFER_STALE_MS);
                 sendToTelegram(ev.icon + ' <b>' + esc(text) + '</b>\n(' + esc(displayName) + ')', !!ev.silent, rows.length ? { inline_keyboard: rows } : null,
                     function (cid, mid) { rec.msgs.push({ cid: cid, mid: mid }); });
                 return;
@@ -3434,9 +3519,12 @@ try { (function () {
             const markup = rows.length ? { inline_keyboard: rows } : null;
             if (edRec) {   // исход предложения — правим тихое сообщение с предложением, второе не шлём (кнопка «Отменить» пропадает)
                 _offerMsg = null;
+                if (edRec.timer) clearTimeout(edRec.timer);
+                c3Dbg('[LIC] «' + ev.title + '» → правлю сообщение с предложением (id в Telegram: ' + (edRec.msgs.length ? edRec.msgs.map(function (m) { return m.mid; }).join(',') : 'ещё не пришёл') + ')');
                 applyOfferEdit(edRec, body, markup, 0);
                 return;
             }
+            if (ev.sold) c3Dbg('[LIC] «' + ev.title + '»: живого сообщения с предложением нет → шлю новым сообщением');
             sendToTelegram(body, !!ev.silent, markup);
         };
         if (showL) { try { const a = api(); if (a && typeof a.whenNick === 'function') a.whenNick(l.targetId, send); else send(); } catch (e) { send(); } }   // ждём, пока ник цели определится (ответ сервера на /id)
