@@ -8,6 +8,29 @@ const accountPassword = '';  // ОБЩИЙ ПАРОЛЬ автовхода — �
 const nickPasswords = {};    // ПАРОЛИ ДЛЯ ОТДЕЛЬНЫХ НИКОВ {ник: пароль} — подставляет установщик; приоритетнее общего
 
 // ============================================================
+// СНИМОК «ЧИСТЫХ» ФУНКЦИЙ ИГРЫ (делается один раз, до первого запуска скриптов).
+// Code.js / Code2.js оборачивают window.sendChatInput (4 слоя за одну загрузку), setPlayerSkinId, onUpdatePlayersList,
+// setCursorStatus и др. Раньше при каждом /reload поверх старых обёрток ложились новые: слои копились, и каждое сообщение
+// чата проходило через всё больше цепочек. Все эти функции игра определяет ОДИН раз в index.js (проверено по клиентским
+// файлам), поэтому перед перезагрузкой их безопасно вернуть к исходному виду — скрипты обернут их заново один раз.
+// Имя, которого в снимке нет (игра ещё не определила), не трогаем.
+// ============================================================
+const HASSLE_GAME_FNS = [
+    'sendChatInput', 'openInterface', 'closeInterface', 'interface', 'getInterfaceStatus',
+    'setCursorStatus', 'setDrawLabelStatus', 'setChatIsInactive', 'onChatMessageAction', 'hideKeyboard',
+    'addDialogInQueue', 'setPlayerSkinId', 'onUpdatePlayersList', 'onScreenControlTouchStart'
+];
+// Функции, которых в игре нет — их создают сами скрипты (цепочка «Custom» строится от прошлой копии)
+// (sendClientEventCustom не здесь: его возврат уже сделан отдельно выше вместе с глобальной sendClientEvent)
+const HASSLE_OWN_FNS = ['sendChatInputCustom'];
+(function hassleSnapshotGameFns() {
+    const snap = (window.__hasslePristine = window.__hasslePristine || {});
+    HASSLE_GAME_FNS.concat(HASSLE_OWN_FNS).forEach(n => {
+        if (!(n in snap) && typeof window[n] === 'function') snap[n] = window[n];
+    });
+})();
+
+// ============================================================
 // Автоматический поиск чат-компонента — два метода:
 //
 // Метод 1 (быстрый): читаем исходник Hud.js через fetch и ищем
@@ -31,6 +54,7 @@ function hookComponent(v, name) {
         // FIX: не вешаем хук повторно при перезагрузке скрипта
         if (v.methods.__hassleHooked) {
             console.log(`✅ Хук на чат уже установлен ("${name}"), пропускаем`);
+            window.__hassleChatHooked = true;
             return true;
         }
         const originalAdd = v.methods.add;
@@ -40,6 +64,7 @@ function hookComponent(v, name) {
             return result;
         };
         v.methods.__hassleHooked = true; // маркер: хук уже на месте
+        window.__hassleChatHooked = true;
         console.log(`✅ Хук на чат установлен (переменная: "${name}")`);
         return true;
     }
@@ -79,7 +104,8 @@ function evalScan() {
     return false;
 }
 
-function setupChatHook() {
+// noScan=true — только быстрый путь по исходнику Hud.js: полный перебор имён (≈200 тыс. eval) подвешивает игру на секунды
+function setupChatHook(noScan) {
     // Метод 1: найти имя переменной по исходнику Hud.js
     // Паттерн const XX={components:{Scrolling: стабилен между обновлениями
     try {
@@ -90,7 +116,10 @@ function setupChatHook() {
             fetch(hudScript.src)
                 .then(r => r.text())
                 .then(src => {
-                    const match = src.match(/const\s+(\w+)=\{components:\{Scrolling:/);
+                    // FIX: в актуальном Hud.js компонент объявлен в списке через запятую («...,An=512,us={components:{Scrolling:kn}...»),
+                    // а не как отдельный «const us=...» — прежняя регулярка не находила его и каждый раз шёл перебор имён.
+                    // Допускаем const/let/var/запятую перед именем и «$» в имени.
+                    const match = src.match(/(?:const|let|var|,)\s*([\w$]+)=\{components:\{Scrolling:/);
                     if (match) {
                         const varName = match[1];
                         console.log(`🔍 Нашли имя чат-компонента в исходнике: "${varName}"`);
@@ -98,21 +127,21 @@ function setupChatHook() {
                         let v; try { v = eval(varName); } catch(e) {}
                         if (!hookComponent(v, varName)) {
                             console.warn('⚠️ eval по имени не сработал, запускаем сканирование');
-                            evalScan();
+                            (noScan ? console.warn('⚠️ Чат-компонент не найден быстрым способом (перебор пропущен)') : evalScan());
                         }
                     } else {
                         console.warn('⚠️ Паттерн не найден в исходнике, запускаем сканирование');
-                        evalScan();
+                        (noScan ? console.warn('⚠️ Чат-компонент не найден быстрым способом (перебор пропущен)') : evalScan());
                     }
                 })
-                .catch(() => evalScan());
+                .catch(() => { if (!noScan) evalScan(); });
 
             return; // fetch асинхронный, выходим
         }
     } catch (e) {}
 
     // Метод 2: сканирование (синхронно, если fetch не доступен)
-    evalScan();
+    (noScan ? console.warn('⚠️ Чат-компонент не найден быстрым способом (перебор пропущен)') : evalScan());
 }
 
 setupChatHook();
@@ -336,6 +365,19 @@ function hassleCleanupHooks() {
         window.getInterfaceStatus = window._hassleOrig_getInterfaceStatus;
         console.log('[Hassle Cleanup] getInterfaceStatus восстановлен');
     }
+    // Общий возврат к исходным функциям игры (см. снимок выше). Идёт ПОСЛЕ снятия Ozv/Code3 и точечных восстановлений.
+    try {
+        const snap = window.__hasslePristine || {};
+        let restored = 0;
+        HASSLE_GAME_FNS.forEach(n => {
+            if (n in snap && window[n] !== snap[n]) { try { window[n] = snap[n]; restored++; } catch (e) {} }
+        });
+        HASSLE_OWN_FNS.forEach(n => {
+            if (n in snap) { if (window[n] !== snap[n]) { try { window[n] = snap[n]; } catch (e) {} } }
+            else if (typeof window[n] === 'function') { try { delete window[n]; } catch (e) { window[n] = undefined; } }
+        });
+        if (restored) console.log(`[Hassle Cleanup] Возвращено исходных функций игры: ${restored}`);
+    } catch (e) {}
     // OnChatAddMessage: Code.js ставит новую функцию, Code2.js оборачивает её.
     // Сбрасываем — Code.js поставит заново при следующем eval.
     window.OnChatAddMessage = null;
@@ -418,6 +460,13 @@ async function initializeScripts() {
                 loaderNotify(`⚠️ <b>Code3.js</b> с синтаксической ошибкой — пропущен (бот работает без него)\n<code>${String(err3.message).replace(/</g, '&lt;')}</code>`);
                 code3Text = null;
             }
+        }
+
+        // Хук на чат ставится один раз при старте Load.js. Если тогда он не встал (чат-компонент ещё не был создан,
+        // игра обновилась) — бот не видит ни одного сообщения чата до перезапуска игры. При перезагрузке пробуем снова.
+        if (!window.__hassleChatHooked) {
+            console.log('🔁 Хук на чат не был установлен — пробуем ещё раз');
+            try { setupChatHook(true); } catch (e) { console.warn('setupChatHook:', e && e.message); }
         }
 
         // ── ЭТАП 2: меняем копии (синхронно, без ожиданий) ──
