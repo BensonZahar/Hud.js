@@ -749,10 +749,12 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 
     // Последний удачный профиль живёт на window и переживает /reload: после перезагрузки приветствие и звание
     // (например, для помощника лицензёра) доступны сразу, а свежие данные дочитываются в фоне.
+    // Подпись разбора: если вы правите _parseStats и перезагружаете скрипт, кэш в прежнем формате сам считается устаревшим
+    var _CACHE_SIG = (function() { var h = 0, t = String(_parseStats); for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return h; })();
     function _saveProfileCache(p) {
         try {
             window.__hassleProfileCache = {
-                nick: config.accountInfo.nickname, server: config.accountInfo.server,
+                nick: config.accountInfo.nickname, server: config.accountInfo.server, sig: _CACHE_SIG,
                 at: Date.now(), data: JSON.parse(JSON.stringify(p))
             };
         } catch(e) {}
@@ -760,7 +762,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
     function _applyProfileCache() {
         try {
             var c = window.__hassleProfileCache;
-            if (!c || !c.data) return false;
+            if (!c || !c.data || c.sig !== _CACHE_SIG) return false;
             if (!config.accountInfo.nickname || c.nick !== config.accountInfo.nickname || c.server !== config.accountInfo.server) return false;
             if (Date.now() - c.at > 30 * 60 * 1000) return false;
             if (globalState._factionRecheckSkin) return false; // идёт перепроверка фракции — кэш устарел по определению
