@@ -15,7 +15,6 @@ import socket
 import platform
 import base64
 import re
-import struct
 from tkinter import messagebox, filedialog
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -165,7 +164,6 @@ class MEmuHudManager:
         self.hud_file = self.script_dir / "Hud.js"
         self.hud_nocode_file = self.script_dir / "Hud_nocode.js"
         self.temp_file = self.script_dir / "temp_hud.tmp"
-        self.code_png_file = Path(resource_path("code.png"))  # локальный PNG-шаблон (рядом с .exe)
         self.github_repo = "https://api.github.com/repos/BensonZahar/Hud.js/contents/HassleB"
         self.code_files = []
         self.selected_code_url = None
@@ -346,7 +344,7 @@ class MEmuHudManager:
                 for i, (f, acc) in enumerate(plan, 1):
                     self.log(f"[→] {i}/{len(plan)}: {f} → аккаунт #{acc}")
                     self.selected_account_number = acc
-                    self._run_on_targets(self.replace_with_html, f)
+                    self._run_on_targets(self.replace_with_code, f)
             finally:
                 self.selected_account_number = prev
             self.log(f"[√] Автовставка завершена: {len(plan)} из {len(folders)} папок")
@@ -2265,7 +2263,7 @@ class MEmuHudManager:
             dialog.destroy()
             threading.Thread(
                 target=lambda: self._with_progress(
-                    lambda: self._run_on_targets(self.replace_with_html, app_folder)),
+                    lambda: self._run_on_targets(self.replace_with_code, app_folder)),
                 daemon=True,
             ).start()
 
@@ -2775,253 +2773,6 @@ class MEmuHudManager:
                 and not f.strip().startswith("1com.hassle.online")
             ]
         return []
-
-    # ── Маркеры стеганографии ────────────────────────────────────────────────
-    _PNG_MARKER = b'HASSLELOAD'          # 10 байт — ищется в хвосте PNG
-    _HTML_START = "<!-- HASSLE BOT START -->"
-    _HTML_END   = "<!-- HASSLE BOT END -->"
-
-    def embed_code_in_png(self, png_bytes: bytes, code: str) -> bytes:
-        """
-        Прячет обфусцированный Load.js-код в байтах PNG-файла,
-        дописывая его ПОСЛЕ IEND-чанка.
-        PNG-вьюеры игнорируют всё после IEND — картинка выглядит нормально.
-        JS делает fetch().arrayBuffer() и читает все байты, находя маркер.
-
-        Структура хвоста:
-            [HASSLELOAD — 10 байт][длина payload 4 байта BE][payload N байт]
-        payload = simple_obfuscate(code) → двойная защита.
-        """
-        payload = self.simple_obfuscate(code).encode('utf-8')
-        return png_bytes + self._PNG_MARKER + struct.pack('>I', len(payload)) + payload
-
-    def make_html_tag(self) -> str:
-        """
-        Возвращает полный <script> тег (~600 байт) для вставки в index.html.
-        Тег ждёт события load (Hud.js уже выполнился), затем:
-          - fetch('./assets/code.png') → ArrayBuffer
-          - ищет маркер HASSLELOAD
-          - eval(payload) → Load.js запускается, затем Code.js с GitHub
-        Hud.js и index.js остаются нетронутыми.
-        """
-        mk = ','.join(str(b) for b in self._PNG_MARKER)
-        ml = len(self._PNG_MARKER)
-        js = (
-            "function hassleInit(){"
-              "try{"
-                "fetch('./assets/code.png?_='+Date.now())"
-                ".then(function(r){return r.arrayBuffer();})"
-                f".then(function(b){{var a=new Uint8Array(b),m=[{mk}],ml={ml};"
-                "for(var i=0;i<=a.length-ml-4;i++){"
-                  "var ok=true;"
-                  "for(var j=0;j<ml;j++){if(a[i+j]!==m[j]){ok=false;break;}}"
-                  "if(ok){"
-                    "var l=new DataView(b).getUint32(i+ml,false),"
-                    "s=new TextDecoder().decode(a.slice(i+ml+4,i+ml+4+l));"
-                    "eval(s);return;"
-                  "}"
-                "}"
-              "}});}"
-              "}catch(e){}}"
-            "if(document.readyState==='complete')hassleInit();"
-            "else window.addEventListener('load',hassleInit);"
-        )
-        return f"{self._HTML_START}<script>{js}</script>{self._HTML_END}"
-
-    def inject_html_bootstrap(self, html: str) -> str:
-        """
-        Убирает старый тег (если есть) и вставляет новый перед </body>.
-        Маркеры <!-- HASSLE BOT START/END --> обеспечивают идемпотентность —
-        повторный запуск установщика заменяет тег, а не дублирует его.
-        """
-        import re as _re
-        pattern = _re.escape(self._HTML_START) + r'.*?' + _re.escape(self._HTML_END)
-        html = _re.sub(pattern, '', html, flags=_re.DOTALL)
-        tag = self.make_html_tag()
-        if '</body>' in html:
-            html = html.replace('</body>', f'  {tag}\n</body>', 1)
-        else:
-            html = html + '\n' + tag
-        return html
-
-    def replace_with_html(self, app_folder):
-        """
-        Вставка кода через index.html — Hud.js и index.js НЕ ТРОГАЮТСЯ.
-        Изменяются только два файла:
-          • code.png  — хранит весь Load.js в хвосте PNG после IEND
-          • index.html — получает маленький <script> тег (~600 байт),
-                         который при загрузке страницы читает code.png и eval()-ит код
-        Путь к файлам:
-          assets/  (Hud.js, code.png ...)  →  webview/assets/
-          index.html                        →  webview/index.html
-        """
-        adb_path     = self.adb_path
-        device_param = list(self.device_param)
-        assets_path  = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-        webview_path = f"{self.storage_path}/{app_folder}/files/Assets/webview"
-        html_device  = f"{webview_path}/index.html"
-        png_device   = f"{assets_path}/code.png"
-
-        html_tmp_in  = self.script_dir / "temp_html_in.tmp"
-        html_tmp_out = self.script_dir / "temp_html_out.tmp"
-        png_tmp_in   = self.script_dir / "temp_cpng_in.tmp"
-        png_tmp_out  = self.script_dir / "temp_cpng_out.tmp"
-
-        try:
-            # ── 1. Скачать и подготовить Load.js ────────────────────────────
-            load_url  = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/Load.js"
-            load_code = self.download_code(load_url)
-            if not load_code:
-                return
-
-            user_name = self.selected_code_name
-            acc_num   = self.selected_account_number or ''
-            load_code = load_code.replace("const currentUser = '';",   f"const currentUser = '{user_name}';")
-            load_code = load_code.replace("const accountNumber = '';", f"const accountNumber = '{acc_num}';")
-
-            acc_token = self.get_local_account_token(user_name, acc_num) or ''
-            if not re.fullmatch(self.TOKEN_RE, acc_token):
-                acc_token = ''
-            if acc_token:
-                self.log(f"[√] Токен аккаунта #{acc_num} взят из локального хранилища")
-            else:
-                self.log(f"[!] Локальный токен для аккаунта #{acc_num} не найден — добавьте его в «Токены аккаунтов»")
-            load_code = load_code.replace("const accountToken = '';", f"const accountToken = '{acc_token}';")
-
-            acc_password   = self.get_local_password(user_name)
-            nick_passwords = self.get_local_nick_passwords(user_name)
-            load_code = load_code.replace("const accountPassword = '';",
-                                          f"const accountPassword = {json.dumps(acc_password)};")
-            load_code = load_code.replace("const nickPasswords = {};",
-                                          f"const nickPasswords = {json.dumps(nick_passwords)};")
-            if acc_password or nick_passwords:
-                self.log(f"[√] Пароли входа взяты из локального хранилища "
-                         f"(общий: {'да' if acc_password else 'нет'}, по нику: {len(nick_passwords)})")
-            else:
-                self.log("[!] Пароль автовхода не задан — добавьте его в «Пароли входа», иначе вход будет ручной")
-            if self.full_logging:
-                self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
-
-            # ── 2. Скачать чистый code.png с GitHub → спрятать туда Load.js ─
-            CODE_PNG_URL = (
-                "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/code.png"
-            )
-            png_base = None
-
-            # Приоритет 1: GitHub (всегда свежая чистая картинка без старого кода)
-            try:
-                r = requests.get(CODE_PNG_URL, timeout=15)
-                r.raise_for_status()
-                if r.content[:4] == b'\x89PNG':   # проверяем PNG-сигнатуру
-                    png_base = r.content
-                    self.log("[√] code.png загружен с GitHub" if not self.full_logging
-                             else f"[√] code.png загружен с GitHub ({len(png_base)} байт)")
-                else:
-                    self.log("[!] GitHub вернул не PNG — пробуем устройство")
-            except Exception as _e:
-                self.log(f"[!] GitHub недоступен ({_e}) — пробуем устройство")
-
-            # Приоритет 2: файл на устройстве
-            if png_base is None:
-                pull_png = subprocess.run(
-                    [adb_path] + device_param + ["pull", png_device, str(png_tmp_in)],
-                    capture_output=True, text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-                )
-                if pull_png.returncode == 0:
-                    png_base = png_tmp_in.read_bytes()
-                    if self.full_logging:
-                        self.log(f"code.png взят с устройства ({len(png_base)} байт)")
-
-            # Приоритет 3: локальный файл рядом с .exe
-            if png_base is None and self.code_png_file.exists():
-                png_base = self.code_png_file.read_bytes()
-                if self.full_logging:
-                    self.log("code.png взят локально из папки установщика")
-
-            if png_base is None:
-                self.log("[X] Ошибка: code.png не найден (нет GitHub, нет устройства, нет локального файла)")
-                return
-
-            try:
-                new_png = self.embed_code_in_png(png_base, load_code)
-                png_tmp_out.write_bytes(new_png)
-                push_png = subprocess.run(
-                    [adb_path] + device_param + ["push", str(png_tmp_out), png_device],
-                    capture_output=True, text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-                )
-                if push_png.returncode == 0:
-                    self.log("[√] Код скрыт в code.png" if not self.full_logging
-                             else f"[√] code.png ({len(new_png)} байт) залит на устройство")
-                else:
-                    self.log("[X] Ошибка: Не удалось залить code.png" if not self.full_logging
-                             else f"[X] push code.png: {push_png.stderr.strip()}")
-                    return
-            except Exception as ex:
-                self.log(f"[X] Ошибка PNG: {ex}")
-                return
-            finally:
-                for _t in (png_tmp_in, png_tmp_out):
-                    try:
-                        if _t.exists(): _t.unlink()
-                    except Exception:
-                        pass
-
-            # ── 3. Скачать index.html ────────────────────────────────────────
-            self.log("Скачивание index.html..." if not self.full_logging
-                     else f"Скачивание {html_device}...")
-            pull_html = subprocess.run(
-                [adb_path] + device_param + ["pull", html_device, str(html_tmp_in)],
-                capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-            )
-            if pull_html.returncode != 0:
-                self.log("[X] Ошибка: Не удалось получить index.html" if not self.full_logging
-                         else f"[X] pull index.html: {pull_html.stderr.strip()}")
-                return
-
-            try:
-                html_content = html_tmp_in.read_text(encoding='utf-8')
-            except UnicodeDecodeError:
-                self.log("[X] Ошибка: Не удалось декодировать index.html")
-                return
-            if not html_content:
-                self.log("[X] Ошибка: index.html пуст")
-                return
-
-            # ── 4. Вставить / обновить bootstrap тег ────────────────────────
-            new_html = self.inject_html_bootstrap(html_content)
-            new_html = new_html.replace('\r\n', '\n').replace('\r', '\n')
-            html_tmp_out.write_text(new_html, encoding='utf-8', newline='\n')
-            if self.full_logging:
-                self.log(f"index.html: {len(html_content)} → {len(new_html)} байт")
-
-            # ── 5. Залить изменённый index.html ─────────────────────────────
-            self.log("Копирование index.html..." if not self.full_logging
-                     else f"Копирование index.html → {html_device}...")
-            push_html = subprocess.run(
-                [adb_path] + device_param + ["push", str(html_tmp_out), html_device],
-                capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-            )
-            if push_html.returncode == 0:
-                self.log("[√] Успешно: index.html обновлён" if not self.full_logging
-                         else f"[√] Выполнено: index.html → {html_device}")
-                self.replace_loader_files(assets_path, adb_path, device_param)
-            else:
-                self.log("[X] Ошибка: Не удалось заменить index.html" if not self.full_logging
-                         else f"[X] push index.html: {push_html.stderr.strip()}")
-
-        except Exception as e:
-            self.log("[X] Ошибка: Не удалось обработать файлы" if not self.full_logging
-                     else f"[X] Не выполнено: {e}")
-        finally:
-            for _t in (html_tmp_in, html_tmp_out):
-                try:
-                    if _t.exists(): _t.unlink()
-                except Exception:
-                    pass
 
     def simple_obfuscate(self, code):
         codes = [ord(c) for c in code]
