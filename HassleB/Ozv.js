@@ -43,6 +43,7 @@ var EVENTS = [
     { key: 'disconnect', file: 'Дисконнект',      label: 'Дисконнект' },
     { key: 'autologin',  file: 'Автовход',        label: 'Автовход не сработал' },
     { key: 'warn',       file: 'Выговор',         label: 'Выговор' },
+    { key: 'stroi',      file: 'Строй',           label: 'Строй' },
     { key: 'location',   file: 'Местоположение',  label: 'Местоположение' },
     { key: 'respawn',    file: 'Респавн',         label: 'Респавн' },
     { key: 'keyword',    file: 'Ключевое слово',  label: 'Ключевое слово' },
@@ -56,6 +57,10 @@ var KEYS_RE = EVENTS.map(function (ev) { return ev.key; }).concat('all').join('|
 var PREFS = (window.__ozvPrefs = window.__ozvPrefs || {});
 EVENTS.forEach(function (ev) { if (typeof PREFS[ev.key] !== 'boolean') PREFS[ev.key] = false; });
 try { if (typeof config !== 'undefined') config.ozvSounds = PREFS; } catch (e) {}
+// GLOB[key] = true, если звук включён именно командой «Все аккаунты» (кнопка «Все аккаунты» горит зелёным только тогда).
+// Выбор «Этот аккаунт» сбрасывает флаг: включён только один аккаунт, «все» уже не верно.
+var GLOB = (window.__ozvGlob = window.__ozvGlob || {});
+EVENTS.forEach(function (ev) { if (typeof GLOB[ev.key] !== 'boolean') GLOB[ev.key] = false; });
 
 var GEN = (window.__ozvGen = (window.__ozvGen || 0) + 1);
 var _dead = false, _undo = [], _lastAt = {};
@@ -110,10 +115,12 @@ function trigger(key, test) {
     return true;
 }
 
-function setPref(key, on) {
-    if (key === 'all') { EVENTS.forEach(function (ev) { PREFS[ev.key] = !!on; }); return true; }
+function setPref(key, on, scope) {
+    var g = scope === 'global' && !!on;   // «для всех» — только при ВКЛ; ВЫКЛ и «этот аккаунт» флаг сбрасывают
+    if (key === 'all') { EVENTS.forEach(function (ev) { PREFS[ev.key] = !!on; GLOB[ev.key] = g; }); return true; }
     if (!BY_KEY[key]) return false;
     PREFS[key] = !!on;
+    GLOB[key] = g;
     return true;
 }
 function enabledCount() { var n = 0; EVENTS.forEach(function (ev) { if (PREFS[ev.key]) n++; }); return n; }
@@ -218,6 +225,8 @@ var TG_RULES = [
     ['autologin',  'Автовход не прошёл'],
     ['autologin',  'Автовход не сработал'],
     ['warn',       'Получен выговор'],
+    ['stroi',      'Строй обнаружен'],   // performStroiReconnect (строй / сбор / готовность / конф на рации)
+    ['stroi',      'Строй ('],           // рация — только слово «строй»; «Строй от игнорируемого ника» не озвучиваем
     ['location',   'Обнаружен запрос местоположения'],
     ['respawn',    'Вас зареспавнили'],
     ['keyword',    'Обнаружено ключевое слово']
@@ -286,10 +295,14 @@ function showKey(chatId, messageId, key, uid) {
     var n = enabledCount(), total = EVENTS.length;
     var cur = all ? n === total : !!PREFS[key];       // сейчас включено?
     var part = all && n > 0 && n < total;             // «Все звуки»: включена только часть
-    var tgt = (cur ? 'off' : 'on') + '_' + key + '_' + uid;   // нажатие переводит в противоположное состояние
-    var ico = cur ? '🟢' : part ? '🟡' : '🔴', st = cur ? 'success' : part ? undefined : 'danger';
+    // у каждой кнопки своё состояние: «Этот аккаунт» — включено здесь; «Все аккаунты» — включено командой «для всех»
+    var curG = cur && (all ? EVENTS.every(function (ev) { return GLOB[ev.key]; }) : !!GLOB[key]);
+    var tgtL = (cur ? 'off' : 'on') + '_' + key + '_' + uid;     // нажатие переводит кнопку в противоположное состояние
+    var tgtG = (curG ? 'off' : 'on') + '_' + key + '_' + uid;
+    var icoL = cur ? '🟢' : part ? '🟡' : '🔴', stL = cur ? 'success' : part ? undefined : 'danger';
+    var icoG = curG ? '🟢' : '🔴', stG = curG ? 'success' : 'danger';
     var rows = [
-        [btn(ico + ' Этот аккаунт', 'ozv_s_l_' + tgt, st), btn(ico + ' Все аккаунты', 'ozv_s_g_' + tgt, st)]
+        [btn(icoL + ' Этот аккаунт', 'ozv_s_l_' + tgtL, stL), btn(icoG + ' Все аккаунты', 'ozv_s_g_' + tgtG, stG)]
     ];
     if (!all) rows.push([btn('▶️ Проверить звук', 'ozv_t_' + key + '_' + uid)]);
     rows.push([btn('⬅️ К списку озвучки', 'ozv_m_' + uid)]);
@@ -297,7 +310,7 @@ function showKey(chatId, messageId, key, uid) {
         '🔊 <b>Озвучка: ' + esc(all ? 'все звуки' : ev.label) + '</b>\n' +
         (all ? '' : 'Файл: <code>' + esc(ev.file + '.mp3') + '</code>\n') +
         'Сейчас (' + esc(who()) + '): ' + (all ? 'включено ' + n + ' из ' + total : (cur ? '🟢 ВКЛ' : '🔴 ВЫКЛ')) + '\n\n' +
-        'Нажмите кнопку, чтобы ' + (cur ? 'выключить' : 'включить') + ':\n👤 только ' + esc(who()) + '\n👥 на всех аккаунтах',
+        'Каждая кнопка переключается сама: 🟢 — включено, 🔴 — выключено.\n👤 только ' + esc(who()) + '\n👥 на всех аккаунтах' + (curG ? ' (🟢 включено для всех)' : ''),
         { inline_keyboard: rows });
 }
 
@@ -323,7 +336,7 @@ function handleCb(cq, p) {
         return;
     }
     // ВКЛ / ВЫКЛ
-    setPref(p.key, p.on);
+    setPref(p.key, p.on, p.scope);
     if (p.scope === 'global') {
         try { broadcastGlobalCommand('ozv_set', (p.on ? 'on' : 'off') + '_' + p.key); } catch (e) { dbg('broadcast: ' + e.message); }   // остальным аккаунтам; у себя уже применили
     }
@@ -389,7 +402,7 @@ if (menuReady()) {
         var patchedGlobal = function (cmd, val) {
             if (cmd === 'ozv_set') {
                 var m = /^(on|off)_(\w+)$/.exec(String(val));
-                if (m && setPref(m[2], m[1] === 'on')) dbg('[Global] ' + m[2] + ' = ' + m[1]);
+                if (m && setPref(m[2], m[1] === 'on', 'global')) dbg('[Global] ' + m[2] + ' = ' + m[1]);
                 return;
             }
             return origGlobal.apply(this, arguments);
