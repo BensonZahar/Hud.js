@@ -41,6 +41,10 @@
 // ║     списка по дистанции), /near, и ник↔ID сверяются по данным мода   ║
 // ║     мгновенно — серверный /id остаётся запасным путём                ║
 // ║                                                                      ║
+// ║   • v1.26: голос игроков → Telegram голосовым сообщением (нужен      ║
+// ║     APK с прокси libopus): кнопка «🎙 Голос игроков» во вкладке       ║
+// ║     «Лицензёр», в игре /c3v [on|off|diag] и /c3vtest                 ║
+// ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
 // ║                                                                      ║
@@ -57,7 +61,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.25';
+var VERSION = 'code3 v1.26';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -2620,6 +2624,22 @@ function ensureChatAddHook() {
                 setOnly((ca === 'on' || ca === '1' || ca === 'вкл') ? true : (ca === 'off' || ca === '0' || ca === 'выкл') ? false : !STATE.only);
                 return;
             }
+            if (cmd === '/c3v' || cmd === '/c3vtest') {   // голос игроков → Telegram (модуль — в Telegram-блоке ниже по файлу)
+                var vv = window.__c3Voice;
+                if (!vv) { gtAdd('~r~Голос~n~~w~Модуль не загружен (нужен Telegram-блок Code3)', 3500, 3); return; }
+                if (cmd === '/c3vtest') {
+                    gtAdd('~y~Голос~n~~w~Шлю тест в Telegram…', 2500, 3);
+                    vv.test(function (r) { gtAdd(r.ok ? '~g~Голос~n~~w~Тест ушёл в Telegram (' + r.method + ')' : '~r~Голос~n~~w~Не отправилось: ' + r.err, 6000, 3); });
+                    return;
+                }
+                var cv = (a[1] || '').toLowerCase();
+                if (cv === 'on' || cv === '1' || cv === 'вкл') vv.enable(true);
+                else if (cv === 'off' || cv === '0' || cv === 'выкл') vv.enable(false);
+                else if (cv === 'diag') { log(vv.diag()); gtAdd('~y~Голос~n~~w~Диагностика в консоли (/code3 off — чтобы видеть всю консоль)', 4000, 3); return; }
+                var vs = vv.status();
+                gtAdd((vs.on ? '~g~Голос в Telegram: Вкл' : '~r~Голос в Telegram: Выкл') + '~n~~w~прокси: ' + vs.proxy + ' · отправлено: ' + vs.stats.sent, 5000, 3);
+                return;
+            }
             if (cmd === '/near') {   // список игроков рядом (из мода): /near [радиус_м]
                 var rad = parseFloat(a[1]); if (!(rad > 0)) rad = Number(OPTS.NEAR_RADIUS) || 60;
                 var st = NearPlayers.status();
@@ -2811,6 +2831,7 @@ window.__code3 = {
     // Ответ текстом в идущем разговоре (без /p): cb({ ok, text, reason })
     callSay: function (number, kind, cb) { _c3CallSay(number, kind, cb); },
     near: NearPlayers,   // __code3.near.list() / .within(м) / .byNick() / .byId() / .status() / .diag(cb)
+    voice: function () { return window.__c3Voice || null; },   // __code3.voice().diag() / .status() / .test(cb) / .enable(v)
     last: function () { return STATE.last; },
     whenNick: function (id, cb) { whenNick(id, cb); },
     // Логирование: __code3.trace(80) — последние 80 строк (массив) · traceText(150) — текстом · traceCopy() — в буфер обмена
@@ -2843,6 +2864,9 @@ log(VERSION + ' загружен. Помощник лицензёра актив
 // ║     сообщений игроков из чата, сказанных РЯДОМ (радиус   ║
 // ║     CLOSE), а не только фракции; config.licNearOnly=false ║
 // ║     вернёт пересылку всех радиусов;                      ║
+// ║   • «🎙 Голос игроков» — что игроки говорят в голосовой  ║
+// ║     чат, уходит в Telegram голосовыми сообщениями (нужен ║
+// ║     APK с модом и прокси libopus; sendVoice, OGG/Opus);  ║
 // ║   • «Круговое меню» и «Просьба о чае» — переключатели    ║
 // ║     как в игровом меню лицензёра;                        ║
 // ║   • «Ответ» под входящим SMS и под сообщениями           ║
@@ -2908,6 +2932,7 @@ try { (function () {
             [btn('Помощник: ' + (ready() ? '🟢 активен' : '🔴 недоступен'), PFX + 'menu|' + uid)],
             [btn('💬 Сообщения игроков рядом ' + (config.licAllMessages ? '🟢' : '🔴'), PFX + 'toggle|' + uid, config.licAllMessages ? 'success' : 'danger')],
             [btn('🎯 Только про лицензии ' + (config.licFilter ? '🟢' : '🔴'), PFX + 'filter|' + uid, config.licFilter ? 'success' : 'danger')],
+            [btn('🎙 Голос игроков ' + (config.licVoice ? '🟢' : '🔴'), PFX + 'voice|' + uid, config.licVoice ? 'success' : 'danger')],
             [btn('⭕ Круговое меню ' + (stt.circle ? '🟢' : '🔴'), PFX + 'circle|' + uid, stt.circle ? 'success' : 'danger')],
             [btn('☕ Просьба о чае ' + (stt.tea ? '🟢' : '🔴'), PFX + 'tea|' + uid, stt.tea ? 'success' : 'danger')],
             [btn('🪪 Выдача лицензий', PFX + 'types|' + uid, 'primary')]
@@ -3253,6 +3278,11 @@ try { (function () {
             case 'toggle':
                 config.licAllMessages = !config.licAllMessages;
                 c3Dbg('[LIC] Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
+                showMenu(chatId, messageId, d.uid);
+                break;
+            case 'voice':
+                if (window.__c3Voice) window.__c3Voice.enable(!config.licVoice); else config.licVoice = !config.licVoice;
+                c3Dbg('[LIC] Голос игроков: ' + (config.licVoice ? 'ВКЛ' : 'ВЫКЛ'));
                 showMenu(chatId, messageId, d.uid);
                 break;
             case 'filter':
@@ -3767,6 +3797,384 @@ try { (function () {
         wrappedSend.__licGovWrapped = true;
         sendToTelegram = wrappedSend;
     }
+
+    // ══════════════════════════ ГОЛОС ИГРОКОВ → TELEGRAM ══════════════════════════
+    // Нужен APK с модом «рядом» + прокси libopus (hassle_opus.c): мод отдаёт на http://127.0.0.1:177xx/voice входящие Opus-пакеты
+    // голосового чата. Здесь они склеиваются в фразы (пауза > licVoiceGapMs — новая фраза), упаковываются в OGG/Opus и уходят
+    // в Telegram голосовым сообщением (sendVoice). Кто говорит — по списку «говорящих» в HUD игры (Hud.voiceChat.entries).
+    // Включение: кнопка «🎙 Голос игроков» во вкладке «Лицензёр» или в игре /c3v on|off. Проверка: /c3vtest (шлёт тишину 1,5 с).
+    // Консоль: __c3Voice.diag() · .status() · .test(cb) · .enable(true/false)
+    if (typeof config.licVoice !== 'boolean') config.licVoice = true;            // пересылать голос игроков (только если в APK есть прокси)
+    if (typeof config.licVoiceAnySkin !== 'boolean') config.licVoiceAnySkin = false;   // true — работать и вне правительственного скина / без звания Лицензёр
+    if (typeof config.licVoiceGapMs !== 'number') config.licVoiceGapMs = 1200;   // пауза, после которой фраза считается законченной
+    if (typeof config.licVoiceMinMs !== 'number') config.licVoiceMinMs = 600;    // короче (щелчки, вдохи) — не отправляем
+    if (typeof config.licVoiceMaxMs !== 'number') config.licVoiceMaxMs = 90000;  // длиннее — режем на части
+
+    // ── OGG/Opus: упаковка готовых Opus-пакетов (без перекодирования) ──
+    const OGG = (function () {
+        let CRC = null;
+        function table() {
+            const t = new Uint32Array(256);
+            for (let i = 0; i < 256; i++) { let r = (i << 24) >>> 0; for (let j = 0; j < 8; j++) r = ((r & 0x80000000) ? ((r << 1) ^ 0x04C11DB7) : (r << 1)) >>> 0; t[i] = r; }
+            return t;
+        }
+        function crc(buf) {
+            CRC = CRC || table();
+            let c = 0;
+            for (let i = 0; i < buf.length; i++) c = (((c << 8) ^ CRC[((c >>> 24) ^ buf[i]) & 255]) >>> 0);
+            return c >>> 0;
+        }
+        // Длина пакета в сэмплах 48 кГц по TOC-байту (RFC 6716, п. 3.1); 0 — пакет битый
+        function samples(p) {
+            if (!p || !p.length) return 0;
+            const toc = p[0], cfg = toc >> 3, code = toc & 3;
+            let dur;   // в 1/4 мс... считаем сразу в сэмплах 48 кГц
+            if (cfg < 12) dur = [480, 960, 1920, 2880][cfg & 3];
+            else if (cfg < 16) dur = (cfg & 1) ? 960 : 480;
+            else dur = [120, 240, 480, 960][cfg & 3];
+            let n;
+            if (code === 0) n = 1;
+            else if (code === 1 || code === 2) n = 2;
+            else { if (p.length < 2) return 0; n = p[1] & 63; if (!n) return 0; }
+            const total = dur * n;
+            return total > 5760 ? 0 : total;   // больше 120 мс — недопустимо
+        }
+        function page(type, granule, serial, seq, packets) {
+            const segs = [];
+            let dlen = 0;
+            packets.forEach(function (p) { let n = p.length; while (n >= 255) { segs.push(255); n -= 255; } segs.push(n); dlen += p.length; });
+            const out = new Uint8Array(27 + segs.length + dlen);
+            out[0] = 0x4F; out[1] = 0x67; out[2] = 0x67; out[3] = 0x53; out[4] = 0; out[5] = type;
+            const lo = granule % 4294967296, hi = Math.floor(granule / 4294967296);
+            for (let i = 0; i < 4; i++) { out[6 + i] = (lo >>> (8 * i)) & 255; out[10 + i] = (hi >>> (8 * i)) & 255; out[14 + i] = (serial >>> (8 * i)) & 255; out[18 + i] = (seq >>> (8 * i)) & 255; }
+            out[26] = segs.length;
+            for (let i = 0; i < segs.length; i++) out[27 + i] = segs[i];
+            let o = 27 + segs.length;
+            packets.forEach(function (p) { out.set(p, o); o += p.length; });
+            const c = crc(out);
+            for (let i = 0; i < 4; i++) out[22 + i] = (c >>> (8 * i)) & 255;
+            return out;
+        }
+        function ascii(s) { const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+        const PRESKIP = 312;
+        // packets — массив Uint8Array (Opus), возвращает Uint8Array (.ogg) и длительность в мс
+        function build(packets, o) {
+            o = o || {};
+            const ch = o.ch === 2 ? 2 : 1, rate = o.rate || 48000, serial = (Math.random() * 4294967295) >>> 0;
+            const head = new Uint8Array(19);
+            head.set(ascii('OpusHead'), 0); head[8] = 1; head[9] = ch; head[10] = PRESKIP & 255; head[11] = PRESKIP >> 8;
+            for (let i = 0; i < 4; i++) head[12 + i] = (rate >>> (8 * i)) & 255;
+            head[16] = 0; head[17] = 0; head[18] = 0;
+            const vendor = ascii('code3');
+            const tags = new Uint8Array(8 + 4 + vendor.length + 4);
+            tags.set(ascii('OpusTags'), 0); tags[8] = vendor.length; tags.set(vendor, 12);
+            const pages = [page(0x02, 0, serial, 0, [head]), page(0, 0, serial, 1, [tags])];
+            let seq = 2, gran = PRESKIP, group = [], gsegs = 0, total = 0;
+            const flush = function (last) {
+                if (!group.length) return;
+                pages.push(page(last ? 0x04 : 0, gran, serial, seq++, group));
+                group = []; gsegs = 0;
+            };
+            const good = packets.filter(function (p) { return samples(p) > 0; });
+            good.forEach(function (p, i) {
+                const sm = samples(p), sg = Math.floor(p.length / 255) + 1;
+                if (group.length >= 50 || gsegs + sg > 255) flush(false);
+                group.push(p); gsegs += sg; gran += sm; total += sm;
+            });
+            flush(true);
+            let n = 0; pages.forEach(function (p) { n += p.length; });
+            const out = new Uint8Array(n); let off = 0;
+            pages.forEach(function (p) { out.set(p, off); off += p.length; });
+            return { bytes: out, ms: Math.round(total / 48), count: good.length };
+        }
+        return { build: build, samples: samples, crc: crc };
+    })();
+    const SILENCE = new Uint8Array([0xF8, 0xFF, 0xFE]);   // Opus-пакет «тишина» 20 мс (CELT, 48 кГц)
+
+    // ── Основной модуль ──
+    const VOICE = (function () {
+        const GEN = (window.__c3VoiceGen = (window.__c3VoiceGen || 0) + 1);   // после перезагрузки скрипта старые таймеры сами гаснут
+        const PORTS = [];
+        for (let i = 0; i < 10; i++) PORTS.push(17771 + i);
+        const B64 = {};
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.split('').forEach(function (c, i) { B64[c] = i; });
+        const S = {
+            base: null, pi: 0, since: null, offset: 0, busy: false, proxy: '—', active: false,
+            decs: {}, act: {}, hist: [], bind: {}, queue: [], sending: false, method: null, lastFailTg: 0,
+            st: { polls: 0, events: 0, lost: 0, packets: 0, phrases: 0, tooShort: 0, noName: 0, sent: 0, fail: 0, lastErr: '', lastSendMs: 0, lastWho: '' }
+        };
+        function stale() { return window.__c3VoiceGen !== GEN || (typeof __hassleStale === 'function' && __hassleStale()); }
+        function enabled() { return !!config.licVoice && (config.licVoiceAnySkin === true || ready()); }
+        function xget(url, ok, fail, ms) {
+            try {
+                const r = new XMLHttpRequest();
+                r.open('GET', url, true); r.timeout = ms || 1500;
+                r.onload = function () { r.status === 200 ? ok(r.responseText) : fail('http ' + r.status); };
+                r.onerror = function () { fail('net'); }; r.ontimeout = function () { fail('timeout'); };
+                r.send();
+            } catch (e) { fail(String(e && e.message || e)); }
+        }
+        function b64dec(s) {
+            const n = s.length;
+            if (!n) return new Uint8Array(0);
+            const pad = s.charAt(n - 1) === '=' ? (s.charAt(n - 2) === '=' ? 2 : 1) : 0;
+            const out = new Uint8Array(n / 4 * 3 - pad);
+            let o = 0;
+            for (let i = 0; i < n; i += 4) {
+                const v = (B64[s.charAt(i)] << 18) | (B64[s.charAt(i + 1)] << 12) | ((B64[s.charAt(i + 2)] || 0) << 6) | (B64[s.charAt(i + 3)] || 0);
+                if (o < out.length) out[o++] = (v >> 16) & 255;
+                if (o < out.length) out[o++] = (v >> 8) & 255;
+                if (o < out.length) out[o++] = v & 255;
+            }
+            return out;
+        }
+
+        // ── кто говорит: список «говорящих» в HUD (Hud.voiceChat.entries: {type,name,id,channel,streamId}) ──
+        function hud() { try { return (window.interface && window.interface('Hud')) || null; } catch (e) { return null; } }
+        function scanEntries() {
+            const h = hud(), list = h && h.voiceChat && h.voiceChat.entries;
+            if (!list) return;
+            const now = Date.now(), seen = {};
+            for (let i = 0; i < list.length; i++) {
+                const e = list[i], k = e.type + '|' + e.id + '|' + e.streamId;
+                seen[k] = 1;
+                if (!S.act[k]) S.act[k] = { k: k, type: e.type, id: e.id, name: e.name, channel: e.channel, at: now, until: 0, claim: null };
+            }
+            Object.keys(S.act).forEach(function (k) {
+                if (!seen[k]) { const r = S.act[k]; r.until = now; S.hist.push(r); delete S.act[k]; }
+            });
+            while (S.hist.length && now - S.hist[0].until > 30000) S.hist.shift();
+        }
+        function identify(d, ts, te) {
+            scanEntries();
+            const now = Date.now(), pool = S.hist.concat(Object.keys(S.act).map(function (k) { return S.act[k]; }));
+            const cand = pool.filter(function (r) {
+                if (r.claim !== null && r.claim !== d.id) return false;                   // эта запись уже у другого потока
+                return r.at - 300 <= te + 300 && (r.until || now) + 300 >= ts - 300;      // интервалы пересекаются
+            });
+            let pick = null;
+            const sticky = S.bind[d.id];
+            if (sticky) pick = cand.filter(function (r) { return r.type + '|' + r.id === sticky; }).sort(function (a, b) { return Math.abs(a.at - ts) - Math.abs(b.at - ts); })[0] || null;
+            if (!pick) pick = cand.sort(function (a, b) { return Math.abs(a.at - ts) - Math.abs(b.at - ts); })[0] || null;
+            if (pick) { pick.claim = d.id; S.bind[d.id] = pick.type + '|' + pick.id; return { type: pick.type, id: pick.id, name: pick.name, channel: pick.channel }; }
+            if (d.last) return { type: d.last.type, id: d.last.id, name: d.last.name, channel: d.last.channel, guess: true };   // записи в HUD нет — последний известный владелец потока
+            return null;
+        }
+
+        // ── фразы ──
+        function finalize(d) {
+            if (!d.pk.length) return;
+            const pk = d.pk, real = d.real, t0 = d.t0, t1 = d.tLast;
+            d.pk = []; d.samples = 0; d.real = 0;
+            if (real / 48 < (config.licVoiceMinMs || 0)) { S.st.tooShort++; return; }
+            const who = identify(d, t0, t1);
+            if (who && !who.guess) d.last = who;
+            if (!who) S.st.noName++;
+            S.st.phrases++;
+            enqueue({ pk: pk, who: who, ch: d.ch, fs: d.fs, t: t0 });
+        }
+        function addPacket(d, bytes, t) {
+            const sm = OGG.samples(bytes);
+            if (!sm) return;
+            const gap = Number(config.licVoiceGapMs) || 1200;
+            if (d.pk.length && t - d.tLast > gap) finalize(d);
+            if (!d.pk.length) { d.t0 = t; d.samples = 0; d.real = 0; }
+            else {   // пакеты не шли (пауза в речи) — вставляем тишину, чтобы фраза звучала с теми же паузами
+                const lag = (t - d.t0) - d.samples / 48;
+                if (lag > 100) { const n = Math.min(Math.floor(lag / 20), 50); for (let i = 0; i < n; i++) { d.pk.push(SILENCE); d.samples += 960; } }
+            }
+            d.pk.push(bytes); d.samples += sm; d.real += sm; d.tLast = t;
+            if (d.samples / 48 >= (Number(config.licVoiceMaxMs) || 90000)) finalize(d);
+        }
+        function newDec(id, fs, ch) { return { id: id, fs: fs || 48000, ch: ch || 1, pk: [], samples: 0, real: 0, t0: 0, tLast: 0, last: null }; }
+        function idleFlush() {
+            const now = Date.now(), gap = Number(config.licVoiceGapMs) || 1200;
+            Object.keys(S.decs).forEach(function (k) { const d = S.decs[k]; if (d.pk.length && now - d.tLast > gap) finalize(d); });
+        }
+
+        // ── опрос мода ──
+        function reset() { S.decs = {}; S.since = null; S.active = false; S.act = {}; S.hist = []; S.bind = {}; }
+        function poll() {
+            if (stale()) return;
+            if (!enabled()) { if (S.active) reset(); return; }
+            S.active = true;
+            if (S.busy) return;
+            S.busy = true;
+            const done = function () { S.busy = false; };
+            if (!S.base) {
+                const p = PORTS[S.pi++ % PORTS.length];
+                xget('http://127.0.0.1:' + p + '/ping', function (t) { if (t === 'hassle-near') S.base = 'http://127.0.0.1:' + p; else S.proxy = 'нет мода'; done(); }, function () { S.proxy = 'нет мода'; done(); }, 400);
+                return;
+            }
+            const sentAt = Date.now();
+            xget(S.base + '/voice?since=' + (S.since === null ? '-1' : S.since), function (t) {
+                S.st.polls++;
+                let j = null;
+                try { j = JSON.parse(t); } catch (e) { S.st.lastErr = 'json: ' + String(e && e.message || e); }
+                if (j) {
+                    if (!j.ok) { S.proxy = j.why === 'no-proxy' ? 'в APK нет прокси libopus' : 'ошибка'; }
+                    else {
+                        S.proxy = 'ок';
+                        const rcv = Date.now();
+                        S.offset = (sentAt + (rcv - sentAt) / 2) - j.now;     // перевод монотонного времени мода в Date.now()
+                        S.st.lost += j.lost || 0;
+                        (j.p || []).forEach(function (e) { try { onEvent(e); } catch (er) { S.st.lastErr = 'event: ' + String(er && er.message || er); } });
+                        S.since = j.next;
+                    }
+                }
+                idleFlush();
+                done();
+            }, function (why) { S.base = null; S.since = null; S.st.lastErr = 'опрос: ' + why; done(); }, 2500);
+        }
+        function onEvent(e) {   // [тип, №, t_мс, декодер, fs, ch, длина, base64]
+            S.st.events++;
+            const type = e[0], t = e[2] + S.offset, id = e[3];
+            if (type === 0) { S.decs[id] = newDec(id, e[4], e[5]); return; }
+            if (type === 2) { const d = S.decs[id]; if (d) { finalize(d); delete S.decs[id]; delete S.bind[id]; } return; }
+            if (type !== 1) return;
+            let d = S.decs[id];
+            if (!d) d = S.decs[id] = newDec(id, e[4], e[5]);
+            const bytes = b64dec(e[7] || '');
+            if (!bytes.length) return;
+            S.st.packets++;
+            addPacket(d, bytes, t);
+        }
+
+        // ── отправка в Telegram ──
+        function utf8(s) { const b = unescape(encodeURIComponent(String(s))), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+        function multipart(fields, file) {
+            const bd = '----c3v' + Date.now().toString(16) + Math.random().toString(16).slice(2, 10), parts = [];
+            Object.keys(fields).forEach(function (k) { parts.push(utf8('--' + bd + '\r\nContent-Disposition: form-data; name="' + k + '"\r\n\r\n' + fields[k] + '\r\n')); });
+            parts.push(utf8('--' + bd + '\r\nContent-Disposition: form-data; name="voice"; filename="voice.ogg"\r\nContent-Type: audio/ogg\r\n\r\n'));
+            parts.push(file); parts.push(utf8('\r\n--' + bd + '--\r\n'));
+            let n = 0; parts.forEach(function (p) { n += p.length; });
+            const out = new Uint8Array(n); let o = 0;
+            parts.forEach(function (p) { out.set(p, o); o += p.length; });
+            return { body: out, type: 'multipart/form-data; boundary=' + bd };
+        }
+        // method: 'fd' (FormData + Blob) | 'raw' (multipart руками, тело — Uint8Array). cb(err|null): err = {retry} | {net} | {code,text} | {ex}
+        function post(method, fields, bytes, cb) {
+            let xhr, payload, ctype = null;
+            try {
+                xhr = new XMLHttpRequest();
+                xhr.open('POST', 'https://api.telegram.org/bot' + config.botToken + '/sendVoice', true);
+                xhr.timeout = 60000;
+                if (method === 'fd') {
+                    const fd = new FormData();
+                    Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
+                    fd.append('voice', new Blob([bytes], { type: 'audio/ogg' }), 'voice.ogg');
+                    payload = fd;
+                } else {
+                    const mp = multipart(fields, bytes);
+                    payload = mp.body; ctype = mp.type;
+                    xhr.setRequestHeader('Content-Type', ctype);
+                }
+            } catch (ex) { cb({ ex: String(ex && ex.message || ex) }); return; }
+            xhr.onload = function () {
+                if (xhr.status === 200) { cb(null); return; }
+                let ra = 0;
+                if (xhr.status === 429) { try { ra = (JSON.parse(xhr.responseText).parameters || {}).retry_after || 5; } catch (e) { ra = 5; } cb({ retry: ra }); return; }
+                cb({ code: xhr.status, text: String(xhr.responseText || '').slice(0, 200) });
+            };
+            xhr.onerror = function () { cb({ net: true }); };
+            xhr.ontimeout = function () { cb({ net: true, timeout: true }); };
+            try { xhr.send(payload); }
+            catch (ex) {
+                if (method === 'raw' && payload && payload.buffer) { try { xhr.send(payload.buffer); return; } catch (e2) {} }
+                cb({ ex: String(ex && ex.message || ex) });
+            }
+        }
+        function sendVoice(bytes, caption, durSec, cb) {
+            const chat = config.chatIds && config.chatIds[0];
+            if (!chat || !config.botToken) { cb({ ex: 'нет chatId/токена' }); return; }
+            const fields = { chat_id: String(chat), caption: caption, parse_mode: 'HTML', duration: String(Math.max(1, Math.round(durSec))) };
+            const def = (typeof FormData === 'function' && typeof Blob === 'function') ? ['fd', 'raw'] : ['raw', 'fd'];
+            const order = S.method ? [S.method, S.method === 'fd' ? 'raw' : 'fd'] : def;   // запомненный способ — первым
+            let last = null;
+            (function next(i) {
+                if (i >= order.length) { cb(last); return; }
+                post(order[i], fields, bytes, function (err) {
+                    if (!err) { S.method = order[i]; cb(null); return; }
+                    last = err;
+                    if (err.retry || err.net) { cb(err); return; }   // это не про формат загрузки (флуд-лимит / сеть) — повторит очередь
+                    next(i + 1);                                     // Telegram не принял тело (400) или способ недоступен в движке — пробуем второй
+                });
+            })(0);
+        }
+        function whoText(w) {
+            if (!w) return '🎙 <b>Неизвестный голос</b>';
+            const nm = String(w.name || '').replace(/\{[0-9A-Fa-f]{6}\}/g, '').split('_').join(' ');
+            const ico = w.type === 1 ? '📞' : w.type === 2 ? '📢' : '🎙';
+            return ico + ' <b>' + esc(nm || 'Игрок') + '</b> [ID: ' + esc(w.id) + ']' + (w.type === 1 ? ' · звонок' : w.type === 2 ? ' · мегафон' : '') + (w.guess ? ' · ❓' : '');
+        }
+        function enqueue(item) {
+            S.queue.push(item);
+            while (S.queue.length > 15) { S.queue.shift(); S.st.fail++; S.st.lastErr = 'очередь переполнена — старая фраза выброшена'; }
+            pump();
+        }
+        function pump() {
+            if (S.sending || !S.queue.length || stale()) return;
+            const wait = (window._hassleTgBlockedUntil || 0) - Date.now();
+            if (wait > 0) { setTimeout(pump, wait + 50); return; }
+            const it = S.queue[0];
+            const built = OGG.build(it.pk, { ch: it.ch, rate: it.fs });
+            if (!built.count) { S.queue.shift(); pump(); return; }
+            S.sending = true;
+            const sec = built.ms / 1000;
+            const caption = whoText(it.who) + ' · ' + sec.toFixed(1) + ' с\n(' + esc(displayName) + ')';
+            sendVoice(built.bytes, caption, sec, function (err) {
+                S.sending = false;
+                const gapMs = 1100;   // Telegram: не чаще ~1 сообщения в секунду в один чат
+                if (!err) {
+                    S.queue.shift(); S.st.sent++; S.st.lastSendMs = Date.now(); S.st.lastWho = it.who ? String(it.who.name) : '';
+                    setTimeout(pump, gapMs); return;
+                }
+                if (err.retry) { window._hassleTgBlockedUntil = Math.max(window._hassleTgBlockedUntil || 0, Date.now() + err.retry * 1000); S.st.lastErr = '429, ждём ' + err.retry + ' с'; setTimeout(pump, err.retry * 1000 + 50); return; }
+                it.tries = (it.tries || 0) + 1;
+                S.st.lastErr = 'sendVoice: ' + (err.code ? err.code + ' ' + err.text : err.ex || (err.timeout ? 'таймаут' : 'сеть'));
+                if (it.tries >= 3) { S.queue.shift(); S.st.fail++; reportFail(S.st.lastErr); }
+                setTimeout(pump, err.net ? 3000 : gapMs);
+            });
+        }
+        function reportFail(msg) {   // не чаще раза в 10 минут — одним текстовым сообщением
+            const now = Date.now();
+            if (now - S.lastFailTg < 600000) return;
+            S.lastFailTg = now;
+            try { sendToTelegram('⚠️ <b>Голос игроков: не удалось отправить</b>\n' + esc(msg) + '\n(' + esc(displayName) + ')', true, null); } catch (e) {}
+        }
+
+        // ── проверка и состояние ──
+        function test(cb) {
+            cb = cb || function () {};
+            const pk = []; for (let i = 0; i < 75; i++) pk.push(SILENCE);
+            const b = OGG.build(pk, { ch: 1, rate: 48000 });
+            sendVoice(b.bytes, '🧪 <b>Тест голоса</b>: загрузка файла в Telegram работает (способ: ' + (S.method || '?') + ')\n(' + esc(displayName) + ')', b.ms / 1000, function (err) {
+                if (!err) { cb({ ok: true, method: S.method, bytes: b.bytes.length }); return; }
+                cb({ ok: false, err: err.code ? err.code + ' ' + err.text : err.ex || (err.net ? 'сеть' : err.retry ? 'флуд-лимит' : '?') });
+            });
+        }
+        function status() {
+            return {
+                on: !!config.licVoice, enabled: enabled(), mod: S.base || 'не найден', proxy: S.proxy, since: S.since, method: S.method,
+                decoders: Object.keys(S.decs).length, queue: S.queue.length, stats: S.st
+            };
+        }
+        function diag() {
+            const s = status();
+            return 'голос: ' + (s.enabled ? 'работает' : s.on ? 'включён, но ждёт (скин/звание Лицензёр или licVoiceAnySkin)' : 'выключен') +
+                '\nмод: ' + s.mod + ' · прокси: ' + s.proxy + ' · способ загрузки: ' + (s.method || 'ещё не определён') +
+                '\nопросов: ' + s.stats.polls + ', событий: ' + s.stats.events + ', пакетов: ' + s.stats.packets + ', потеряно: ' + s.stats.lost +
+                '\nфраз: ' + s.stats.phrases + ' (слишком коротких: ' + s.stats.tooShort + ', без имени: ' + s.stats.noName + '), отправлено: ' + s.stats.sent + ', ошибок: ' + s.stats.fail +
+                '\nочередь: ' + s.queue + ', декодеров: ' + s.decoders + (s.stats.lastErr ? '\nпоследняя ошибка: ' + s.stats.lastErr : '') +
+                (s.stats.lastWho ? '\nпоследний говорящий: ' + s.stats.lastWho : '');
+        }
+        function enable(v) { config.licVoice = v === undefined ? !config.licVoice : !!v; if (!config.licVoice) reset(); return !!config.licVoice; }
+
+        const iv1 = setInterval(function () { if (stale()) { clearInterval(iv1); clearInterval(iv2); return; } poll(); }, 400);
+        const iv2 = setInterval(function () { if (stale()) return; if (enabled()) scanEntries(); }, 150);
+        return { status: status, diag: diag, test: test, enable: enable, _s: S };
+    })();
+    window.__c3Voice = VOICE;
 
     c3Dbg('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
 })(); } catch (e) { try { console.error('[CODE3] ошибка Telegram-вкладки «Лицензёр»:', e); } catch (e2) {} }
