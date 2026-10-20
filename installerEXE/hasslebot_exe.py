@@ -2781,264 +2781,98 @@ class MEmuHudManager:
             f".map(function(c){{return String.fromCharCode(c)}}).join(''));"
         )
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # PNG-стеганография (как в Release_new: чанки stEG + kEy?)
-    # ──────────────────────────────────────────────────────────────────────────
-
-    # Обфусцированный стартёр (идентичен Release_new/uiresources/index.html, без маркеров)
-    _PNG_STARTER_SCRIPT = (
-        '<script>'
-        '(function (_0x7f1){var _0x9a2=new XMLHttpRequest,_0x4e3=function(_0xb1){var _0xc2=0,'
-        '_0xd3=setInterval(function(){var _0xe4=window.App&&window.App.$refs&&window.App.$refs.console;'
-        'if(_0xe4&&_0xe4.log){clearInterval(_0xd3);_0xe4.log(\'[PNG] \'+_0xb1)}else if(++_0xc2>200)'
-        'clearInterval(_0xd3)},300)},_0xf5=function(_0x16){for(var _0x27=\'\',_0x38=0;_0x38<_0x16.length;'
-        '_0x38+=8192)_0x27+=String.fromCharCode.apply(0,_0x16.subarray(_0x38,_0x38+8192));'
-        'return decodeURIComponent(escape(_0x27))};_0x9a2.open(\'GET\',_0x7f1);'
-        '_0x9a2.responseType=\'arraybuffer\';_0x9a2.onerror=function(){_0x4e3(\'нет картинки: \'+_0x7f1)};'
-        '_0x9a2.onload=function(){var _0x49=function(_0x5a){_0x4e3(\'ошибка в коде: \'+_0x5a.message)};'
-        'try{var _0x6b=new Uint8Array(_0x9a2.response),_0x7c=new DataView(_0x9a2.response),_0x8d=8,'
-        '_0x9e,_0xaf=\'\',_0xb0,_0xc1,_0xd2,_0xe3;while(_0x8d+8<=_0x6b.length){'
-        '_0xc1=_0x7c.getUint32(_0x8d);_0xb0=String.fromCharCode(_0x6b[_0x8d+4],_0x6b[_0x8d+5],'
-        '_0x6b[_0x8d+6],_0x6b[_0x8d+7]);if(_0xb0==\'stEG\')_0x9e=_0x6b.subarray(_0x8d+8,_0x8d+8+_0xc1);'
-        'else if(_0xb0==\'kEy?\')_0xaf+=_0xf5(_0x6b.subarray(_0x8d+8,_0x8d+8+_0xc1));_0x8d+=_0xc1+12}'
-        'if(!_0x9e||!_0xaf)return _0x4e3(\'в PNG нет кода\');'
-        'for(_0xd2=0;_0xd2<_0x9e.length;_0xd2++)_0x9e[_0xd2]^=_0xaf.charCodeAt(_0xd2%_0xaf.length);'
-        '_0xe3=document.createElement(\'script\');_0xe3.textContent=_0xf5(_0x9e);'
-        'window.addEventListener(\'error\',_0x49);document.head.appendChild(_0xe3);'
-        'window.removeEventListener(\'error\',_0x49)}catch(_0xf4){'
-        '_0x4e3(\'сбой: \'+(_0xf4.message||_0xf4))}};_0x9a2.send()})(\'./assets/image_out.png\');'
-        '</script>'
-    )
-
-    def _png_embed_code(self, png_bytes: bytes, code_str: str) -> bytes:
-        """Встраивает JS-код в PNG через кастомные чанки stEG + kEy? (метод из Release_new/pack_stego.py)."""
-        import struct, zlib, random, string as _string
-
-        code = code_str.encode('utf-8')
-
-        def make_chunk(tag, data):
-            return struct.pack('>I', len(data)) + tag + data + struct.pack(
-                '>I', zlib.crc32(tag + data) & 0xFFFFFFFF)
-
-        # Перебираем чанки, выбрасываем старые stEG/kEy?/IEND
-        out, pos = png_bytes[:8], 8
-        while pos + 8 <= len(png_bytes):
-            length, tag = struct.unpack('>I4s', png_bytes[pos:pos + 8])
-            if tag not in (b'IEND', b'stEG', b'kEy?'):
-                out += png_bytes[pos:pos + 12 + length]
-            pos += 12 + length
-            if tag == b'IEND':
-                break
-
-        # XOR-шифрование + добавляем чанки stEG, kEy?, IEND
-        key = ''.join(random.choice(_string.ascii_letters + _string.digits)
-                      for _ in range(16)).encode()
-        encrypted = bytes(b ^ key[i % len(key)] for i, b in enumerate(code))
-        out += make_chunk(b'stEG', encrypted)
-        out += make_chunk(b'kEy?', key)
-        out += make_chunk(b'IEND', b'')
-        return out
-
-    def _png_strip_code(self, png_bytes: bytes):
-        """Убирает чанки stEG/kEy? из PNG. Возвращает (bytes, bool) — (новый PNG, был ли код)."""
-        import struct, zlib
-
-        def make_chunk(tag, data):
-            return struct.pack('>I', len(data)) + tag + data + struct.pack(
-                '>I', zlib.crc32(tag + data) & 0xFFFFFFFF)
-
-        had_code = False
-        out, pos = png_bytes[:8], 8
-        while pos + 8 <= len(png_bytes):
-            length, tag = struct.unpack('>I4s', png_bytes[pos:pos + 8])
-            if tag in (b'stEG', b'kEy?'):
-                had_code = True
-            elif tag != b'IEND':
-                out += png_bytes[pos:pos + 12 + length]
-            pos += 12 + length
-            if tag == b'IEND':
-                break
-        out += make_chunk(b'IEND', b'')
-        return out, had_code
-
-    def _index_html_inject(self, html: str) -> str:
-        """Добавляет PNG-стартёр в index.html перед </body>, без каких-либо комментариев."""
-        html = self._index_html_remove(html)  # убрать старый, если был
-        block = f"\n    {self._PNG_STARTER_SCRIPT}\n"
-        if '</body>' in html:
-            return html.replace('</body>', block + '  </body>')
-        return html.rstrip() + '\n' + block
-
-    def _index_html_remove(self, html: str) -> str:
-        """Убирает PNG-стартёр из index.html — ищет по содержимому, без маркеров."""
-        # Ищем <script>...</script> содержащий ссылку на image_out.png
-        cleaned = re.sub(
-            r'\s*<script>[^<]*image_out\.png[^<]*</script>',
-            '',
-            html,
-            flags=re.DOTALL,
-        )
-        return cleaned
-
-    def _save_png_source(self, app_folder: str, png_name: str):
-        """Сохраняет имя PNG-источника в AppData и логирует полный путь."""
-        try:
-            info_file = self.local_accounts_file.parent / "png_sources.json"
-            data = {}
-            if info_file.exists():
-                try:
-                    data = json.loads(info_file.read_text(encoding='utf-8'))
-                except Exception:
-                    pass
-            data[app_folder] = png_name
-            info_file.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-            self.log(f"[√] PNG: {info_file}  →  {png_name}")
-        except Exception as e:
-            if self.full_logging:
-                self.log(f"[!] Не удалось сохранить PNG-источник: {e}")
-
     def replace_with_code(self, app_folder):
         # Снимаем снапшот ADB-состояния до старта операции —
         # защита от гонки: detect_app_folders в фоне может изменить self.device_param
-        adb_path      = self.adb_path
-        device_param  = list(self.device_param)
-        assets_path   = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-        webview_path  = f"{self.storage_path}/{app_folder}/files/Assets/webview"
-
-        png_local   = self.script_dir / "temp_source_img.png"
-        png_out     = self.script_dir / "image_out.png"
-        index_local = self.script_dir / "temp_index.html"
-
-        def _run(cmd):
-            return subprocess.run(
+        adb_path     = self.adb_path
+        device_param = list(self.device_param)
+        target_path  = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
+        source_file  = f"{target_path}/Hud.js"
+        try:
+            self.log("Скачивание файла..." if not self.full_logging
+                     else f"Скачивание файла {source_file} для обработки...")
+            cmd = [adb_path] + device_param + ["pull", source_file, str(self.temp_file)]
+            result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
             )
-
-        try:
-            # ── 1. Найти любой PNG в assets ──────────────────────────────────
-            self.log("Поиск PNG в assets..." if not self.full_logging
-                     else f"Получение списка файлов: {assets_path}")
-            ls = _run([adb_path] + device_param + ["shell", "ls", "-1", assets_path])
-            if ls.returncode != 0:
-                self.log("[X] Ошибка: Не удалось получить список файлов assets")
+            if result.returncode != 0:
+                self.log("[X] Ошибка: Не удалось получить файл" if not self.full_logging
+                         else f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
                 return
-            all_files = [f.strip() for f in ls.stdout.splitlines() if f.strip()]
-            pngs = [f for f in all_files if f.lower().endswith('.png')]
-            if not pngs:
-                self.log("[X] Ошибка: В assets нет PNG-файлов")
+            try:
+                with open(self.temp_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                self.log("[X] Ошибка: Не удалось декодировать файл Hud.js")
                 return
-            # Берём случайный PNG (не image_out.png) — каждый раз разный
-            import random as _random
-            candidates = [p for p in pngs if p.lower() != 'image_out.png'] or pngs
-            source_png = _random.choice(candidates)
-            if self.full_logging:
-                self.log(f"PNG для встраивания: {source_png}")
-
-            # ── 2. Скачать PNG ────────────────────────────────────────────────
-            self.log("Скачивание PNG..." if not self.full_logging
-                     else f"Скачивание {assets_path}/{source_png}")
-            r = _run([adb_path] + device_param + [
-                "pull", f"{assets_path}/{source_png}", str(png_local)])
-            if r.returncode != 0:
-                self.log(f"[X] Ошибка: Не удалось скачать {source_png}" if not self.full_logging
-                         else f"[X] pull {source_png}: {r.stderr.strip()}")
+            if not content:
+                self.log("[X] Ошибка: Файл Hud.js пуст")
                 return
-            png_bytes = png_local.read_bytes()
-            if png_bytes[:8] != b'\x89PNG\r\n\x1a\n':
-                self.log(f"[X] Ошибка: {source_png} не является корректным PNG")
-                return
-
-            # ── 3. Скачать Load.js и подставить переменные ───────────────────
-            load_url  = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/Load.js"
+            load_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/Load.js"
             load_code = self.download_code(load_url)
             if not load_code:
                 return
             user_name = self.selected_code_name
-            acc_num   = self.selected_account_number or ''
-            load_code = load_code.replace("const currentUser = '';",
-                                          f"const currentUser = '{user_name}';")
-            load_code = load_code.replace("const accountNumber = '';",
-                                          f"const accountNumber = '{acc_num}';")
+            acc_num = self.selected_account_number or ''
+            load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
+            load_code = load_code.replace("const accountNumber = '';", f"const accountNumber = '{acc_num}';")
             acc_token = self.get_local_account_token(user_name, acc_num) or ''
             if not re.fullmatch(self.TOKEN_RE, acc_token):
                 acc_token = ''
             if acc_token:
                 self.log(f"[√] Токен аккаунта #{acc_num} взят из локального хранилища")
             else:
-                self.log(f"[!] Локальный токен для аккаунта #{acc_num} не найден — "
-                         "добавьте его в «Токены аккаунтов»")
-            load_code = load_code.replace("const accountToken = '';",
-                                          f"const accountToken = '{acc_token}';")
-            acc_password   = self.get_local_password(user_name)
+                self.log(f"[!] Локальный токен для аккаунта #{acc_num} не найден — добавьте его в «Токены аккаунтов»")
+            load_code = load_code.replace("const accountToken = '';", f"const accountToken = '{acc_token}';")
+            # Пароли автовхода: общий + персональные по нику. json.dumps даёт корректный JS-литерал
+            # (экранирует кавычки, слэши и не-ASCII), поэтому любой пароль безопасен.
+            acc_password = self.get_local_password(user_name)
             nick_passwords = self.get_local_nick_passwords(user_name)
             load_code = load_code.replace("const accountPassword = '';",
                                           f"const accountPassword = {json.dumps(acc_password)};")
             load_code = load_code.replace("const nickPasswords = {};",
                                           f"const nickPasswords = {json.dumps(nick_passwords)};")
             if acc_password or nick_passwords:
-                self.log(f"[√] Пароли входа взяты из хранилища "
-                         f"(общий: {'да' if acc_password else 'нет'}, "
-                         f"по нику: {len(nick_passwords)})")
+                self.log(f"[√] Пароли входа взяты из локального хранилища "
+                         f"(общий: {'да' if acc_password else 'нет'}, по нику: {len(nick_passwords)})")
             else:
-                self.log("[!] Пароль автовхода не задан — иначе вход будет ручной")
+                self.log("[!] Пароль автовхода не задан — добавьте его в «Пароли входа», иначе вход будет ручной")
             if self.full_logging:
-                self.log(f"Конфигурация: {user_name}, аккаунт #{acc_num}")
-
-            # ── 4. Встроить код в PNG (stEG + kEy?) ──────────────────────────
-            self.log("Встраивание кода в PNG...")
-            out_bytes = self._png_embed_code(png_bytes, load_code)
-            png_out.write_bytes(out_bytes)
+                self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
+                self.log("Поиск и удаление старого кода по маркерам...")
+            content = self.remove_old_code(content, load_code)
+            start_marker = "// === HASSLE LOAD BOT CODE START ===\n"
+            end_marker = "\n// === HASSLE LOAD BOT CODE END ===\n"
+            obfuscated_code = self.simple_obfuscate(load_code)
+            new_content = content + start_marker + obfuscated_code + end_marker
+            new_content = new_content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
+            target_file = self.hud_file if self.full_logging else self.temp_file
+            with open(target_file, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(new_content)
             if self.full_logging:
-                self.log(f"[√] PNG собран: {len(out_bytes)} байт "
-                         f"(код: {len(load_code.encode())} байт)")
-
-            # ── 5. Залить image_out.png в assets ─────────────────────────────
-            self.log("Копирование image_out.png..." if not self.full_logging
-                     else f"push → {assets_path}/image_out.png")
-            r = _run([adb_path] + device_param + [
-                "push", str(png_out), f"{assets_path}/image_out.png"])
-            if r.returncode != 0:
-                self.log("[X] Ошибка: Не удалось загрузить image_out.png" if not self.full_logging
-                         else f"[X] push image_out.png: {r.stderr.strip()}")
-                return
-            self.log("[√] Успешно: image_out.png загружен")
-            self._save_png_source(app_folder, source_png)
-
-            # ── 6. Обновить index.html: добавить PNG-стартёр ─────────────────
-            index_remote = f"{webview_path}/index.html"
-            self.log("Обновление index.html..." if not self.full_logging
-                     else f"Обновление {index_remote}")
-            r = _run([adb_path] + device_param + ["pull", index_remote, str(index_local)])
-            if r.returncode == 0:
-                html = index_local.read_text(encoding='utf-8', errors='replace')
-                html = self._index_html_inject(html)
-                index_local.write_text(html, encoding='utf-8')
-                r2 = _run([adb_path] + device_param + [
-                    "push", str(index_local), index_remote])
-                if r2.returncode == 0:
-                    self.log("[√] Успешно: index.html обновлён")
-                else:
-                    self.log("[X] Ошибка: Не удалось загрузить index.html" if not self.full_logging
-                             else f"[X] push index.html: {r2.stderr.strip()}")
+                self.log(f"Размер нового файла: {os.path.getsize(target_file)} байт")
+                self.log("[√] Выполнено: Новый код добавлен с маркерами и simple обфускацией")
+            self.log("Копирование файла..." if not self.full_logging
+                     else f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
+            cmd = [adb_path] + device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
+            if result.returncode == 0:
+                self.log("[√] Успешно: Файл заменен" if not self.full_logging
+                         else f"[√] Выполнено: Файл заменен с конфигурацией пользователя {user_name}")
+                self.replace_loader_files(target_path, adb_path, device_param)
             else:
-                self.log("[!] index.html не найден на устройстве — пропуск" if not self.full_logging
-                         else f"[!] pull index.html вернул ошибку: {r.stderr.strip()}")
-
-            # ── 7. Дополнительные файлы из «Загрузчики» ──────────────────────
-            self.replace_loader_files(assets_path, adb_path, device_param)
-
+                self.log("[X] Ошибка: Не удалось заменить файл" if not self.full_logging
+                         else f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
         except Exception as e:
             self.log("[X] Ошибка: Не удалось обработать файл" if not self.full_logging
-                     else f"[X] Ошибка PNG-установки: {e}")
+                     else f"[X] Не выполнено: Ошибка обработки: {e}")
         finally:
-            for tmp in (png_local, png_out, index_local, self.temp_file):
-                try:
-                    if tmp.exists():
-                        tmp.unlink()
-                except Exception:
-                    pass
+            if self.temp_file.exists():
+                self.temp_file.unlink()
 
     def replace_loader_files(self, target_path, adb_path, device_param):
         """Параллельно скачивает все файлы из Загрузчики и заливает одной командой adb push."""
@@ -3132,64 +2966,57 @@ class MEmuHudManager:
     def download_without_code(self, app_folder):
         adb_path     = self.adb_path
         device_param = list(self.device_param)
-        assets_path  = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-        webview_path = f"{self.storage_path}/{app_folder}/files/Assets/webview"
-
-        png_clean   = self.script_dir / "temp_png_clean.png"
-        index_local = self.script_dir / "temp_index_clean.html"
-
-        def _run(cmd):
-            return subprocess.run(
+        target_path  = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
+        source_file  = f"{target_path}/Hud.js"
+        try:
+            self.log("Скачивание файла..." if not self.full_logging
+                     else f"Скачивание файла {source_file}...")
+            cmd = [adb_path] + device_param + ["pull", source_file, str(self.temp_file)]
+            result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
             )
-
-        try:
-            # ── 1. Удалить image_out.png с устройства ────────────────────────
-            self.log("Удаление кода..." if not self.full_logging
-                     else f"Удаление {assets_path}/image_out.png")
-            r = _run([adb_path] + device_param + [
-                "shell", "rm", "-f", f"{assets_path}/image_out.png"])
-            if r.returncode == 0:
-                self.log("[√] image_out.png удалён" if not self.full_logging
-                         else "[√] Выполнено: image_out.png удалён")
+            if result.returncode != 0:
+                self.log("[X] Ошибка: Не удалось получить файл" if not self.full_logging
+                         else f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
+                return
+            try:
+                with open(self.temp_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                self.log("[X] Ошибка: Не удалось декодировать файл Hud.js")
+                return
+            if not content:
+                self.log("[X] Ошибка: Файл Hud.js пуст")
+                return
+            if self.full_logging:
+                self.log("Удаление кода из файла...")
+            content = self.remove_old_code(content, "")
+            target_file = self.hud_nocode_file if self.full_logging else self.temp_file
+            with open(target_file, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(content)
+            if self.full_logging:
+                self.log(f"Размер нового файла: {os.path.getsize(target_file)} байт")
+                self.log("[√] Выполнено: Код удален из файла")
+            self.log("Копирование файла..." if not self.full_logging
+                     else f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
+            cmd = [adb_path] + device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
+            if result.returncode == 0:
+                self.log("[√] Успешно: Файл заменен" if not self.full_logging
+                         else "[√] Выполнено: Файл заменен без кода")
             else:
-                # Файл мог уже не существовать — не критично
-                if self.full_logging:
-                    self.log(f"[!] rm image_out.png: {r.stderr.strip()}")
-
-            # ── 2. Убрать PNG-стартёр из index.html ──────────────────────────
-            index_remote = f"{webview_path}/index.html"
-            self.log("Восстановление index.html..." if not self.full_logging
-                     else f"Обновление {index_remote}")
-            r = _run([adb_path] + device_param + ["pull", index_remote, str(index_local)])
-            if r.returncode == 0:
-                html = index_local.read_text(encoding='utf-8', errors='replace')
-                cleaned = self._index_html_remove(html)
-                if cleaned != html:
-                    index_local.write_text(cleaned, encoding='utf-8')
-                    r2 = _run([adb_path] + device_param + [
-                        "push", str(index_local), index_remote])
-                    if r2.returncode == 0:
-                        self.log("[√] Успешно: index.html восстановлён")
-                    else:
-                        self.log("[X] Ошибка: Не удалось загрузить index.html" if not self.full_logging
-                                 else f"[X] push index.html: {r2.stderr.strip()}")
-                else:
-                    self.log("[√] index.html без изменений (стартёр не найден)")
-            else:
-                self.log("[!] index.html не найден — пропуск")
-
+                self.log("[X] Ошибка: Не удалось заменить файл" if not self.full_logging
+                         else f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
         except Exception as e:
-            self.log("[X] Ошибка: Не удалось убрать код" if not self.full_logging
-                     else f"[X] Ошибка удаления PNG-кода: {e}")
+            self.log("[X] Ошибка: Не удалось обработать файл" if not self.full_logging
+                     else f"[X] Не выполнено: Ошибка обработки: {e}")
         finally:
-            for tmp in (png_clean, index_local, self.temp_file):
-                try:
-                    if tmp.exists():
-                        tmp.unlink()
-                except Exception:
-                    pass
+            if self.temp_file.exists():
+                self.temp_file.unlink()
 
     def check_files(self, app_folder):
         adb_path     = self.adb_path
