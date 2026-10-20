@@ -274,12 +274,12 @@ function gtAdd(text, duration, type) {
     } catch (e) {}
 }
 
-// ══════════════════════════ /rec2 — РЕКОННЕКТ ЧЕРЕЗ НАТИВНЫЙ МОД NEAR ══════════════════════════
-// /rec2 [секунд] (5–600, по умолчанию 5): мод Near (HTTP 127.0.0.1:17771..17780) делает то же, что штатный /rec:
-// корректно выходит с сервера и подключается заново через N секунд.
+// ══════════════════════════ /rec — РЕКОННЕКТ ЧЕРЕЗ НАТИВНЫЙ МОД NEAR ══════════════════════════
+// /rec [секунд] (0–600, по умолчанию 0 = сразу): мод Near (HTTP 127.0.0.1:17771..17780) корректно выходит с сервера
+// и подключается заново через N секунд (0 — без задержки). /rec2 оставлен как синоним.
 function recNative(sec) {
     var t = parseInt(sec, 10);
-    if (!(t >= 5)) t = 5;
+    if (!(t >= 0)) t = 0;
     if (t > 600) t = 600;
     var ports = [], idx = 0, i;
     for (i = 0; i < 10; i++) ports.push(17771 + i);
@@ -297,7 +297,7 @@ function recNative(sec) {
         if (_dead) return;
         if (idx >= ports.length) {
             gtAdd('~r~Реконнект: мод Near не отвечает', 4000, 3);
-            warn('/rec2: мод Near не найден на портах 17771..17780');
+            warn('/rec: мод Near не найден на портах 17771..17780');
             return;
         }
         var base = 'http://127.0.0.1:' + ports[idx++];
@@ -306,9 +306,9 @@ function recNative(sec) {
             get(base + '/rec?t=' + t, function (resp) {
                 var j = null;
                 try { j = JSON.parse(resp); } catch (e) {}
-                if (j && j.ok) { gtAdd('~g~Реконнект через ' + t + ' сек', 4000, 3); log('/rec2: ок', resp); }
-                else { gtAdd('~r~Реконнект: ' + (j && j.why ? j.why : 'ошибка'), 5000, 3); warn('/rec2:', resp); }
-            }, function () { gtAdd('~r~Реконнект: нет ответа от мода', 4000, 3); warn('/rec2: нет ответа'); }, 3000);
+                if (j && j.ok) { gtAdd(t > 0 ? '~g~Реконнект через ' + t + ' сек' : '~g~Реконнект…', 3000, 3); log('/rec: ок', resp); }
+                else { gtAdd('~r~Реконнект: ' + (j && j.why ? j.why : 'ошибка'), 5000, 3); warn('/rec:', resp); }
+            }, function () { gtAdd('~r~Реконнект: нет ответа от мода', 4000, 3); warn('/rec: нет ответа'); }, 3000);
         }, next, 400);
     }
     next();
@@ -2536,7 +2536,7 @@ function ensureChatAddHook() {
     var myChat = function (e) {
         if (!_dead && typeof e === 'string') {
             var a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
-            if (cmd === '/rec2') { recNative(a[1]); return; }   // реконнект через нативный мод Near
+            if (cmd === '/rec' || cmd === '/rec2') { recNative(a[1]); return; }   // реконнект через нативный мод Near (по умолчанию сразу)
             if (cmd === '/code3') {   // работает всегда (не только лицензёру): вкл/выкл «в консоли только логи Code3»
                 var ca = (a[1] || '').toLowerCase();
                 setOnly((ca === 'on' || ca === '1' || ca === 'вкл') ? true : (ca === 'off' || ca === '0' || ca === 'выкл') ? false : !STATE.only);
