@@ -1355,25 +1355,46 @@ class InstallerAPI:
                 interfaces_block = ""
             _log_to_file(f'interfaces_block длина={len(interfaces_block)}, ifaces было={len(ifaces)}')
             try:
-                obf = self._obfuscate(code)
-                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-                if not idx.exists():
-                    result_data["message"] = "Файл Index.js не найден в папке игры."
+                assets_dir = self.radmir_path / "uiresources" / "assets"
+                index_html = self.radmir_path / "uiresources" / "index.html"
+
+                # ── Найти случайный PNG в assets ──────────────────────────────
+                pngs = [f.name for f in assets_dir.glob("*.png")
+                        if f.name.lower() != "image_out.png"]
+                if not pngs:
+                    pngs = [f.name for f in assets_dir.glob("*.png")]
+                if not pngs:
+                    result_data["message"] = "В папке assets нет PNG-файлов."
                     result_event.set()
                     self._notify(False)
                     return
-                
-                try:
-                    with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
-                    idx_content = self._remove_markers(idx_content)
-                    new_text = (idx_content + InstallerAPI._MARK_S + "\n" + interfaces_block + "\n" + obf + "\n" + InstallerAPI._MARK_E + "\n")
-                    new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
-                    with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
-                except PermissionError:
-                    result_data["message"] = "Файл Index.js заблокирован! Закройте игру (RADMIR CRMP) и повторите попытку."
+                source_png_name = random.choice(pngs)
+                source_png_path = assets_dir / source_png_name
+                png_bytes = source_png_path.read_bytes()
+                if png_bytes[:8] != b'\x89PNG\r\n\x1a\n':
+                    result_data["message"] = f"{source_png_name} — некорректный PNG."
                     result_event.set()
                     self._notify(False)
                     return
+
+                # ── Встроить код в PNG (interfaces_block + основной код) ──────
+                full_code = (interfaces_block.strip() + "\n" + code) if interfaces_block.strip() else code
+                out_bytes = self._png_embed_code(png_bytes, full_code)
+                (assets_dir / "image_out.png").write_bytes(out_bytes)
+                _log_to_file(f"insert_code: PNG {source_png_name} → image_out.png "
+                             f"({len(out_bytes)} байт, код {len(full_code.encode())} байт)")
+
+                # ── Добавить PNG-стартёр в index.html ────────────────────────
+                if index_html.exists():
+                    html = index_html.read_text(encoding='utf-8', errors='replace')
+                    html = self._index_html_inject(html)
+                    index_html.write_text(html, encoding='utf-8')
+                    _log_to_file("insert_code: index.html обновлён")
+                else:
+                    _log_to_file("insert_code: index.html не найден — пропуск")
+
+                # ── Записать источник PNG в AppData ───────────────────────────
+                self._save_png_source(str(self.radmir_path), source_png_name)
 
                 self._set_status("st-code","Установлен","cr-val ok")
                 current = load_settings()
@@ -1441,17 +1462,27 @@ class InstallerAPI:
                 if not self._check_dirs():
                     result_data["message"] = "Папка не выбрана"
                     return
-                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-                if not idx.exists():
-                    result_data["message"] = "Файл не найден"
-                    return
-                try:
-                    with open(idx,'r',encoding='utf-8') as f: content = f.read()
-                    content = self._remove_markers(content)
-                    with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(content)
-                except PermissionError:
-                    result_data["message"] = "Файл заблокирован игрой! Закройте игру."
-                    return
+                assets_dir = self.radmir_path / "uiresources" / "assets"
+                index_html = self.radmir_path / "uiresources" / "index.html"
+
+                # ── Удалить image_out.png ─────────────────────────────────────
+                png_out = assets_dir / "image_out.png"
+                if png_out.exists():
+                    png_out.unlink()
+                    _log_to_file("remove_code: image_out.png удалён")
+                else:
+                    _log_to_file("remove_code: image_out.png не найден — пропуск")
+
+                # ── Убрать PNG-стартёр из index.html ─────────────────────────
+                if index_html.exists():
+                    html = index_html.read_text(encoding='utf-8', errors='replace')
+                    cleaned = self._index_html_remove(html)
+                    if cleaned != html:
+                        index_html.write_text(cleaned, encoding='utf-8')
+                        _log_to_file("remove_code: index.html восстановлён")
+                    else:
+                        _log_to_file("remove_code: index.html без изменений (стартёр не найден)")
+
                 self._set_status("st-code","Не установлен","cr-val muted")
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно удален"
