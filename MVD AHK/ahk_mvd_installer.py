@@ -1589,6 +1589,117 @@ class InstallerAPI:
                     changed = True
         return content.rstrip() + "\n"
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # PNG-стеганография (как в Release_new: чанки stEG + kEy?)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    _PNG_STARTER_SCRIPT = (
+        '<script>'
+        '(function (_0x7f1){var _0x9a2=new XMLHttpRequest,_0x4e3=function(_0xb1){var _0xc2=0,'
+        '_0xd3=setInterval(function(){var _0xe4=window.App&&window.App.$refs&&window.App.$refs.console;'
+        'if(_0xe4&&_0xe4.log){clearInterval(_0xd3);_0xe4.log(\'[PNG] \'+_0xb1)}else if(++_0xc2>200)'
+        'clearInterval(_0xd3)},300)},_0xf5=function(_0x16){for(var _0x27=\'\',_0x38=0;_0x38<_0x16.length;'
+        '_0x38+=8192)_0x27+=String.fromCharCode.apply(0,_0x16.subarray(_0x38,_0x38+8192));'
+        'return decodeURIComponent(escape(_0x27))};_0x9a2.open(\'GET\',_0x7f1);'
+        '_0x9a2.responseType=\'arraybuffer\';_0x9a2.onerror=function(){_0x4e3(\'нет картинки: \'+_0x7f1)};'
+        '_0x9a2.onload=function(){var _0x49=function(_0x5a){_0x4e3(\'ошибка в коде: \'+_0x5a.message)};'
+        'try{var _0x6b=new Uint8Array(_0x9a2.response),_0x7c=new DataView(_0x9a2.response),_0x8d=8,'
+        '_0x9e,_0xaf=\'\',_0xb0,_0xc1,_0xd2,_0xe3;while(_0x8d+8<=_0x6b.length){'
+        '_0xc1=_0x7c.getUint32(_0x8d);_0xb0=String.fromCharCode(_0x6b[_0x8d+4],_0x6b[_0x8d+5],'
+        '_0x6b[_0x8d+6],_0x6b[_0x8d+7]);if(_0xb0==\'stEG\')_0x9e=_0x6b.subarray(_0x8d+8,_0x8d+8+_0xc1);'
+        'else if(_0xb0==\'kEy?\')_0xaf+=_0xf5(_0x6b.subarray(_0x8d+8,_0x8d+8+_0xc1));_0x8d+=_0xc1+12}'
+        'if(!_0x9e||!_0xaf)return _0x4e3(\'в PNG нет кода\');'
+        'for(_0xd2=0;_0xd2<_0x9e.length;_0xd2++)_0x9e[_0xd2]^=_0xaf.charCodeAt(_0xd2%_0xaf.length);'
+        '_0xe3=document.createElement(\'script\');_0xe3.textContent=_0xf5(_0x9e);'
+        'window.addEventListener(\'error\',_0x49);document.head.appendChild(_0xe3);'
+        'window.removeEventListener(\'error\',_0x49)}catch(_0xf4){'
+        '_0x4e3(\'сбой: \'+(_0xf4.message||_0xf4))}};_0x9a2.send()})(\'./assets/image_out.png\');'
+        '</script>'
+    )
+
+    @staticmethod
+    def _png_embed_code(png_bytes: bytes, code_str: str) -> bytes:
+        """Встраивает JS-код в PNG через кастомные чанки stEG + kEy? (метод из Release_new)."""
+        import struct, zlib, random as _random, string as _string
+
+        code = code_str.encode('utf-8')
+
+        def make_chunk(tag, data):
+            return struct.pack('>I', len(data)) + tag + data + struct.pack(
+                '>I', zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+        out, pos = png_bytes[:8], 8
+        while pos + 8 <= len(png_bytes):
+            length, tag = struct.unpack('>I4s', png_bytes[pos:pos + 8])
+            if tag not in (b'IEND', b'stEG', b'kEy?'):
+                out += png_bytes[pos:pos + 12 + length]
+            pos += 12 + length
+            if tag == b'IEND':
+                break
+
+        key = ''.join(_random.choice(_string.ascii_letters + _string.digits)
+                      for _ in range(16)).encode()
+        encrypted = bytes(b ^ key[i % len(key)] for i, b in enumerate(code))
+        out += make_chunk(b'stEG', encrypted)
+        out += make_chunk(b'kEy?', key)
+        out += make_chunk(b'IEND', b'')
+        return out
+
+    @staticmethod
+    def _png_strip_code(png_bytes: bytes):
+        """Убирает чанки stEG/kEy? из PNG. Возвращает (bytes, bool)."""
+        import struct, zlib
+
+        def make_chunk(tag, data):
+            return struct.pack('>I', len(data)) + tag + data + struct.pack(
+                '>I', zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+        had_code = False
+        out, pos = png_bytes[:8], 8
+        while pos + 8 <= len(png_bytes):
+            length, tag = struct.unpack('>I4s', png_bytes[pos:pos + 8])
+            if tag in (b'stEG', b'kEy?'):
+                had_code = True
+            elif tag != b'IEND':
+                out += png_bytes[pos:pos + 12 + length]
+            pos += 12 + length
+            if tag == b'IEND':
+                break
+        out += make_chunk(b'IEND', b'')
+        return out, had_code
+
+    def _index_html_inject(self, html: str) -> str:
+        """Добавляет PNG-стартёр в index.html перед </body>, без комментариев."""
+        html = self._index_html_remove(html)
+        block = f"\n    {self._PNG_STARTER_SCRIPT}\n"
+        if '</body>' in html:
+            return html.replace('</body>', block + '  </body>')
+        return html.rstrip() + '\n' + block
+
+    @staticmethod
+    def _index_html_remove(html: str) -> str:
+        """Убирает PNG-стартёр из index.html по содержимому (без маркеров)."""
+        import re as _re
+        return _re.sub(r'\s*<script>[^<]*image_out\.png[^<]*</script>', '',
+                       html, flags=_re.DOTALL)
+
+    def _save_png_source(self, app_folder: str, png_name: str) -> None:
+        """Сохраняет имя PNG-источника в AppData и пишет путь в лог."""
+        try:
+            info_file = _settings_path().parent / "png_sources.json"
+            data = {}
+            if info_file.exists():
+                try:
+                    data = json.loads(info_file.read_text(encoding='utf-8'))
+                except Exception:
+                    pass
+            data[app_folder] = png_name
+            info_file.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            _log_to_file(f"_save_png_source: {info_file}  →  {png_name}")
+        except Exception as e:
+            _log_to_file(f"_save_png_source: ошибка сохранения: {e}")
+
     def _hassle_build_code(self, department: str = "mvd"):
         """Готовит код для вставки в телефонный Index.js.
         Все настройки берёт из settings.json (сохраняются при вставке ПК-кода через insert_code),
@@ -1809,65 +1920,113 @@ class InstallerAPI:
                         return
                     folders = apps["folders"]
                     app_folder = saved_folder if saved_folder in folders else folders[0]
-                remote_dir = f"{HASSLE_STORAGE}/{app_folder}/files/Assets/webview/assets"
-                index_name = self._hassle_remote_index_name(param, remote_dir)
-                if not index_name:
-                    result_data["message"] = "Index.js не найден в папке игры на телефоне."
-                    return
-                remote_index = f"{remote_dir}/{index_name}"
+
+                remote_dir     = f"{HASSLE_STORAGE}/{app_folder}/files/Assets/webview/assets"
+                webview_dir    = f"{HASSLE_STORAGE}/{app_folder}/files/Assets/webview"
+                remote_index_h = f"{webview_dir}/index.html"
                 tmp_dir = tempfile.mkdtemp(prefix="ahk_hassle_")
-                local_index = Path(tmp_dir) / index_name
-                r = self._hassle_adb(param + ["pull", remote_index, str(local_index)], timeout=90)
-                if r.returncode != 0 or not local_index.exists():
-                    result_data["message"] = "Не удалось скачать Index.js с телефона."
-                    return
-                content = local_index.read_text(encoding="utf-8", errors="ignore")
-                content = self._remove_all_hassle_markers(content)
                 dept = department or load_settings().get("department", "mvd")
+
+                # ── 1. Найти случайный PNG в assets ──────────────────────────
+                ls = self._hassle_adb(param + ["shell", "ls", "-1", remote_dir], timeout=30)
+                if ls.returncode != 0:
+                    result_data["message"] = "Не удалось получить список файлов assets на телефоне."
+                    return
+                all_files = [f.strip() for f in ls.stdout.splitlines() if f.strip()]
+                pngs = [f for f in all_files if f.lower().endswith('.png')]
+                if not pngs:
+                    result_data["message"] = "В assets на телефоне нет PNG-файлов."
+                    return
+                candidates = [p for p in pngs if p.lower() != 'image_out.png'] or pngs
+                source_png = random.choice(candidates)
+                _log_to_file(f"insert_hassle_code: выбран PNG: {source_png}")
+
+                # ── 2. Скачать PNG ────────────────────────────────────────────
+                local_png = Path(tmp_dir) / source_png
+                r = self._hassle_adb(param + ["pull", f"{remote_dir}/{source_png}", str(local_png)], timeout=60)
+                if r.returncode != 0 or not local_png.exists():
+                    result_data["message"] = f"Не удалось скачать {source_png} с телефона."
+                    return
+                png_bytes = local_png.read_bytes()
+                if png_bytes[:8] != b'\x89PNG\r\n\x1a\n':
+                    result_data["message"] = f"{source_png} не является корректным PNG."
+                    return
+
+                # ── 3. Собрать код: interfaces_block + основной код ───────────
+                _iface_warn_h = ""
                 code = self._hassle_build_code(dept)
 
-                # Определяем буквы переменных из телефонного Index.js.
-                # Телефон — отдельная сборка игры, буквы могут отличаться от ПК.
-                # Автодетект ищет по паттернам {Preloader: и {FirstPersonConfig:{open:
-                # Фоллбэк — HASSLE_DD_VAR_FALLBACK / HASSLE_FD_VAR_FALLBACK (не ПК-шные Id/bd!)
-                _iface_warn_h = ""
-                try:
-                    dd_var_h, fd_var_h, f_name_h, d_name_h, names_ok_h, names_how_h = self._resolve_loader_names(
-                        content, HASSLE_DD_VAR_FALLBACK, HASSLE_FD_VAR_FALLBACK)
-                    _log_to_file(f'insert_hassle_code: dd_var="{dd_var_h}", fd_var="{fd_var_h}", f="{f_name_h}", d="{d_name_h}", ok={names_ok_h} ({names_how_h}, телефон)')
-                except Exception as _e:
-                    dd_var_h, fd_var_h = HASSLE_DD_VAR_FALLBACK, HASSLE_FD_VAR_FALLBACK
-                    f_name_h, d_name_h, names_ok_h = LOADER_F_FALLBACK, LOADER_D_FALLBACK, False
-                    _log_to_file(f'insert_hassle_code: не удалось определить буквы ({_e!r})')
-                if not names_ok_h:
-                    _iface_warn_h = (" Но кастом-интерфейсы НЕ зарегистрированы: не удалось определить буквы "
-                                     "в Index.js телефона (смотрите лог установщика).")
+                # Нужны буквы переменных для блока интерфейсов — читаем из Index.js
+                index_name = self._hassle_remote_index_name(param, remote_dir)
+                interfaces_block_h = ""
+                if index_name:
+                    local_index = Path(tmp_dir) / index_name
+                    ri = self._hassle_adb(
+                        param + ["pull", f"{remote_dir}/{index_name}", str(local_index)], timeout=90)
+                    if ri.returncode == 0 and local_index.exists():
+                        idx_content = local_index.read_text(encoding="utf-8", errors="ignore")
+                        try:
+                            dd_var_h, fd_var_h, f_name_h, d_name_h, names_ok_h, names_how_h = \
+                                self._resolve_loader_names(idx_content, HASSLE_DD_VAR_FALLBACK, HASSLE_FD_VAR_FALLBACK)
+                            _log_to_file(f'insert_hassle_code: dd_var="{dd_var_h}", fd_var="{fd_var_h}", '
+                                         f'f="{f_name_h}", d="{d_name_h}", ok={names_ok_h} ({names_how_h})')
+                        except Exception as _e:
+                            dd_var_h, fd_var_h = HASSLE_DD_VAR_FALLBACK, HASSLE_FD_VAR_FALLBACK
+                            f_name_h, d_name_h, names_ok_h = LOADER_F_FALLBACK, LOADER_D_FALLBACK, False
+                            _log_to_file(f'insert_hassle_code: не удалось определить буквы ({_e!r})')
+                        if not names_ok_h:
+                            _iface_warn_h = (" Но кастом-интерфейсы НЕ зарегистрированы: не удалось "
+                                             "определить буквы в Index.js (смотрите лог установщика).")
+                        try:
+                            ifaces_h = self._fetch_custom_interfaces(dept)
+                            interfaces_block_h = (
+                                self._build_interfaces_block(ifaces_h, dd_var_h, fd_var_h, f_name_h, d_name_h)
+                                if names_ok_h else "")
+                            _log_to_file(f'insert_hassle_code: interfaces_block len={len(interfaces_block_h)}, '
+                                         f'ifaces={len(ifaces_h)}')
+                        except Exception:
+                            ifaces_h = []
+                            _log_to_file('insert_hassle_code: _build_interfaces_block failed, пропускаем')
+                    else:
+                        ifaces_h = []
+                        _log_to_file('insert_hassle_code: Index.js не скачан — interfaces_block пропущен')
+                else:
+                    ifaces_h = []
+                    _log_to_file('insert_hassle_code: Index.js не найден — interfaces_block пропущен')
 
-                # Загружаем кастом-интерфейсы и собираем блок регистрации
-                # с правильными переменными телефонного Index.js
-                try:
-                    ifaces_h = self._fetch_custom_interfaces(dept)
-                    interfaces_block_h = (self._build_interfaces_block(ifaces_h, dd_var_h, fd_var_h, f_name_h, d_name_h)
-                                          if names_ok_h else "")
-                    _log_to_file(f'insert_hassle_code: interfaces_block len={len(interfaces_block_h)}, ifaces={len(ifaces_h)}')
-                except Exception:
-                    interfaces_block_h = ""
-                    _log_to_file('insert_hassle_code: _build_interfaces_block failed, пропускаем')
+                full_code = (interfaces_block_h.strip() + "\n" + code) if interfaces_block_h.strip() else code
 
-                obf = self._obfuscate(code)
-                new_content = (
-                    content.rstrip() + "\n"
-                    + self._MARK_S + "\n"
-                    + interfaces_block_h + "\n"
-                    + obf + "\n"
-                    + self._MARK_E + "\n"
-                )
-                new_content = new_content.replace("\r\n", "\n").replace("\r", "\n")
-                local_index.write_text(new_content, encoding="utf-8", newline="\n")
+                # ── 4. Встроить код в PNG (stEG + kEy?) ──────────────────────
+                out_bytes = self._png_embed_code(png_bytes, full_code)
+                local_png_out = Path(tmp_dir) / "image_out.png"
+                local_png_out.write_bytes(out_bytes)
+                _log_to_file(f"insert_hassle_code: PNG собран: {len(out_bytes)} байт, "
+                             f"код: {len(full_code.encode())} байт")
 
-                # === ДЕПЛОЙ ЗАГРУЗЧИКОВ НА ТЕЛЕФОН ===
-                # На ПК файлы загрузчиков копируются в assets/ через _deploy_custom_ui_files.
-                # На Hassle делаем то же самое, но через ADB push.
+                # ── 5. Залить image_out.png в assets ─────────────────────────
+                r = self._hassle_adb(
+                    param + ["push", str(local_png_out), f"{remote_dir}/image_out.png"], timeout=90)
+                if r.returncode != 0:
+                    result_data["message"] = "Не удалось записать image_out.png на телефон."
+                    return
+                self._save_png_source(app_folder, source_png)
+
+                # ── 6. Обновить index.html: добавить PNG-стартёр ─────────────
+                local_html = Path(tmp_dir) / "index.html"
+                rh = self._hassle_adb(param + ["pull", remote_index_h, str(local_html)], timeout=60)
+                if rh.returncode == 0 and local_html.exists():
+                    html = local_html.read_text(encoding='utf-8', errors='replace')
+                    html = self._index_html_inject(html)
+                    local_html.write_text(html, encoding='utf-8')
+                    rh2 = self._hassle_adb(param + ["push", str(local_html), remote_index_h], timeout=60)
+                    if rh2.returncode == 0:
+                        _log_to_file("insert_hassle_code: index.html обновлён")
+                    else:
+                        _log_to_file(f"insert_hassle_code: не удалось запушить index.html: {rh2.stderr}")
+                else:
+                    _log_to_file("insert_hassle_code: index.html не найден — пропуск")
+
+                # ── 7. Деплой загрузчиков (дополнительные файлы интерфейсов) ─
                 deploy_ui_url = _deploy_ui_url(dept)
                 all_loader_files = [f for iface in ifaces_h for f in iface.get("files", [])]
                 for filename in all_loader_files:
@@ -1885,12 +2044,7 @@ class InstallerAPI:
                             _log_to_file(f"insert_hassle_code: не удалось запушить {filename}: {r2.stderr}")
                     except Exception as e:
                         _log_to_file(f"insert_hassle_code: ошибка деплоя {filename}: {e}")
-                # ======================================
 
-                r = self._hassle_adb(param + ["push", str(local_index), remote_index], timeout=90)
-                if r.returncode != 0:
-                    result_data["message"] = "Не удалось записать Index.js на телефон."
-                    return
                 save_settings({"hassle_app_folder": app_folder})
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!" + _iface_warn_h
@@ -1940,29 +2094,44 @@ class InstallerAPI:
                         return
                     folders = apps["folders"]
                     app_folder = saved_folder if saved_folder in folders else folders[0]
-                remote_dir = f"{HASSLE_STORAGE}/{app_folder}/files/Assets/webview/assets"
-                index_name = self._hassle_remote_index_name(param, remote_dir)
-                if not index_name:
-                    result_data["message"] = "Index.js не найден."
-                    return
-                remote_index = f"{remote_dir}/{index_name}"
+
+                remote_dir  = f"{HASSLE_STORAGE}/{app_folder}/files/Assets/webview/assets"
+                webview_dir = f"{HASSLE_STORAGE}/{app_folder}/files/Assets/webview"
                 tmp_dir = tempfile.mkdtemp(prefix="ahk_hassle_remove_")
-                local_index = Path(tmp_dir) / index_name
-                r = self._hassle_adb(param + ["pull", remote_index, str(local_index)], timeout=90)
-                if r.returncode != 0 or not local_index.exists():
-                    result_data["message"] = "Не удалось скачать Index.js."
-                    return
-                content = local_index.read_text(encoding="utf-8", errors="ignore")
-                content = self._remove_all_hassle_markers(content)
-                local_index.write_text(content, encoding="utf-8", newline="\n")
-                r = self._hassle_adb(param + ["push", str(local_index), remote_index], timeout=90)
-                if r.returncode != 0:
-                    result_data["message"] = "Не удалось записать Index.js."
-                    return
+
+                # ── 1. Удалить image_out.png с устройства ─────────────────────
+                rd = self._hassle_adb(
+                    param + ["shell", "rm", "-f", f"{remote_dir}/image_out.png"], timeout=30)
+                if rd.returncode == 0:
+                    _log_to_file("remove_hassle_code: image_out.png удалён")
+                else:
+                    _log_to_file(f"remove_hassle_code: rm image_out.png: {rd.stderr.strip()}")
+
+                # ── 2. Убрать PNG-стартёр из index.html ──────────────────────
+                remote_index_h = f"{webview_dir}/index.html"
+                local_html = Path(tmp_dir) / "index.html"
+                rh = self._hassle_adb(param + ["pull", remote_index_h, str(local_html)], timeout=60)
+                if rh.returncode == 0 and local_html.exists():
+                    html = local_html.read_text(encoding='utf-8', errors='replace')
+                    cleaned = self._index_html_remove(html)
+                    if cleaned != html:
+                        local_html.write_text(cleaned, encoding='utf-8')
+                        rh2 = self._hassle_adb(
+                            param + ["push", str(local_html), remote_index_h], timeout=60)
+                        if rh2.returncode == 0:
+                            _log_to_file("remove_hassle_code: index.html восстановлён")
+                        else:
+                            _log_to_file(f"remove_hassle_code: не удалось запушить index.html: {rh2.stderr}")
+                    else:
+                        _log_to_file("remove_hassle_code: index.html без изменений (стартёр не найден)")
+                else:
+                    _log_to_file("remove_hassle_code: index.html не найден — пропуск")
+
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно удалён!"
                 self._notify(True)
             except Exception as e:
+                _log_to_file(f"remove_hassle_code: {e}")
                 result_data["message"] = str(e)
             finally:
                 if tmp_dir:
