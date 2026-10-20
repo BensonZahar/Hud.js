@@ -36,6 +36,11 @@
 // ║     (игра, Telegram, старые сообщения игрока); итог предложения      ║
 // ║     больше не теряется при двух выдачах подряд и сбое правки         ║
 // ║                                                                      ║
+// ║   • v1.25: «игроки рядом» от нативного мода (NearPlayers, порты      ║
+// ║     17771..17780): пункт «Игроки рядом» в меню лицензёра (выбор из   ║
+// ║     списка по дистанции), /near, и ник↔ID сверяются по данным мода   ║
+// ║     мгновенно — серверный /id остаётся запасным путём                ║
+// ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
 // ║                                                                      ║
@@ -52,7 +57,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.24';
+var VERSION = 'code3 v1.25';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -91,6 +96,10 @@ var OPTS = (function () {
         ID_CHECK_STRICT: false,  // true — если сервер на /id не ответил, выдачу отменяем; false — выдаём без проверки
         ID_CHECK_TTL: 15000,     // мс: подтверждённая пара ник↔ID не перепроверяется (перевыдача подряд)
         ID_CHECK_MS: 2500,       // мс: сколько ждать ответ сервера на /id
+        NEAR: true,              // клиент нативного мода «игроки рядом» (http://127.0.0.1:17771..17780); false — не опрашивать
+        NEAR_VERIFY: true,       // ник↔ID и ID по нику сначала берём у мода (мгновенно), при несовпадении/отсутствии — серверный /id
+        NEAR_RADIUS: 60,         // м: радиус списка «Игроки рядом» в меню лицензёра и в /near
+        NEAR_MAX: 25,            // сколько игроков максимум показывать в списке
         TRACE: true,             // полное логирование радиального меню / поиска ID (консоль + буфер: __code3.trace())
         DEBUG: false
     };
@@ -272,6 +281,74 @@ function gtAdd(text, duration, type) {
             gt.add(JSON.stringify([type !== undefined ? type : 3, text, duration !== undefined ? duration : 3000, 0, 0, true, false, 2.0]));
         }
     } catch (e) {}
+}
+
+// ══════════════════════════ ИГРОКИ РЯДОМ (нативный мод) ══════════════════════════
+// Мод отдаёт JSON на http://127.0.0.1:17771/near (порты 17771..17780):
+//   {ok, stage, me:{id,x,y,z}, n:[{id,nick,label,x,y,z,d,d2,hp,ar,ping,score,veh}]}   d — 3D, d2 — по горизонтали (м)
+// Из консоли: NearPlayers.list() · .within(20) · .byNick('Ivan') · .byId(123) · .me() · .status() · .diag(console.log)
+// status().alive = false — мода в APK нет / не отвечает (тогда всё работает как раньше, через серверный /id).
+var NearPlayers = (function () {
+    var PORTS = [];
+    for (var i = 0; i < 10; i++) PORTS.push(17771 + i);
+    var base = null, snap = null, stamp = 0, busy = false, portIdx = 0;
+    function xhr(url, ok, fail, timeout) {
+        try {
+            var r = new XMLHttpRequest();
+            r.open('GET', url, true);
+            r.timeout = timeout || 800;
+            r.onload = function () { r.status === 200 ? ok(r.responseText) : fail(); };
+            r.onerror = r.ontimeout = fail;
+            r.send();
+        } catch (e) { fail(); }
+    }
+    function tick() {
+        if (_dead || busy) return;
+        busy = true;
+        var done = function () { busy = false; };
+        if (!base) {
+            var p = PORTS[portIdx++ % PORTS.length];
+            xhr('http://127.0.0.1:' + p + '/ping', function (t) {
+                if (t === 'hassle-near') base = 'http://127.0.0.1:' + p;
+                done();
+            }, done, 400);
+            return;
+        }
+        xhr(base + '/near', function (t) {
+            try { snap = JSON.parse(t); stamp = Date.now(); } catch (e) {}
+            done();
+        }, function () { base = null; done(); });
+    }
+    function fresh() { return !!(snap && Date.now() - stamp < 3000); }
+    var api = {
+        list: function () {
+            if (!fresh() || !snap.ok || !snap.n) return [];
+            return snap.n.slice().sort(function (a, b) { return (a.d2 == null ? 1e9 : a.d2) - (b.d2 == null ? 1e9 : b.d2); });
+        },
+        within: function (m) { return api.list().filter(function (p) { return p.d2 != null && p.d2 <= m; }); },
+        byNick: function (s) {
+            s = String(s).toLowerCase();
+            return api.list().filter(function (p) { return (p.nick || '').toLowerCase().indexOf(s) >= 0; });
+        },
+        byId: function (id) { id = String(id); return api.list().filter(function (p) { return String(p.id) === id; })[0] || null; },
+        me: function () { return fresh() ? snap.me : null; },
+        status: function () {
+            return { alive: fresh(), ok: !!(snap && snap.ok), stage: snap ? snap.stage : 'нет связи с модом', age: stamp ? Date.now() - stamp : null };
+        },
+        diag: function (cb) { if (!base) return cb('нет связи'); xhr(base + '/diag', cb, function () { cb('ошибка'); }, 1500); }
+    };
+    if (OPTS.NEAR !== false) { every(tick, 500); tick(); }
+    return api;
+})();
+try { window.NearPlayers = NearPlayers; onUndo(function () { if (window.NearPlayers === NearPlayers) { try { delete window.NearPlayers; } catch (e) { window.NearPlayers = undefined; } } }); } catch (e) {}
+function nearAlive() { try { return OPTS.NEAR !== false && NearPlayers.status().alive && NearPlayers.status().ok; } catch (e) { return false; } }
+function nearById(id) { return nearAlive() ? NearPlayers.byId(id) : null; }
+function nearFmtM(p) { return p.d2 == null ? '?' : (p.d2 < 10 ? p.d2.toFixed(1) : Math.round(p.d2)) + ' м'; }
+// Игроки рядом в радиусе NEAR_RADIUS (без себя), ближайшие первыми, не больше NEAR_MAX
+function nearPick() {
+    if (!nearAlive()) return [];
+    var me = NearPlayers.me(), myId = me ? String(me.id) : null;
+    return NearPlayers.within(Number(OPTS.NEAR_RADIUS) || 60).filter(function (p) { return p.nick && String(p.id) !== myId; }).slice(0, Number(OPTS.NEAR_MAX) || 25);
 }
 
 // ══════════════════════════ НИК ЦЕЛИ ══════════════════════════
@@ -472,7 +549,7 @@ function sendCmdPaced(text) {
 // ══════════════════════════ ДИАЛОГИ ══════════════════════════
 // Наши диалоги 677/678/679 — только на клиенте: открываем через ОРИГИНАЛ игры (минуя монитор диалогов
 // Code2.js, чтобы они не зеркалились в Telegram), ответы перехватываем в sendClientEventCustom и серверу не шлём.
-var DLG_MENU = 677, DLG_ID = 678, DLG_TYPE = 679;
+var DLG_MENU = 677, DLG_ID = 678, DLG_TYPE = 679, DLG_NEAR = 680;
 function addDialog(params, content, prio) {
     var f = window._hassleOrig_addDialogInQueue || window.addDialogInQueue;
     if (typeof f !== 'function') { warn('addDialogInQueue недоступен'); return; }
@@ -635,6 +712,19 @@ function showTypeDialog(id, nickHint, exact) {
     LIC_TYPES.forEach(function (t, i) { list += (i + 1) + '. ' + t.name + '  [' + t.price.toLocaleString('ru-RU') + ' ₽]<n>'; });
     addDialog('[679,4,"Выдача лицензии | ID: ' + id + (nk ? ' | ' + nk : '') + '","","Выдать","Отмена",0,0]', list, 0);
 }
+// ── Диалог 680: игроки рядом (из нативного мода) → выбор → тип лицензии ──
+var nearItems = [];
+function showNearDialog() {
+    nearItems = nearPick();
+    if (!nearItems.length) {
+        gtAdd(nearAlive() ? '~y~Игроки рядом~n~~w~В радиусе ' + (Number(OPTS.NEAR_RADIUS) || 60) + ' м никого нет' : '~r~Игроки рядом~n~~w~Нет связи с модом (нужен APK с модом)', 3500, 3);
+        setTimeout(updatePanel, 0);
+        return;
+    }
+    var list = 'Игрок рядом<n>';
+    nearItems.forEach(function (p, i) { list += (i + 1) + '. ' + stripListPrefix(p.nick).split('_').join(' ') + '  [ID: ' + p.id + ']  ' + nearFmtM(p) + '<n>'; });
+    addDialog('[680,4,"Выдача лицензии | Игроки рядом","","Выбрать","Отмена",0,0]', list, 0);
+}
 // ── Диалог 677: меню лицензёра ──
 var menuItems = [];
 var skipIntReopen = false;   // как _pravoSkipIntReopen: меню открыто кнопкой панели — панель поверх диалога не возвращаем
@@ -644,9 +734,11 @@ function showLicMenu() {
         gtAdd('~r~Лицензёр~n~~w~Нужен правительственный скин и звание Лицензёр', 3500, 3);
         return;
     }
-    menuItems = [{ id: 'givelic', name: 'Выдача лицензии' },
+    menuItems = [{ id: 'givelic', name: 'Выдача лицензии' }];
+    if (nearAlive()) menuItems.push({ id: 'near', name: 'Игроки рядом | {00FF00}' + nearPick().length });
+    menuItems = menuItems.concat([
                  { id: 'circle',  name: 'Круговое меню | ' + onOff(STATE.circle) },
-                 { id: 'tea',     name: 'Просьба о чае | ' + onOff(STATE.tea) }];
+                 { id: 'tea',     name: 'Просьба о чае | ' + onOff(STATE.tea) }]);
     if (OPTS.AUTO_REISSUE && STATE.last && !STATE.last.done) {
         menuItems.push({ id: 'reissue', name: 'Авто-перевыдача | {00FF00}' + STATE.last.name + ' [ID: ' + STATE.last.targetId + ']' + ((nickDisp(STATE.last.targetId) || STATE.last.nick) ? ' ' + (nickDisp(STATE.last.targetId) || STATE.last.nick) : '') });
     }
@@ -670,13 +762,21 @@ function toggleCircle() {
 // Обработка ответов на наши диалоги. true = обработано (серверу не передаём)
 function onDialogResponse(args) {
     var id = parseInt(args[1]);
-    if (id !== DLG_MENU && id !== DLG_ID && id !== DLG_TYPE) return false;
+    if (id !== DLG_MENU && id !== DLG_ID && id !== DLG_TYPE && id !== DLG_NEAR) return false;
     var btn = Number(args[2]), li = parseInt(args[3]);
+    if (id === DLG_NEAR) {
+        var np = nearItems[li]; nearItems = [];
+        if (btn !== 1 || !np) { setTimeout(updatePanel, 0); return true; }
+        // ID и ник взяты у мода; перед /givelic их всё равно сверит verifyTarget (сначала мод, при расхождении — сервер)
+        setTimeout(function () { if (!_dead) showTypeDialog(String(np.id), np.nick, false); }, 0);
+        return true;
+    }
     if (id === DLG_MENU) {
         if (btn !== 1) { setTimeout(updatePanel, 0); return true; }   // отмена — возвращаем панель
         var it = menuItems[li];
         if (!it) return true;
         if (it.id === 'givelic') setTimeout(showIdInput, 0);
+        else if (it.id === 'near') setTimeout(showNearDialog, 0);
         else if (it.id === 'circle') { toggleCircle(); setTimeout(showLicMenu, 0); }
         else if (it.id === 'tea')    { toggleTea();    setTimeout(showLicMenu, 0); }
         else if (it.id === 'reissue') { doReissue(); setTimeout(showLicMenu, 0); }
@@ -737,6 +837,16 @@ function verifyTarget(id, nick, cb) {
         tr('ID/ПРОВЕРКА', 'ID ' + id, 'уже подтверждён сервером ' + (Date.now() - _idOk.at) + 'мс назад', _idOk.name);
         return cb({ ok: true, cached: true, name: _idOk.name });
     }
+    if (OPTS.NEAR_VERIFY !== false) {   // мод «игроки рядом»: игрок с этим ID в памяти игры — совпало → без запроса к серверу; иначе спрашиваем сервер
+        var np = nearById(id);
+        if (np && np.nick && (!want || sameNick(np.nick, want))) {
+            var nn = stripListPrefix(np.nick);
+            _idOk = { id: id, name: nn, at: Date.now() };
+            tr('ID/ПРОВЕРКА', 'ID ' + id, 'подтверждён модом «рядом»', nn, np.d2 != null ? Math.round(np.d2) + ' м' : '');
+            return cb({ ok: true, near: true, name: nn });
+        }
+        if (np && np.nick) tr('ID/ПРОВЕРКА', 'ID ' + id, 'мод назвал другого: ' + stripListPrefix(np.nick) + ' (ждали ' + (want || '—') + ') → уточняем у сервера');
+    }
     if (_idq) return cb({ ok: false, reason: 'busy' });   // предыдущая проверка ещё идёт (двойной тап)
     _idq = { id: id, want: want, cb: cb, timer: null, sentAt: 0 };
     var q = _idq;
@@ -755,6 +865,15 @@ function lookupIdByNick(nick, cb) {
     if (_idOk.id !== null && Date.now() - _idOk.at < ttl && sameNick(_idOk.name, want)) {   // сервер только что сам назвал эту пару
         tr('ID/ПОИСК', nickInfo(nick), 'из подтверждения сервера ' + (Date.now() - _idOk.at) + 'мс назад', 'ID ' + _idOk.id);
         return cb({ ok: true, id: _idOk.id, name: _idOk.name, cached: true });
+    }
+    if (OPTS.NEAR_VERIFY !== false && nearAlive()) {   // ровно один игрок рядом с ТОЧНО этим ником — берём ID у мода
+        var hit = NearPlayers.list().filter(function (p) { return p.nick && sameNick(p.nick, want); });
+        if (hit.length === 1) {
+            var hn = stripListPrefix(hit[0].nick);
+            _idOk = { id: String(hit[0].id), name: hn, at: Date.now() };
+            tr('ID/ПОИСК', nickInfo(nick), 'найден модом «рядом»', 'ID ' + hit[0].id);
+            return cb({ ok: true, id: String(hit[0].id), name: hn, near: true });
+        }
     }
     if (_idq) return cb({ ok: false, reason: 'busy' });
     _idq = { id: null, byNick: true, want: want, cb: cb, timer: null, sentAt: 0 };
@@ -2501,6 +2620,16 @@ function ensureChatAddHook() {
                 setOnly((ca === 'on' || ca === '1' || ca === 'вкл') ? true : (ca === 'off' || ca === '0' || ca === 'выкл') ? false : !STATE.only);
                 return;
             }
+            if (cmd === '/near') {   // список игроков рядом (из мода): /near [радиус_м]
+                var rad = parseFloat(a[1]); if (!(rad > 0)) rad = Number(OPTS.NEAR_RADIUS) || 60;
+                var st = NearPlayers.status();
+                if (!nearAlive()) { gtAdd('~r~Игроки рядом~n~~w~Нет связи с модом' + (st.stage ? ' (' + st.stage + ')' : ''), 3500, 3); return; }
+                var nl = NearPlayers.within(rad).slice(0, Number(OPTS.NEAR_MAX) || 25);
+                log('рядом (' + rad + ' м): ' + nl.length + '\n' + nl.map(function (p) { return '  ' + stripListPrefix(p.nick) + ' [ID ' + p.id + '] ' + nearFmtM(p) + (p.hp != null ? ' hp ' + p.hp : '') + (p.ping != null ? ' ping ' + p.ping : ''); }).join('\n'));
+                var shown = nl.slice(0, 6).map(function (p) { return '~w~' + stripListPrefix(p.nick).split('_').join(' ') + ' ~y~' + p.id + ' ~w~' + nearFmtM(p); }).join('~n~');
+                gtAdd('~g~Рядом: ' + nl.length + (nl.length > 6 ? ' (первые 6, остальные в консоли)' : '') + (shown ? '~n~' + shown : ''), 6000, 3);
+                return;
+            }
             if (cmd === '/licmenu' || (cmd === '/dahk' && licensorReady())) { showLicMenu(); return; }
             // /givelic и /givelic <ID>: штатная команда уходит на сервер как раньше + наш диалог поверх (если мы лицензёр)
             if (cmd === '/givelic' && a.length <= 2) {
@@ -2681,6 +2810,7 @@ window.__code3 = {
     callActive: function () { var a = _c3CallActive; return a && Date.now() - a.at <= CALL_ACTIVE_TTL ? { num: a.num, who: a.who } : null; },
     // Ответ текстом в идущем разговоре (без /p): cb({ ok, text, reason })
     callSay: function (number, kind, cb) { _c3CallSay(number, kind, cb); },
+    near: NearPlayers,   // __code3.near.list() / .within(м) / .byNick() / .byId() / .status() / .diag(cb)
     last: function () { return STATE.last; },
     whenNick: function (id, cb) { whenNick(id, cb); },
     // Логирование: __code3.trace(80) — последние 80 строк (массив) · traceText(150) — текстом · traceCopy() — в буфер обмена
@@ -2699,7 +2829,7 @@ window.__code3 = {
         } catch (e) { return 'не удалось скопировать: ' + tstr(e); }
     },
     lastFail: function () { return _lastFail; },   // снимок последнего «не удалось определить ID»: ник, причина, состояние, 60 строк трассы
-    diag: function () { return { version: VERSION, state: stateInfo(), lastResolve: _lastResolve, session: _rmSid, circle: { pending: circle.pending }, radial: Radial.state(), target: Target.last() }; }
+    diag: function () { return { version: VERSION, state: stateInfo(), lastResolve: _lastResolve, near: NearPlayers.status(), session: _rmSid, circle: { pending: circle.pending }, radial: Radial.state(), target: Target.last() }; }
 };
 tr('INIT', VERSION + ' загружен', stateInfo());
 log(VERSION + ' загружен. Помощник лицензёра активен только в правительственном скине со званием «Лицензёр». /dahk — меню.');
