@@ -143,6 +143,11 @@ def asset_path(rel):
 
 
 class MEmuHudManager:
+    EMU_ALL = "Все сразу"          # пункт «ставить во все запущенные экземпляры»
+    MEMU_BASE_PORT = 21503         # ADB-порт экземпляра MEmu #0; у каждого следующего +10
+    MEMU_PORT_STEP = 10
+    MEMU_MAX_INSTANCES = 10
+
     def __init__(self):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
@@ -175,6 +180,9 @@ class MEmuHudManager:
         self.local_accounts = self.load_local_accounts()
         self.nox_active_devices = []
         self.nox_target = "1"
+        self.memu_active_devices = []   # [{"port", "index", "label", "param"}]
+        self.emu_target_label = None    # выбор в селекторе: имя экземпляра или EMU_ALL
+        self._emu_sel_sig = None
         self.device_param = []
         self.storage_path = ""
         self.adb_path = ""
@@ -848,7 +856,10 @@ class MEmuHudManager:
             if self.selected_code_name:
                 parts.append(f"ИГРОК: {self.selected_code_name}")
             if hasattr(self, "conn_var"):
-                parts.append(f"УСТРОЙСТВО: {self.conn_var.get()}")
+                dev = f"УСТРОЙСТВО: {self.conn_var.get()}"
+                if self.emu_target_label and len(self._emu_list()) >= 2:
+                    dev += f" ({self.emu_target_label})"
+                parts.append(dev)
             if hasattr(self, "app_var") and self.app_var.get():
                 parts.append(self.app_var.get())
             self.hero_sub.configure(text="   ·   ".join(parts))
@@ -1482,6 +1493,7 @@ class MEmuHudManager:
             border_width=1, border_color=C["border"],
         )
         self.nox_sect.grid_columnconfigure(0, weight=1)
+        self._emu_sel_sig = None
 
         # ── Инфо о коммите ─────────────────────────────────────
         if self.full_logging and self.last_commit_info:
@@ -1502,56 +1514,83 @@ class MEmuHudManager:
         self._update_side_head()
         self._refresh_hero_sub()
 
-    def _update_nox_selector(self):
+    # ── Выбор экземпляра эмулятора (MEmu / NOX, если запущено 2+) ──────────────
+    def _emu_list(self):
+        conn = self.conn_var.get() if hasattr(self, "conn_var") else ""
+        if conn == "MEmu":
+            return self.memu_active_devices
+        if conn == "NOX":
+            return self.nox_active_devices
+        return []
+
+    def _apply_emu_target(self, devices):
+        """Ставит device_param по выбору в селекторе (если выбора нет — первый экземпляр).
+        Вызывается из select_connection, поэтому выбор не сбрасывается при каждой операции."""
+        if not devices:
+            return
+        for d in devices:
+            if d["label"] == self.emu_target_label:
+                self.device_param = d["param"]
+                return
+        self.device_param = devices[0]["param"]
+
+    def _on_emu_target(self, val):
+        self.emu_target_label = val
+        self._apply_emu_target(self._emu_list())
+        self.log(f"[√] Цель: {'все экземпляры' if val == self.EMU_ALL else val}")
+        self._refresh_hero_sub()
+        # у разных экземпляров могут быть разные папки приложения
+        self.detect_app_folders()
+
+    def _update_emu_selector(self):
         if not hasattr(self, 'nox_sect'):
             return
         C = self.C
+        conn = self.conn_var.get()
+        devices = self._emu_list()
+
+        if conn not in ("MEmu", "NOX") or len(devices) < 2:
+            self.nox_sect.grid_remove()
+            self.emu_target_label = None
+            self._emu_sel_sig = None
+            self._refresh_hero_sub()
+            return
+
+        labels = [d["label"] for d in devices] + [self.EMU_ALL]
+        if self.emu_target_label not in labels:
+            self.emu_target_label = self.EMU_ALL
+        self._apply_emu_target(devices)
+
+        sig = (conn, tuple(labels))
+        if sig == self._emu_sel_sig:
+            self._refresh_hero_sub()
+            return                      # список экземпляров не менялся — не перестраиваем
+        self._emu_sel_sig = sig
 
         for w in self.nox_sect.winfo_children():
             w.destroy()
+        self.nox_sect.grid(row=1, column=0, columnspan=2, pady=(6, 6), sticky="ew")
+        self._card_title(self.nox_sect, f"{conn} — ВЫБОР ЭКЗЕМПЛЯРА")
 
-        if self.conn_var.get() == "NOX" and len(self.nox_active_devices) >= 2:
-            self.nox_sect.grid(row=1, column=0, columnspan=2, pady=(6, 6), sticky="ew")
-            self._card_title(self.nox_sect, "NOX — ВЫБОР ЭКЗЕМПЛЯРА")
+        self.emu_target_var = ctk.StringVar(value=self.emu_target_label)
+        self._field_label(self.nox_sect, "ЦЕЛЬ", row=1)
+        self._combo(self.nox_sect, labels, self.emu_target_var, row=2,
+                    command=self._on_emu_target, pad_bottom=6)
 
-            if not hasattr(self, 'nox_target_var') or self.nox_target_var is None:
-                self.nox_target_var = ctk.StringVar(value="Оба сразу")
-
-            labels = [d["label"] for d in self.nox_active_devices] + ["Оба сразу"]
-
-            def _on_nox_target(val):
-                idx_map = {d["label"]: d for d in self.nox_active_devices}
-                if val in idx_map:
-                    self.device_param = idx_map[val]["param"]
-                    self.log(f"[√] NOX цель: {val}")
-                else:
-                    self.device_param = self.nox_active_devices[0]["param"]
-                    self.log("[√] NOX цель: оба экземпляра")
-
-            self._field_label(self.nox_sect, "ЦЕЛЬ", row=1)
-            self._combo(self.nox_sect, labels, self.nox_target_var, row=2,
-                        command=_on_nox_target, pad_bottom=6)
-
-            ports_text = "   ".join(
-                f"{d['label']}: порт {d['port']}" for d in self.nox_active_devices
-            )
-            ctk.CTkLabel(
-                self.nox_sect, text=ports_text,
-                font=self.F("mono", 10), text_color=C["muted"],
-                anchor="w",
-            ).grid(row=3, column=0, padx=16, pady=(0, 14), sticky="w")
-
-            _on_nox_target(self.nox_target_var.get())
-        else:
-            self.nox_sect.grid_remove()
-            self.nox_target_var = None
+        ports_text = "   ".join(f"{d['label']}: порт {d['port']}" for d in devices)
+        ctk.CTkLabel(
+            self.nox_sect, text=ports_text,
+            font=self.F("mono", 10), text_color=C["muted"],
+            anchor="w", justify="left", wraplength=620,
+        ).grid(row=3, column=0, padx=16, pady=(0, 14), sticky="w")
+        self._refresh_hero_sub()
 
     def detect_app_folders(self, *args):
         # Всё блокирующее (ADB + select_connection) — в фоновый поток.
         # GUI обновляем только через root.after, чтобы не было гонки с потоком установки.
         def _run():
             if self.select_connection():
-                self.root.after(0, self._update_nox_selector)
+                self.root.after(0, self._update_emu_selector)
                 # Снимаем снапшот сразу после select_connection
                 adb_path = self.adb_path
                 device_param = list(self.device_param)
@@ -1587,7 +1626,7 @@ class MEmuHudManager:
                 def _clear():
                     self.app_menu.configure(values=[])
                     self.app_var.set("")
-                    self._update_nox_selector()
+                    self._update_emu_selector()
                 self.root.after(0, _clear)
         threading.Thread(target=_run, daemon=True).start()
 
@@ -2624,31 +2663,85 @@ class MEmuHudManager:
                      else f"[X] Не выполнено: Ошибка проверки устройства: {e}")
             return False
 
+    def _memu_vm_names(self):
+        """{индекс экземпляра: имя} из memuc.exe listvms — те же имена, что в окне Multi-MEmu.
+        Если memuc не найден или упал — пустой словарь (тогда будет «MEmu #индекс»)."""
+        if not self.memu_path:
+            return {}
+        memuc = Path(self.memu_path).with_name("memuc.exe")
+        if not memuc.exists():
+            return {}
+        try:
+            r = subprocess.run(
+                [str(memuc), "listvms"], capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
+        except Exception:
+            return {}
+        text = None
+        for enc in ("utf-8", "mbcs", "cp866"):
+            try:
+                text = r.stdout.decode(enc)
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if text is None:
+            text = r.stdout.decode("utf-8", errors="replace")
+        names = {}
+        for line in text.splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 2 and parts[0].isdigit() and parts[1]:
+                names[int(parts[0])] = parts[1]
+        return names
+
     def check_memu_device(self):
-        self.log("Проверка подключения..." if not self.full_logging
-                 else "Проверка подключения к MEmu...")
-        memu_ports = ["21503", "21513", "21523"]
-        for port in memu_ports:
+        self.log("Проверка подключения...")
+        found = []   # [(индекс экземпляра, порт)]
+        for idx in range(self.MEMU_MAX_INSTANCES):
+            port = self.MEMU_BASE_PORT + idx * self.MEMU_PORT_STEP
+            if not self._is_port_open(port):
+                continue
+            addr = f"127.0.0.1:{port}"
             try:
                 subprocess.run(
-                    [self.adb_path, "connect", f"127.0.0.1:{port}"],
+                    [self.adb_path, "connect", addr],
                     capture_output=True, timeout=10,
                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
                 )
                 result = subprocess.run(
-                    [self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
+                    [self.adb_path, "-s", addr, "get-state"],
                     capture_output=True, text=True, timeout=10,
                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
                 )
-                if result.returncode == 0:
-                    self.device_param = ["-s", f"127.0.0.1:{port}"]
-                    self.log("[√] Успешно: Подключено к эмулятору MEmu" if not self.full_logging
-                             else "[√] Выполнено: Подключено к эмулятору MEmu")
-                    return True
+                if result.returncode == 0 and "device" in result.stdout:
+                    found.append((idx, port))
             except Exception:
                 continue
-        self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
-        return False
+
+        if not found:
+            self.memu_active_devices = []
+            self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
+            return False
+
+        names = self._memu_vm_names()
+        devices, used = [], set()
+        for idx, port in found:
+            label = names.get(idx) or f"MEmu #{idx}"
+            if label in used:                       # одинаковые имена — различаем по индексу
+                label = f"{label} #{idx}"
+            used.add(label)
+            devices.append({
+                "port": str(port), "index": idx, "label": label,
+                "param": ["-s", f"127.0.0.1:{port}"],
+            })
+        self.memu_active_devices = devices
+        self._apply_emu_target(devices)
+
+        if len(devices) == 1:
+            self.log(f"[√] Подключено к эмулятору MEmu: {devices[0]['label']}")
+        else:
+            self.log(f"[√] Подключено к MEmu: найдено экземпляров — {len(devices)}")
+        return True
 
     def _is_port_open(self, port, host="127.0.0.1", timeout=0.5):
         try:
@@ -2694,24 +2787,22 @@ class MEmuHudManager:
             {"port": p, "label": f"NOX {i+1}", "param": ["-s", f"127.0.0.1:{p}"]}
             for i, p in enumerate(found)
         ]
-        self.device_param = self.nox_active_devices[0]["param"]
+        self._apply_emu_target(self.nox_active_devices)
         self.log(f"[√] Подключено к NOX: найдено экземпляров — {len(found)}")
         return True
 
     def select_app_folder(self):
         return self.app_var.get()
 
-    def _get_nox_targets(self):
-        if (self.conn_var.get() == "NOX"
-                and len(self.nox_active_devices) >= 2
-                and hasattr(self, 'nox_target_var')
-                and self.nox_target_var
-                and self.nox_target_var.get() == "Оба сразу"):
-            return self.nox_active_devices
+    def _get_emu_targets(self):
+        """Список экземпляров, если выбрано «Все сразу» (MEmu/NOX, 2+ запущено), иначе None."""
+        devices = self._emu_list()
+        if len(devices) >= 2 and self.emu_target_label in (None, self.EMU_ALL):
+            return devices
         return None
 
     def _run_on_targets(self, func, app_folder):
-        targets = self._get_nox_targets()
+        targets = self._get_emu_targets()
         if targets:
             orig_param = self.device_param[:]
             for inst in targets:
