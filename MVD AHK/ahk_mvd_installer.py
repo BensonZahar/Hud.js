@@ -1,6 +1,7 @@
 import os, random, string, threading, tempfile, requests, json
 import sys, base64, hashlib, time, io, winreg
 import subprocess, zipfile, shutil
+import struct, zlib
 from pathlib import Path
 import webview
 from PIL import Image
@@ -767,6 +768,177 @@ def parse_loader_target(loader_text: str):
     return (f.group(1) if f else '', n.group(1) if n else '')
 
 
+# ── JS-части, которые упаковываются в PNG / вставляются в index.html ──
+_COVER_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAIGNIUk0AAHolAACAgwAA+f8AAIDpAAB1MAAA6mAAADqYAAAXb5JfxUYAAAAJcEhZcwAAEnQAABJ0Ad5mH3gAAAB/SURBVHhe7dAxAQAgEIDA1w52trUutIBb2Fl3zhuxTbUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQLUaQKVmPrl2AhxdL0trAAAAAElFTkSuQmCC'
+
+_STEGO_STARTER_JS = "(function (_0x7f1){var _0x9a2=new XMLHttpRequest,_0x4e3=function(_0xb1){var _0xc2=0,_0xd3=setInterval(function(){var _0xe4=window.App&&window.App.$refs&&window.App.$refs.console;if(_0xe4&&_0xe4.log){clearInterval(_0xd3);_0xe4.log('[PNG] '+_0xb1)}else if(++_0xc2>200)clearInterval(_0xd3)},300)},_0xf5=function(_0x16){for(var _0x27='',_0x38=0;_0x38<_0x16.length;_0x38+=8192)_0x27+=String.fromCharCode.apply(0,_0x16.subarray(_0x38,_0x38+8192));return decodeURIComponent(escape(_0x27))};_0x9a2.open('GET',_0x7f1);_0x9a2.responseType='arraybuffer';_0x9a2.onerror=function(){_0x4e3('нет картинки: '+_0x7f1)};_0x9a2.onload=function(){var _0x49=function(_0x5a){_0x4e3('ошибка в коде: '+_0x5a.message)};try{var _0x6b=new Uint8Array(_0x9a2.response),_0x7c=new DataView(_0x9a2.response),_0x8d=8,_0x9e,_0xaf='',_0xb0,_0xc1,_0xd2,_0xe3;while(_0x8d+8<=_0x6b.length){_0xc1=_0x7c.getUint32(_0x8d);_0xb0=String.fromCharCode(_0x6b[_0x8d+4],_0x6b[_0x8d+5],_0x6b[_0x8d+6],_0x6b[_0x8d+7]);if(_0xb0=='stEG')_0x9e=_0x6b.subarray(_0x8d+8,_0x8d+8+_0xc1);else if(_0xb0=='kEy?')_0xaf+=_0xf5(_0x6b.subarray(_0x8d+8,_0x8d+8+_0xc1));_0x8d+=_0xc1+12}if(!_0x9e||!_0xaf)return _0x4e3('в PNG нет кода');for(_0xd2=0;_0xd2<_0x9e.length;_0xd2++)_0x9e[_0xd2]^=_0xaf.charCodeAt(_0xd2%_0xaf.length);_0xe3=document.createElement('script');_0xe3.textContent=_0xf5(_0x9e);window.addEventListener('error',_0x49);document.head.appendChild(_0xe3);window.removeEventListener('error',_0x49)}catch(_0xf4){_0x4e3('сбой: '+(_0xf4.message||_0xf4))}};_0x9a2.send()})('@@PNG@@');"
+
+_STEGO_LOADER_JS = "// loader.js — «этап 2». Лежит внутри PNG вместе с вашим кодом: pack_stego.py подставляет ваши файлы вместо /*@@USER@@*/.\n// Ждёт игру, запускает ваши скрипты, пишет в игровую консоль. Ничего не рисует на экране.\n(function () {\n  var WAIT_FOR = ['sendChatInput', 'openInterface'];   // ждём, пока игра определит эти window.<имя> и поднимет window.App; [] — не ждать\n  var WAIT_MAX = 30000;             // максимум ждать, мс; потом запускаем всё равно\n  var USER = /*@@USER@@*/ [];       // ваши скрипты: [{name, code}, ...]\n\n  if (window.__hslLoader) return;   // защита от двойного запуска\n  window.__hslLoader = true;\n\n  // ---------- вывод ----------\n  // console.log игра сама перенаправляет в свою консоль; пока её нет — копим и досылаем.\n  var pending = [], timer = null;\n  function gameConsole() {\n    try { var c = window.App && window.App.$refs && window.App.$refs.console; return (c && typeof c.log === 'function') ? c : null; }\n    catch (x) { return null; }\n  }\n  function say(text, bad) {\n    var c = gameConsole();\n    try { bad ? console.error({ message: text }) : console.log(text); } catch (x) {}\n    if (c) return;\n    pending.push(text);\n    if (timer) return;\n    var t0 = Date.now();\n    timer = setInterval(function () {\n      var g = gameConsole();\n      if (g) { try { while (pending.length) g.log(pending.shift()); } catch (x) {} }\n      if (g || Date.now() - t0 > 60000) { clearInterval(timer); timer = null; }\n    }, 300);\n  }\n  window.hslSay = say;              // из вашего кода: hslSay('текст') / hslSay('текст', true) для ошибки\n\n  // ---------- запуск ----------\n  function execute(item) {\n    try {\n      var s = document.createElement('script');\n      s.textContent = item.code + '\\n//# sourceURL=' + item.name;\n      (document.head || document.documentElement).appendChild(s);\n      say('[PNG-loader] ' + item.name + ' запущен');\n    } catch (e) { say('[PNG-loader] ОШИБКА в ' + item.name + ': ' + (e.message || e), true); }\n  }\n  // ошибки только из наших скриптов (чужие ошибки игры не показываем)\n  window.addEventListener('error', function (ev) {\n    var f = ev && ev.filename ? String(ev.filename) : '';\n    for (var i = 0; i < USER.length; i++)\n      if (f.indexOf(USER[i].name) >= 0) { say('JS error: ' + ev.message + ' @' + USER[i].name + ':' + ev.lineno, true); return; }\n  });\n  function run() { for (var i = 0; i < USER.length; i++) execute(USER[i]); }\n\n  // Игра готова, когда есть window.App и все нужные функции. Опрашиваем часто (50 мс): хуки (например авто-вход)\n  // должны встать раньше, чем сервер первый раз откроет окно авторизации.\n  function gameReady() {\n    if (!window.App) return false;\n    for (var i = 0; i < WAIT_FOR.length; i++) if (typeof window[WAIT_FOR[i]] !== 'function') return false;\n    return true;\n  }\n  if (!WAIT_FOR.length) return run();\n  var t0 = Date.now();\n  (function poll() {\n    if (gameReady() || Date.now() - t0 > WAIT_MAX) return run();\n    setTimeout(poll, 50);\n  })();\n})();\n"
+
+_BRIDGE_HEAD = '(function () {\n  \'use strict\';\n  // «Мост» между кодом из PNG и игрой. Раньше код лежал в конце Index.js и видел его внутренние переменные\n  // (реестры интерфейсов, помощники Vue). Из PNG до них не дотянуться напрямую, поэтому:\n  //   • интерфейсы регистрируются через window.App (публичный объект игры);\n  //   • помощники Vue/Vite берутся из экспортов модуля index.js и узнаются по виду кода, а не по буквам.\n  var IFACES = @@IFACES@@;\n  var say = window.hslSay || function (t, bad) { try { bad ? console.error(t) : console.log(t); } catch (e) {} };\n\n  // Адрес index.js ровно в том виде, как его загрузила страница (с другим регистром букв это был бы другой модуль).\n  var BASE = (function () {\n    var ss = document.getElementsByTagName(\'script\'), i, u;\n    for (i = 0; i < ss.length; i++) {\n      u = ss[i].src || \'\';\n      if (ss[i].type === \'module\' && /\\/index\\.js(?:[?#]|$)/i.test(u)) return u;\n    }\n    return \'\';\n  })();\n  // Файл из папки assets (рядом с index.js)\n  function asset(name) {\n    try { return BASE ? new URL(name, BASE).href : new URL(\'assets/\' + name, document.baseURI).href; }\n    catch (e) { return \'./assets/\' + name; }\n  }\n\n  // Ищем в экспортах index.js: defineAsyncComponent (f), preload-хелпер Vite (d), createCommentVNode (cc);\n  // из кода cc берём имена openBlock (ob) и createBlock (cb) и находим их по имени функции.\n  function findHelpers(ns) {\n    var T = Function.prototype.toString, r = {}, fns = [], k, i, s, m;\n    for (k in ns) { if (typeof ns[k] === \'function\') fns.push(ns[k]); }\n    for (i = 0; i < fns.length; i++) {\n      s = T.call(fns[i]);\n      if (!r.f && /\\{loader:\\w+,loadingComponent:\\w+,errorComponent:\\w+,delay:\\w+=200/.test(s)) r.f = fns[i];\n      else if (!r.d && /^function\\s*\\w*\\(\\w+,\\w+,\\w+\\)\\s*\\{\\s*if\\(!\\w+\\|\\|\\w+\\.length===0\\)return \\w+\\(\\)/.test(s)) r.d = fns[i];\n      else if (!r.cc && (m = /^function\\s*\\w*\\(\\s*(\\w+)\\s*=\\s*(?:""|\'\')\\s*,\\s*(\\w+)\\s*=\\s*(?:!1|false)\\s*\\)\\s*\\{\\s*return\\s+\\2\\s*\\?\\s*\\(\\s*(\\w+)\\(\\)\\s*,\\s*(\\w+)\\(\\s*\\w+\\s*,\\s*null\\s*,\\s*\\1\\s*\\)\\s*\\)/.exec(s))) {\n        r.cc = fns[i]; r.obN = m[3]; r.cbN = m[4];\n      }\n    }\n    for (i = 0; i < fns.length; i++) {\n      if (r.obN && fns[i].name === r.obN) r.ob = fns[i];\n      else if (r.cbN && fns[i].name === r.cbN) r.cb = fns[i];\n    }\n    return r;\n  }\n\n  function addCss(files) {\n    for (var i = 0; i < files.length; i++) {\n      if (!/\\.css(?:[?#]|$)/i.test(files[i])) continue;\n      var l = document.createElement(\'link\');\n      l.rel = \'stylesheet\'; l.href = asset(files[i]);\n      (document.head || document.documentElement).appendChild(l);\n    }\n  }\n\n  // Кастом-интерфейсы: тот же результат, что давал блок Object.assign(...) в Index.js\n  function registerInterfaces(H) {\n    if (!IFACES.length) return;\n    var A = window.App, reg, cfg, n = 0;\n    try { reg = A.$options.components; cfg = A.components; } catch (e) {}\n    if (!reg || !cfg) { say(\'[AHK] реестр интерфейсов игры не найден — кастом-интерфейсы не подключены\', true); return; }\n    var lazy = !!(H && H.f && H.d);\n    IFACES.forEach(function (it) {\n      try {\n        var load = function () { return import(asset(it.js)); };\n        if (it.type === \'sideEffect\') {\n          if (lazy) H.d(load, it.files, BASE); else { addCss(it.files); load(); }\n          n++; return;\n        }\n        var conf = { open: { status: false }, show: true, options: { hideHud: !!it.hideHud, hideChat: !!it.hideChat } };\n        if (it.hud) conf.options.hud = true;\n        if (it.style) conf.options.style = it.style;\n        if (lazy) {\n          // сначала сам компонент, потом конфиг: конфиг запускает отрисовку, компонент к этому моменту уже должен быть\n          reg[it.name] = H.f(function () { return H.d(load, it.files, BASE); });\n          cfg[it.name] = conf;\n        } else {\n          addCss(it.files);\n          load().then(function (m) { reg[it.name] = (m && m.default) || m; cfg[it.name] = conf; },\n                      function (e) { say(\'[AHK] интерфейс \' + it.name + \' не загрузился: \' + (e && e.message || e), true); });\n        }\n        n++;\n      } catch (e) { say(\'[AHK] интерфейс \' + it.name + \': \' + (e && e.message || e), true); }\n    });\n    say(\'[AHK] кастом-интерфейсов подключено: \' + n + (lazy ? \'\' : \' (запасной режим)\'));\n  }\n\n  function start(H) {\n    try { registerInterfaces(H); } catch (e) { say(\'[AHK] регистрация интерфейсов: \' + (e && e.message || e), true); }\n    try { run(H || {}); } catch (e) { say(\'[AHK] ошибка запуска: \' + (e && e.message || e), true); }\n  }\n\n  // Основной код AHK (LoadAhk.js). Oe/Ao/sr — это openBlock/createBlock/createCommentVNode, которые код ждёт\n  // «из Index.js»; здесь они приходят параметрами, найденные выше. __ahkAsset(имя) — адрес файла в assets.\n  function run(H) {\n    (function (Oe, Ao, sr, __ahkAsset) {\n      \'use strict\';\n'
+
+_BRIDGE_TAIL = "\n    }).call(window, H.ob, H.cb, H.cc, asset);\n  }\n\n  if (!BASE) { say('[AHK] модуль index.js на странице не найден — запуск без помощников Vue', true); return start(null); }\n  import(BASE).then(function (ns) {\n    var H = findHelpers(ns);\n    say('[AHK] помощники игры: async=' + !!H.f + ' preload=' + !!H.d + ' vnode=' + !!(H.ob && H.cb && H.cc));\n    start(H);\n  }, function (e) {\n    say('[AHK] не удалось получить index.js: ' + (e && e.message || e), true);\n    start(null);\n  });\n})();\n"
+
+# ═══════════════════════════════════════════════════════════════════════
+#  КОД ИЗ PNG (как в Release_new): Index.js игры больше не трогаем
+#  • код AHK упаковывается в PNG  uiresources/assets/image_out.png
+#  • в uiresources/index.html вставляется маленький стартёр, который достаёт код из картинки
+#  Для Hassle (телефон) по-прежнему используется вставка в Index.js.
+# ═══════════════════════════════════════════════════════════════════════
+
+STEGO_PNG_NAME = "image_out.png"
+STEGO_USER_PLACEHOLDER = "/*@@USER@@*/ []"
+STEGO_USER_NAME = "ahk.js"
+# Невидимые метки вокруг стартёра в index.html — по ним он находится и удаляется
+HTML_MARK_S = "<!--\u200b\u200c\u200b-->"
+HTML_MARK_E = "<!--\u200c\u200b\u200c-->"
+
+
+def _png_chunk(tag: bytes, data: bytes) -> bytes:
+    return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+
+def _js_user_literal(files) -> str:
+    items = [{'name': n, 'code': c} for n, c in files]
+    s = json.dumps(items, ensure_ascii=False)
+    # в старых JS это разрыв строки внутри строки
+    return s.replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
+
+
+def pack_png(cover: bytes, files) -> bytes:
+    """Кладёт loader + скрипты files=[(имя, код)] в PNG: чанки stEG (код, XOR) и kEy? (ключ)."""
+    if STEGO_USER_PLACEHOLDER not in _STEGO_LOADER_JS:
+        raise ValueError('в загрузчике нет метки ' + STEGO_USER_PLACEHOLDER)
+    if cover[:8] != b'\x89PNG\r\n\x1a\n':
+        raise ValueError('обложка не PNG')
+    code = _STEGO_LOADER_JS.replace(STEGO_USER_PLACEHOLDER, _js_user_literal(files)).encode('utf-8')
+    out, pos = cover[:8], 8
+    while pos + 8 <= len(cover):
+        length, tag = struct.unpack('>I4s', cover[pos:pos + 8])
+        if tag not in (b'IEND', b'stEG', b'kEy?', b'hsLd'):
+            out += cover[pos:pos + 12 + length]
+        pos += 12 + length
+        if tag == b'IEND':
+            break
+    key = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(16)).encode()
+    out += _png_chunk(b'stEG', bytes(b ^ key[i % len(key)] for i, b in enumerate(code)))
+    out += _png_chunk(b'kEy?', key) + _png_chunk(b'IEND', b'')
+    return out
+
+
+def unpack_png(png: bytes) -> str:
+    """Обратная операция к pack_png: достаёт код из PNG (используется для самопроверки после упаковки)."""
+    if png[:8] != b'\x89PNG\r\n\x1a\n':
+        raise ValueError('это не PNG')
+    pos, stego, key = 8, None, b''
+    while pos + 8 <= len(png):
+        length, tag = struct.unpack('>I4s', png[pos:pos + 8])
+        data = png[pos + 8:pos + 8 + length]
+        if tag == b'stEG':
+            stego = data
+        elif tag == b'kEy?':
+            key += data
+        pos += length + 12
+    if not stego or not key:
+        raise ValueError('в PNG нет кода (нет чанков stEG/kEy?)')
+    return bytes(c ^ key[i % len(key)] for i, c in enumerate(stego)).decode('utf-8')
+
+
+def cover_png() -> bytes:
+    return base64.b64decode(_COVER_PNG_B64)
+
+
+def make_starter(png_rel: str) -> str:
+    """Стартёр для index.html. Имена переменных случайные при каждой установке."""
+    src = _STEGO_STARTER_JS.replace('@@PNG@@', png_rel)
+    names = {}
+
+    def sub(m):
+        old = m.group(0)
+        if old not in names:
+            while True:
+                new = '_0x' + ''.join(random.choices('0123456789abcdef', k=5))
+                if new not in names.values():
+                    break
+            names[old] = new
+        return names[old]
+    return _re.sub(r'_0x[0-9a-f]{2,3}\b', sub, src)
+
+
+def html_has_starter(html: str) -> bool:
+    return HTML_MARK_S in html
+
+
+def html_remove_starter(html: str) -> str:
+    """Убирает наш стартёр (между невидимыми метками) вместе с одним переводом строки после него."""
+    while True:
+        si = html.find(HTML_MARK_S)
+        if si == -1:
+            break
+        ei = html.find(HTML_MARK_E, si + len(HTML_MARK_S))
+        if ei != -1:
+            end = ei + len(HTML_MARK_E)
+        else:
+            # конечной метки нет (файл правили руками) — убираем только до конца нашего <script>
+            j = html.find('</script>', si)
+            end = j + len('</script>') if j != -1 else si + len(HTML_MARK_S)
+        if html[end:end + 2] == '\r\n':
+            end += 2
+        elif html[end:end + 1] == '\n':
+            end += 1
+        html = html[:si] + html[end:]
+    return html
+
+
+def html_insert_starter(html: str, png_rel: str) -> str:
+    """Вставляет стартёр перед </body> (если уже есть — заменяет). Остальной index.html не меняется."""
+    html = html_remove_starter(html)
+    nl = '\r\n' if '\r\n' in html else '\n'
+    block = HTML_MARK_S + '<script>' + nl + make_starter(png_rel) + nl + '</script>' + HTML_MARK_E + nl
+    pos = html.lower().rfind('</body>')
+    if pos == -1:
+        return html + ('' if html.endswith('\n') or not html else nl) + block
+    return html[:pos] + block + html[pos:]
+
+
+def ifaces_runtime_json(ifaces) -> str:
+    """Список кастом-интерфейсов для моста (JSON). Нативные имена игры пропускаются, как и раньше."""
+    out = []
+    for iface in ifaces:
+        name = iface["name"]
+        files = list(iface.get("files", []))
+        deps = list(iface.get("deps", []))
+        itype = iface.get("type", "interface")
+        if not files:
+            continue
+        if itype != "sideEffect" and name in NATIVE_INTERFACE_NAMES:
+            print(f'[Installer] [!] Пропускаю "{name}" — совпадает с нативным интерфейсом игры')
+            continue
+        out.append({
+            "name": name,
+            "type": itype,
+            "js": next((f for f in files if f.endswith(".js")), files[0]),
+            "files": files + deps,
+            "hideHud": bool(iface.get("hideHud")),
+            "hideChat": bool(iface.get("hideChat")),
+            "hud": bool(iface.get("hud", False)),
+            "style": iface.get("style", "") or "",
+        })
+    return json.dumps(out, ensure_ascii=True)
+
+
+def build_bridge_js(ahk_code: str, ifaces_json: str) -> str:
+    """Скрипт, который лежит в PNG: мост + основной код AHK (LoadAhk.js с подставленными настройками)."""
+    return _BRIDGE_HEAD.replace('@@IFACES@@', ifaces_json) + ahk_code + _BRIDGE_TAIL
+
+
+def prepare_ahk_code_for_png(code: str) -> str:
+    """Правки LoadAhk.js под запуск из index.html (а не из модуля Index.js):
+    import("./Hud.js") в модуле считался от папки assets, на странице — от папки uiresources."""
+    return code.replace('import("./Hud.js")', 'import(__ahkAsset("Hud.js"))')
+
+
+
 class InstallerAPI:
     def __init__(self):
         self._saved = load_settings()
@@ -871,14 +1043,22 @@ class InstallerAPI:
         result = dict(self._saved)
         result['path_valid'] = self.radmir_path is not None
         result['radmir_path'] = str(self.radmir_path) if self.radmir_path else ''
-        idx = self._index_js()
-        if idx:
+        installed = False
+        if self.radmir_path:
             try:
-                result['code_installed'] = self._has_code(idx.read_text(encoding='utf-8'))
+                html_p = self.radmir_path / "uiresources" / "index.html"
+                if html_p.exists():
+                    installed = html_has_starter(html_p.read_text(encoding='utf-8'))
             except Exception:
-                result['code_installed'] = False
-        else:
-            result['code_installed'] = False
+                pass
+        if not installed:
+            idx = self._index_js()
+            if idx:
+                try:
+                    installed = self._has_code(idx.read_text(encoding='utf-8'))   # старая установка (в конце Index.js)
+                except Exception:
+                    pass
+        result['code_installed'] = installed
         return result
 
 
@@ -1321,56 +1501,50 @@ class InstallerAPI:
                 skip_js = json.dumps(skip)
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
+            _iface_warn = ""
             try:
-                # Читаем Index.js и определяем актуальные имена переменных.
-                # Это нужно делать до _build_interfaces_block, потому что
-                # имена меняются при каждой сборке игры.
-                # ВАЖНО: путь к Index.js задаём здесь же. Раньше тут стояло open(idx), а idx
-                # присваивался только ниже по функции -> UnboundLocalError -> except -> всегда
-                # использовался устаревший фоллбэк, и интерфейсы регистрировались не в тот объект.
-                _idx_path = self.radmir_path/"uiresources"/"assets"/"Index.js"
-                _iface_warn = ""
-                try:
-                    with open(_idx_path, 'r', encoding='utf-8') as _f:
-                        _idx_raw = _f.read()
-                    # Читаем чистый файл: наш прошлый блок (между маркерами) не должен влиять на детект
-                    _idx_raw = self._remove_markers(_idx_raw)
-                    dd_var, fd_var, f_name, d_name, _names_ok, _names_how = self._resolve_loader_names(
-                        _idx_raw, PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK)
-                    print(f'[Installer] Index.js ({_names_how}): dd_var="{dd_var}", fd_var="{fd_var}", f="{f_name}", d="{d_name}", ok={_names_ok}')
-                except Exception as _e:
-                    dd_var, fd_var = PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK
-                    f_name, d_name, _names_ok = LOADER_F_FALLBACK, LOADER_D_FALLBACK, False
-                    _log_to_file(f'_resolve_loader_names: не удалось прочитать Index.js ({_e!r})')
-
-                if _names_ok:
-                    interfaces_block = self._build_interfaces_block(ifaces, dd_var, fd_var, f_name, d_name)
-                else:
-                    interfaces_block = ""
-                    _iface_warn = (" Но кастом-интерфейсы НЕ зарегистрированы: не удалось определить буквы "
-                                   "в Index.js (смотрите лог установщика).")
-            except Exception:
-                traceback.print_exc(file=sys.stdout)
-                _log_to_file(f'_build_interfaces_block ИСКЛЮЧЕНИЕ:\n{traceback.format_exc()}')
-                interfaces_block = ""
-            _log_to_file(f'interfaces_block длина={len(interfaces_block)}, ifaces было={len(ifaces)}')
-            try:
-                obf = self._obfuscate(code)
-                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-                if not idx.exists():
-                    result_data["message"] = "Файл Index.js не найден в папке игры."
+                # ── Код AHK едет в PNG, стартёр — в index.html. Index.js игры не меняем. ──
+                _assets = self.radmir_path/"uiresources"/"assets"
+                _html   = self.radmir_path/"uiresources"/"index.html"
+                _idx    = _assets/"Index.js"
+                _png    = _assets/STEGO_PNG_NAME
+                if not _assets.exists():
+                    result_data["message"] = "Папка uiresources\\assets не найдена в папке игры."
                     result_event.set()
                     self._notify(False)
                     return
-                
+                if not _html.exists():
+                    result_data["message"] = "Файл uiresources\\index.html не найден в папке игры."
+                    result_event.set()
+                    self._notify(False)
+                    return
+
+                # 1) собираем PNG и сразу проверяем, что код достаётся обратно без искажений
+                ahk_code  = prepare_ahk_code_for_png(code)
+                if ahk_code == code:
+                    _log_to_file('prepare_ahk_code_for_png: import("./Hud.js") не найден в загрузчике — правка пропущена')
+                bundle    = build_bridge_js(ahk_code, ifaces_runtime_json(ifaces))
+                _files    = [(STEGO_USER_NAME, bundle)]
+                png_bytes = pack_png(cover_png(), _files)
+                if unpack_png(png_bytes) != _STEGO_LOADER_JS.replace(STEGO_USER_PLACEHOLDER, _js_user_literal(_files)):
+                    raise RuntimeError("Самопроверка PNG не прошла: код после упаковки отличается")
+                _log_to_file(f'PNG собран: {len(png_bytes)} байт, код {len(bundle)} символов, интерфейсов={len(ifaces)}')
+
                 try:
-                    with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
-                    idx_content = self._remove_markers(idx_content)
-                    new_text = (idx_content + InstallerAPI._MARK_S + "\n" + interfaces_block + "\n" + obf + "\n" + InstallerAPI._MARK_E + "\n")
-                    new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
-                    with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
+                    # 2) если раньше код стоял в конце Index.js — убираем его, иначе AHK запустится дважды
+                    if _idx.exists():
+                        with open(_idx,'r',encoding='utf-8') as f: _idx_old = f.read()
+                        if self._has_code(_idx_old):
+                            with open(_idx,'w',encoding='utf-8',newline='\n') as f:
+                                f.write(self._remove_markers(_idx_old).replace('\r\n','\n').replace('\r','\n'))
+                            _log_to_file('Старый код AHK удалён из конца Index.js')
+                    # 3) PNG в assets, стартёр в index.html
+                    _png.write_bytes(png_bytes)
+                    with open(_html,'r',encoding='utf-8',newline='') as f: _html_old = f.read()
+                    _html_new = html_insert_starter(_html_old, "./assets/" + STEGO_PNG_NAME)
+                    with open(_html,'w',encoding='utf-8',newline='') as f: f.write(_html_new)
                 except PermissionError:
-                    result_data["message"] = "Файл Index.js заблокирован! Закройте игру (RADMIR CRMP) и повторите попытку."
+                    result_data["message"] = "Файл заблокирован! Закройте игру (RADMIR CRMP) и повторите попытку."
                     result_event.set()
                     self._notify(False)
                     return
@@ -1441,14 +1615,28 @@ class InstallerAPI:
                 if not self._check_dirs():
                     result_data["message"] = "Папка не выбрана"
                     return
-                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-                if not idx.exists():
-                    result_data["message"] = "Файл не найден"
+                _assets = self.radmir_path/"uiresources"/"assets"
+                _html   = self.radmir_path/"uiresources"/"index.html"
+                _idx    = _assets/"Index.js"
+                _png    = _assets/STEGO_PNG_NAME
+                if not _html.exists() and not _idx.exists():
+                    result_data["message"] = "Файлы игры не найдены"
                     return
                 try:
-                    with open(idx,'r',encoding='utf-8') as f: content = f.read()
-                    content = self._remove_markers(content)
-                    with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(content)
+                    # стартёр из index.html (остальное содержимое файла не трогаем)
+                    if _html.exists():
+                        with open(_html,'r',encoding='utf-8',newline='') as f: _h = f.read()
+                        if html_has_starter(_h):
+                            with open(_html,'w',encoding='utf-8',newline='') as f: f.write(html_remove_starter(_h))
+                    # картинка с кодом
+                    if _png.exists():
+                        _png.unlink()
+                    # код старой установки в конце Index.js
+                    if _idx.exists():
+                        with open(_idx,'r',encoding='utf-8') as f: content = f.read()
+                        if self._has_code(content):
+                            content = self._remove_markers(content)
+                            with open(_idx,'w',encoding='utf-8',newline='\n') as f: f.write(content)
                 except PermissionError:
                     result_data["message"] = "Файл заблокирован игрой! Закройте игру."
                     return
