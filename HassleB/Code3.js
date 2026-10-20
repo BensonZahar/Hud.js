@@ -43,7 +43,7 @@
 // ║                                                                      ║
 // ║   • v1.26: голос игроков → Telegram голосовым сообщением (нужен      ║
 // ║     APK с прокси libopus): кнопка «🎙 Голос игроков» во вкладке       ║
-// ║     «Лицензёр», в игре /c3v [on|off|diag] и /c3vtest                 ║
+// ║     «Лицензёр», в игре /c3v [on|off|diag|probe] и /c3vtest                 ║
 // ║                                                                      ║
 // ║  Чего НЕТ (специально): авто-снаряжение, «Повседневная», хоткеи,     ║
 // ║  мышь/колесо, перетаскивание окон.                                   ║
@@ -61,7 +61,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.27';
+var VERSION = 'code3 v1.28';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -2635,6 +2635,11 @@ function ensureChatAddHook() {
                 var cv = (a[1] || '').toLowerCase();
                 if (cv === 'on' || cv === '1' || cv === 'вкл') vv.enable(true);
                 else if (cv === 'off' || cv === '0' || cv === 'выкл') vv.enable(false);
+                else if (cv === 'probe') {
+                    gtAdd('~y~Голос~n~~w~Проверка движка… (~10 с)', 4000, 3);
+                    vv.probe(function (rep) { log(rep); try { sendToTelegram('<pre>' + String(rep).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>', true, null); } catch (e) {} gtAdd('~g~Голос~n~~w~Результат проверки — в Telegram и в консоли', 6000, 3); });
+                    return;
+                }
                 else if (cv === 'diag') { log(vv.diag()); gtAdd('~y~Голос~n~~w~Диагностика в консоли (/code3 off — чтобы видеть всю консоль)', 4000, 3); return; }
                 var vs = vv.status();
                 gtAdd((vs.on ? '~g~Голос в Telegram: Вкл' : '~r~Голос в Telegram: Выкл') + '~n~~w~прокси: ' + vs.proxy + ' · отправлено: ' + vs.stats.sent, 5000, 3);
@@ -3900,7 +3905,7 @@ try { (function () {
         'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.split('').forEach(function (c, i) { B64[c] = i; });
         const S = {
             base: null, pi: 0, since: null, offset: 0, busy: false, proxy: '—', active: false,
-            decs: {}, act: {}, hist: [], bind: {}, queue: [], sending: false, method: null, lastFailTg: 0,
+            decs: {}, act: {}, hist: [], bind: {}, queue: [], sending: false, method: null, lastFailTg: 0, strOk: undefined, strTry: 0, strBusy: false,
             st: { polls: 0, events: 0, lost: 0, packets: 0, phrases: 0, tooShort: 0, noName: 0, sent: 0, fail: 0, lastErr: '', lastSendMs: 0, lastWho: '' }
         };
         function stale() { return window.__c3VoiceGen !== GEN || (typeof __hassleStale === 'function' && __hassleStale()); }
@@ -4042,20 +4047,35 @@ try { (function () {
 
         // ── отправка в Telegram ──
         function utf8(s) { const b = unescape(encodeURIComponent(String(s))), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
-        function multipart(fields, file) {
+        // multipart руками; по умолчанию поле voice / voice.ogg
+        function multipart(fields, file, fname, filename, mime) {
             const bd = '----c3v' + Date.now().toString(16) + Math.random().toString(16).slice(2, 10), parts = [];
             Object.keys(fields).forEach(function (k) { parts.push(utf8('--' + bd + '\r\nContent-Disposition: form-data; name="' + k + '"\r\n\r\n' + fields[k] + '\r\n')); });
-            parts.push(utf8('--' + bd + '\r\nContent-Disposition: form-data; name="voice"; filename="voice.ogg"\r\nContent-Type: audio/ogg\r\n\r\n'));
+            parts.push(utf8('--' + bd + '\r\nContent-Disposition: form-data; name="' + (fname || 'voice') + '"; filename="' + (filename || 'voice.ogg') + '"\r\nContent-Type: ' + (mime || 'audio/ogg') + '\r\n\r\n'));
             parts.push(file); parts.push(utf8('\r\n--' + bd + '--\r\n'));
             let n = 0; parts.forEach(function (p) { n += p.length; });
             const out = new Uint8Array(n); let o = 0;
             parts.forEach(function (p) { out.set(p, o); o += p.length; });
             return { body: out, type: 'multipart/form-data; boundary=' + bd };
         }
-        // method: 'fd' (FormData + Blob) | 'raw' (multipart руками, тело — Uint8Array) | 'buf' (то же, но ArrayBuffer)
-        //         | 'bin' (то же, но строка байтов через sendAsBinary — если движок это умеет).
-        // В движке игры (Coherent) FormData/Blob может не быть вовсе — тогда 'fd' даже не пробуем.
-        // cb(err|null): err = {retry} | {net} | {code,text} | {ex}
+        function binStr(u8) {   // байты → строка (1 символ = 1 байт), кусками, чтобы не упереться в лимит аргументов
+            const parts = [];
+            for (let i = 0; i < u8.length; i += 8192) parts.push(String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + 8192, u8.length))));
+            return parts.join('');
+        }
+        function bodyOf(x) {   // тело ответа: responseText, иначе response (если строка)
+            let t = '';
+            try { t = x.responseText; } catch (e) {}
+            if (!t) { try { if (typeof x.response === 'string') t = x.response; } catch (e) {} }
+            return String(t || '');
+        }
+        function xdetail(x) {   // тело пустое — покажем хотя бы statusText и заголовки
+            let h = '';
+            try { if (typeof x.getAllResponseHeaders === 'function') h = String(x.getAllResponseHeaders() || '').replace(/\r?\n/g, ';').slice(0, 100); } catch (e) {}
+            return '[пустой ответ; statusText=' + (x.statusText || '') + (h ? '; ' + h : '') + ']';
+        }
+        // method: 'fd' (FormData+Blob) | 'raw' (Uint8Array) | 'buf' (ArrayBuffer) | 'bin' (sendAsBinary) | 'str' (строка байтов через send — только если проба
+        //         показала, что движок шлёт строки без перекодирования в UTF-8). cb(err|null): err = {retry} | {net} | {code,text} | {ex}
         function post(method, fields, bytes, cb) {
             let xhr, payload;
             try {
@@ -4070,19 +4090,16 @@ try { (function () {
                 } else {
                     const mp = multipart(fields, bytes), u8 = mp.body;
                     if (method === 'buf') payload = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
-                    else if (method === 'bin') {
-                        const parts = [];
-                        for (let i = 0; i < u8.length; i += 8192) parts.push(String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + 8192, u8.length))));
-                        payload = parts.join('');
-                    } else payload = u8;
+                    else if (method === 'bin' || method === 'str') payload = binStr(u8);
+                    else payload = u8;
                     xhr.setRequestHeader('Content-Type', mp.type);
                 }
             } catch (ex) { cb({ ex: String(ex && ex.message || ex) }); return; }
             xhr.onload = function () {
                 if (xhr.status === 200) { cb(null); return; }
                 let ra = 0;
-                if (xhr.status === 429) { try { ra = (JSON.parse(xhr.responseText).parameters || {}).retry_after || 5; } catch (e) { ra = 5; } cb({ retry: ra }); return; }
-                cb({ code: xhr.status, text: String(xhr.responseText || '').slice(0, 200) });
+                if (xhr.status === 429) { try { ra = (JSON.parse(bodyOf(xhr)).parameters || {}).retry_after || 5; } catch (e) { ra = 5; } cb({ retry: ra }); return; }
+                cb({ code: xhr.status, text: (bodyOf(xhr) || xdetail(xhr)).slice(0, 200) });
             };
             xhr.onerror = function () { cb({ net: true }); };
             xhr.ontimeout = function () { cb({ net: true, timeout: true }); };
@@ -4090,13 +4107,13 @@ try { (function () {
             catch (ex) { cb({ ex: String(ex && ex.message || ex) }); }
         }
         function errText(err) { return err.code ? err.code + ' ' + err.text : err.ex || (err.timeout ? 'таймаут' : err.net ? 'сеть' : err.retry ? 'флуд-лимит' : '?'); }
-        // какие способы вообще есть в этом движке
-        function methodsAvail() {
+        function methodsAvail() {   // какие способы вообще есть в этом движке
             const m = [];
             if (typeof FormData === 'function' && typeof Blob === 'function') m.push('fd');
             m.push('raw');
             if (typeof ArrayBuffer === 'function') m.push('buf');
             try { if (typeof XMLHttpRequest.prototype.sendAsBinary === 'function') m.push('bin'); } catch (e) {}
+            if (S.strOk === true) m.push('str');
             return m;
         }
         function caps() {
@@ -4106,6 +4123,67 @@ try { (function () {
                 t('ArrayBuffer', typeof ArrayBuffer === 'undefined' ? undefined : ArrayBuffer), t('TextEncoder', typeof TextEncoder === 'undefined' ? undefined : TextEncoder),
                 'sendAsBinary:' + sab].join(' ');
         }
+
+        // ── пробник: что движок делает с телом запроса. Шлёт в чат крошечные тестовые сообщения/файлы и сразу их удаляет ──
+        function xr(url, hdrs, body, how, cb) {
+            let x;
+            try {
+                x = new XMLHttpRequest(); x.open('POST', url, true); x.timeout = 30000;
+                Object.keys(hdrs || {}).forEach(function (k) { x.setRequestHeader(k, hdrs[k]); });
+            } catch (e) { cb({ ex: 'open: ' + String(e && e.message || e) }); return; }
+            x.onload = function () { cb({ status: x.status, text: bodyOf(x) || (x.status === 200 ? '' : xdetail(x)) }); };
+            x.onerror = function () { cb({ net: true }); };
+            x.ontimeout = function () { cb({ net: true, timeout: true }); };
+            try { if (how === 'bin') x.sendAsBinary(body); else x.send(body); } catch (e) { cb({ ex: 'send: ' + String(e && e.message || e) }); }
+        }
+        function mpStr(bd, fields, withFile, fileStr) {   // multipart целиком строкой (1 символ = 1 байт)
+            let r = '';
+            Object.keys(fields).forEach(function (k) { r += '--' + bd + '\r\nContent-Disposition: form-data; name="' + k + '"\r\n\r\n' + fields[k] + '\r\n'; });
+            if (withFile) r += '--' + bd + '\r\nContent-Disposition: form-data; name="document"; filename="probe.bin"\r\nContent-Type: application/octet-stream\r\n\r\n' + fileStr + '\r\n';
+            return r + '--' + bd + '--\r\n';
+        }
+        // tests: список имён из T1..T6; cb(строки-отчёта[]). Побочно: S.strOk (true — строка уходит байт-в-байт)
+        function runProbe(only, cb) {
+            const chat = config.chatIds && config.chatIds[0];
+            if (!chat || !config.botToken) { cb(['нет chatId/токена']); return; }
+            const base = 'https://api.telegram.org/bot' + config.botToken + '/';
+            const bytes256 = new Uint8Array(256); for (let i = 0; i < 256; i++) bytes256[i] = i;
+            const ascii = utf8('hello-u8!');
+            const bd = '----c3p' + Date.now().toString(16);
+            const CT = { 'Content-Type': 'multipart/form-data; boundary=' + bd };
+            const f0 = { chat_id: String(chat), disable_notification: 'true' };
+            let str256 = ''; for (let i = 0; i < 256; i++) str256 += String.fromCharCode(i);
+            const tests = {
+                T1: ['T1 multipart-строка, только текст (sendMessage)', 'sendMessage', function () { return { h: CT, b: mpStr(bd, { chat_id: String(chat), text: 'c3v probe', disable_notification: 'true' }, false), how: 'send' }; }, null],
+                T2: ['T2 Uint8Array, 9 байт ASCII', 'sendDocument', function () { const m = multipart(f0, ascii, 'document', 'probe.bin', 'application/octet-stream'); return { h: { 'Content-Type': m.type }, b: m.body, how: 'send' }; }, 9],
+                T3: ['T3 ArrayBuffer, 9 байт ASCII', 'sendDocument', function () { const m = multipart(f0, ascii, 'document', 'probe.bin', 'application/octet-stream'); return { h: { 'Content-Type': m.type }, b: m.body.buffer.slice(m.body.byteOffset, m.body.byteOffset + m.body.byteLength), how: 'send' }; }, 9],
+                T4: ['T4 Uint8Array, байты 0..255', 'sendDocument', function () { const m = multipart(f0, bytes256, 'document', 'probe.bin', 'application/octet-stream'); return { h: { 'Content-Type': m.type }, b: m.body, how: 'send' }; }, 256],
+                T5: ['T5 строка, символы 0..255 (256=без перекодировки, 384=UTF-8)', 'sendDocument', function () { return { h: CT, b: mpStr(bd, f0, true, str256), how: 'send' }; }, 256],
+                T6: ['T6 sendAsBinary, байты 0..255', 'sendDocument', function () { return { h: CT, b: mpStr(bd, f0, true, str256), how: 'bin' }; }, 256]
+            };
+            const names = only.filter(function (n) { return n !== 'T6' || (function () { try { return typeof XMLHttpRequest.prototype.sendAsBinary === 'function'; } catch (e) { return false; } })(); });
+            const out = [];
+            (function next(i) {
+                if (i >= names.length) { cb(out); return; }
+                const t = tests[names[i]], q = t[2]();
+                xr(base + t[1], q.h, q.b, q.how, function (r) {
+                    let size = null, mid = null;
+                    if (r.status === 200) { try { const j = JSON.parse(r.text); mid = j.result.message_id; size = j.result.document ? j.result.document.file_size : null; } catch (e) {} }
+                    if (mid !== null) { try { if (typeof deleteMessage === 'function') deleteMessage(chat, mid); } catch (e) {} }
+                    if (names[i] === 'T5') { S.strOk = (size === 256); S.strTry++; }
+                    out.push(t[0] + ' → ' + (r.net ? (r.timeout ? 'таймаут' : 'сеть') : r.ex ? 'исключение ' + r.ex : r.status + (r.status === 200 ? (size !== null ? ', размер файла у Telegram: ' + size + (t[3] !== null && size !== t[3] ? '  ✗ ожидалось ' + t[3] : '  ✓') : ' ок') : ' ' + (r.text || '(пусто)').slice(0, 110))));
+                    setTimeout(function () { next(i + 1); }, 1100);
+                });
+            })(0);
+        }
+        function learnStr(cb) { runProbe(['T5'], function () { cb(); }); }
+        function probe(cb) {
+            runProbe(['T1', 'T2', 'T3', 'T4', 'T5', 'T6'], function (lines) {
+                let ua = ''; try { ua = String(navigator.userAgent || ''); } catch (e) {}
+                cb('c3v probe\nдвижок: ' + caps() + '\nUA: ' + ua.slice(0, 120) + '\n' + lines.join('\n') + '\nstrOk: ' + S.strOk);
+            });
+        }
+
         function sendVoice(bytes, caption, durSec, cb) {
             const chat = config.chatIds && config.chatIds[0];
             if (!chat || !config.botToken) { cb({ ex: 'нет chatId/токена' }); return; }
@@ -4115,7 +4193,15 @@ try { (function () {
             const tried = [];
             let last = null;
             (function next(i) {
-                if (i >= order.length) { last = last || { ex: '?' }; last.all = tried.join(' | '); cb(last); return; }
+                if (i >= order.length) {
+                    // все обычные способы не прошли (не флуд и не сеть) — один раз проверяем, шлёт ли движок строку байт-в-байт, и если да — пробуем 'str'
+                    if (S.strOk === undefined && S.strTry < 2 && !S.strBusy && last && !last.retry && !last.net) {
+                        S.strBusy = true;
+                        learnStr(function () { S.strBusy = false; if (S.strOk) order.push('str'); else tried.push('str: движок шлёт строки не байт-в-байт'); next(i); });
+                        return;
+                    }
+                    last = last || { ex: '?' }; last.all = tried.join(' | '); cb(last); return;
+                }
                 post(order[i], fields, bytes, function (err) {
                     if (!err) { S.method = order[i]; cb(null); return; }
                     last = err; tried.push(order[i] + ': ' + errText(err));
@@ -4186,7 +4272,7 @@ try { (function () {
         function diag() {
             const s = status();
             return 'голос: ' + (s.enabled ? 'работает' : s.on ? 'включён, но ждёт (скин/звание Лицензёр или licVoiceAnySkin)' : 'выключен') +
-                '\nмод: ' + s.mod + ' · прокси: ' + s.proxy + ' · способ загрузки: ' + (s.method || 'ещё не определён') + ' (доступны: ' + methodsAvail().join(',') + ')' +
+                '\nмод: ' + s.mod + ' · прокси: ' + s.proxy + ' · способ загрузки: ' + (s.method || 'ещё не определён') + ' (доступны: ' + methodsAvail().join(',') + '; строка-байт-в-байт: ' + (S.strOk === undefined ? 'не проверялось' : S.strOk ? 'да' : 'нет') + ')' +
                 '\nдвижок: ' + caps() +
                 '\nопросов: ' + s.stats.polls + ', событий: ' + s.stats.events + ', пакетов: ' + s.stats.packets + ', потеряно: ' + s.stats.lost +
                 '\nфраз: ' + s.stats.phrases + ' (слишком коротких: ' + s.stats.tooShort + ', без имени: ' + s.stats.noName + '), отправлено: ' + s.stats.sent + ', ошибок: ' + s.stats.fail +
@@ -4197,7 +4283,7 @@ try { (function () {
 
         const iv1 = setInterval(function () { if (stale()) { clearInterval(iv1); clearInterval(iv2); return; } poll(); }, 400);
         const iv2 = setInterval(function () { if (stale()) return; if (enabled()) scanEntries(); }, 150);
-        return { status: status, diag: diag, test: test, enable: enable, _s: S };
+        return { status: status, diag: diag, test: test, probe: probe, enable: enable, _s: S };
     })();
     window.__c3Voice = VOICE;
 
