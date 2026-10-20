@@ -15,6 +15,7 @@ import socket
 import platform
 import base64
 import re
+import tkinter as tk
 from tkinter import messagebox, filedialog
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -143,11 +144,6 @@ def asset_path(rel):
 
 
 class MEmuHudManager:
-    EMU_ALL = "Все сразу"          # пункт «ставить во все запущенные экземпляры»
-    MEMU_BASE_PORT = 21503         # ADB-порт экземпляра MEmu #0; у каждого следующего +10
-    MEMU_PORT_STEP = 10
-    MEMU_MAX_INSTANCES = 10
-
     def __init__(self):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
@@ -180,9 +176,6 @@ class MEmuHudManager:
         self.local_accounts = self.load_local_accounts()
         self.nox_active_devices = []
         self.nox_target = "1"
-        self.memu_active_devices = []   # [{"port", "index", "label", "param"}]
-        self.emu_target_label = None    # выбор в селекторе: имя экземпляра или EMU_ALL
-        self._emu_sel_sig = None
         self.device_param = []
         self.storage_path = ""
         self.adb_path = ""
@@ -236,6 +229,11 @@ class MEmuHudManager:
         self._prog = 0.0
         self._run_errors = False
         self._minimized = False
+        self._auth_done = False     # проверка доступа завершена (нужно для on_close)
+        self._closing = False
+        self._toasts = []
+        self._load_bar = None
+        self._load_t = 0
 
         W, H = 1000, 620
         self.SIDE_W = 232
@@ -262,8 +260,11 @@ class MEmuHudManager:
         self._show_loading()
         self.root.update()
         self._fix_taskbar()
+        self._install_clipboard_hotkeys()
 
-        self.activate_launch_permission()
+        # Проверка доступа (wmic + GitHub + ADB) раньше шла прямо здесь и вешала окно до mainloop —
+        # поэтому оно долго было «прозрачным». Теперь окно сразу живое, проверка — в фоне.
+        self.root.after(100, self._start_auth)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Вспомогательные утилиты
@@ -578,7 +579,8 @@ class MEmuHudManager:
         self.root.bind("<Map>", self._on_map, add="+")
 
     def _on_map(self, e):
-        if e.widget is self.root and self._minimized:
+        # Срабатывает только когда окно реально вернули из свёрнутого состояния
+        if e.widget is self.root and self._minimized and self.root.state() == "normal":
             self._minimized = False
             self.root.after(20, self._restore_borderless)
 
@@ -610,12 +612,62 @@ class MEmuHudManager:
             pass
 
     def _minimize(self):
+        # Основной способ (Windows): сворачиваем напрямую через WinAPI, не трогая overrideredirect.
+        # Раньше overrideredirect(False) вызывал <Map> -> окно тут же «переоткрывалось».
+        if platform.system() == "Windows":
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+                ctypes.windll.user32.ShowWindow(hwnd, 6)   # SW_MINIMIZE
+                return
+            except Exception:
+                pass
+        # Запасной способ
         try:
-            self._minimized = True
+            self.root.update_idletasks()
             self.root.overrideredirect(False)
+            self.root.update_idletasks()      # Map от пересоздания окна происходит здесь — игнорируем его
             self.root.iconify()
+            self.root.after(300, lambda: setattr(self, "_minimized", True))
         except Exception:
             self._minimized = False
+
+    # ── Буфер обмена в любой раскладке ─────────────────────────────────────────
+    def _install_clipboard_hotkeys(self):
+        # Tk привязывает Ctrl+V/C/X/A к символу клавиши. В русской раскладке это «м/с/ч/ф» —
+        # поэтому горячие клавиши не работали. Ловим по коду клавиши (VK_V=86, VK_C=67, VK_X=88, VK_A=65).
+        self.root.bind_all("<Control-KeyPress>", self._on_ctrl_key, add="+")
+
+    def _on_ctrl_key(self, e):
+        kc = e.keycode
+        if kc not in (86, 67, 88, 65):
+            return None
+        # Латинская раскладка: штатные бинды Tk уже сработают — не дублируем
+        if (e.keysym or "").lower() in ("v", "c", "x", "a"):
+            return None
+        w = e.widget
+        try:
+            cls = w.winfo_class()
+        except Exception:
+            return None
+        if cls not in ("Entry", "Text"):
+            return None
+        try:
+            if kc == 86:
+                w.event_generate("<<Paste>>")
+            elif kc == 67:
+                w.event_generate("<<Copy>>")
+            elif kc == 88:
+                w.event_generate("<<Cut>>")
+            else:
+                if cls == "Text":
+                    w.tag_add("sel", "1.0", "end-1c")
+                else:
+                    w.select_range(0, "end")
+                    w.icursor("end")
+        except tk.TclError:
+            pass
+        return "break"
 
     def _bind_drag(self, widget, target=None):
         target = target or self.root
@@ -807,9 +859,10 @@ class MEmuHudManager:
         self.bottom_bar.grid(row=3, column=0, sticky="ew")
         self.bottom_bar.grid_propagate(False)
 
-        # Всплывающие уведомления — поверх контента, справа снизу
-        self._notif_strip = ctk.CTkFrame(self.main, fg_color="transparent", width=380, height=1)
-        self._notif_strip.place(relx=1.0, rely=1.0, x=-20, y=-100, anchor="se")
+        # Всплывающие уведомления — отдельные плашки поверх контента (place), без общей подложки.
+        # Раньше тут был пустой Frame-контейнер: после исчезновения плашек он сохранял размер
+        # и висел над карточками чёрным прямоугольником.
+        self._notif_strip = self.main   # родитель плашек (и признак «GUI готов» для log())
 
     def _show_loading(self):
         C = self.C
@@ -821,9 +874,26 @@ class MEmuHudManager:
                      text_color=C["subtext"]).pack(pady=(4, 12))
         bar = ctk.CTkProgressBar(box, width=320, height=14, corner_radius=3, border_width=1,
                                  border_color=C["border"], fg_color=C["card2"], progress_color=C["green"])
-        bar.set(0.35)
+        bar.set(0.0)
         bar.pack()
         self.bottom_bar.grid_remove()
+        self._load_bar = bar
+        self._load_t = 0
+        self._loading_tick()
+
+    def _loading_tick(self):
+        bar = self._load_bar
+        if bar is None:
+            return
+        try:
+            if not bar.winfo_exists():
+                self._load_bar = None
+                return
+            self._load_t = (self._load_t + 1) % 60
+            bar.set(self._load_t / 60.0)
+            self.root.after(50, self._loading_tick)
+        except Exception:
+            self._load_bar = None
 
     # ── Состояния ──────────────────────────────────────────────────────────────
     def _set_state(self, text, color):
@@ -856,10 +926,7 @@ class MEmuHudManager:
             if self.selected_code_name:
                 parts.append(f"ИГРОК: {self.selected_code_name}")
             if hasattr(self, "conn_var"):
-                dev = f"УСТРОЙСТВО: {self.conn_var.get()}"
-                if self.emu_target_label and len(self._emu_list()) >= 2:
-                    dev += f" ({self.emu_target_label})"
-                parts.append(dev)
+                parts.append(f"УСТРОЙСТВО: {self.conn_var.get()}")
             if hasattr(self, "app_var") and self.app_var.get():
                 parts.append(self.app_var.get())
             self.hero_sub.configure(text="   ·   ".join(parts))
@@ -1493,7 +1560,6 @@ class MEmuHudManager:
             border_width=1, border_color=C["border"],
         )
         self.nox_sect.grid_columnconfigure(0, weight=1)
-        self._emu_sel_sig = None
 
         # ── Инфо о коммите ─────────────────────────────────────
         if self.full_logging and self.last_commit_info:
@@ -1514,83 +1580,56 @@ class MEmuHudManager:
         self._update_side_head()
         self._refresh_hero_sub()
 
-    # ── Выбор экземпляра эмулятора (MEmu / NOX, если запущено 2+) ──────────────
-    def _emu_list(self):
-        conn = self.conn_var.get() if hasattr(self, "conn_var") else ""
-        if conn == "MEmu":
-            return self.memu_active_devices
-        if conn == "NOX":
-            return self.nox_active_devices
-        return []
-
-    def _apply_emu_target(self, devices):
-        """Ставит device_param по выбору в селекторе (если выбора нет — первый экземпляр).
-        Вызывается из select_connection, поэтому выбор не сбрасывается при каждой операции."""
-        if not devices:
-            return
-        for d in devices:
-            if d["label"] == self.emu_target_label:
-                self.device_param = d["param"]
-                return
-        self.device_param = devices[0]["param"]
-
-    def _on_emu_target(self, val):
-        self.emu_target_label = val
-        self._apply_emu_target(self._emu_list())
-        self.log(f"[√] Цель: {'все экземпляры' if val == self.EMU_ALL else val}")
-        self._refresh_hero_sub()
-        # у разных экземпляров могут быть разные папки приложения
-        self.detect_app_folders()
-
-    def _update_emu_selector(self):
+    def _update_nox_selector(self):
         if not hasattr(self, 'nox_sect'):
             return
         C = self.C
-        conn = self.conn_var.get()
-        devices = self._emu_list()
-
-        if conn not in ("MEmu", "NOX") or len(devices) < 2:
-            self.nox_sect.grid_remove()
-            self.emu_target_label = None
-            self._emu_sel_sig = None
-            self._refresh_hero_sub()
-            return
-
-        labels = [d["label"] for d in devices] + [self.EMU_ALL]
-        if self.emu_target_label not in labels:
-            self.emu_target_label = self.EMU_ALL
-        self._apply_emu_target(devices)
-
-        sig = (conn, tuple(labels))
-        if sig == self._emu_sel_sig:
-            self._refresh_hero_sub()
-            return                      # список экземпляров не менялся — не перестраиваем
-        self._emu_sel_sig = sig
 
         for w in self.nox_sect.winfo_children():
             w.destroy()
-        self.nox_sect.grid(row=1, column=0, columnspan=2, pady=(6, 6), sticky="ew")
-        self._card_title(self.nox_sect, f"{conn} — ВЫБОР ЭКЗЕМПЛЯРА")
 
-        self.emu_target_var = ctk.StringVar(value=self.emu_target_label)
-        self._field_label(self.nox_sect, "ЦЕЛЬ", row=1)
-        self._combo(self.nox_sect, labels, self.emu_target_var, row=2,
-                    command=self._on_emu_target, pad_bottom=6)
+        if self.conn_var.get() == "NOX" and len(self.nox_active_devices) >= 2:
+            self.nox_sect.grid(row=1, column=0, columnspan=2, pady=(6, 6), sticky="ew")
+            self._card_title(self.nox_sect, "NOX — ВЫБОР ЭКЗЕМПЛЯРА")
 
-        ports_text = "   ".join(f"{d['label']}: порт {d['port']}" for d in devices)
-        ctk.CTkLabel(
-            self.nox_sect, text=ports_text,
-            font=self.F("mono", 10), text_color=C["muted"],
-            anchor="w", justify="left", wraplength=620,
-        ).grid(row=3, column=0, padx=16, pady=(0, 14), sticky="w")
-        self._refresh_hero_sub()
+            if not hasattr(self, 'nox_target_var') or self.nox_target_var is None:
+                self.nox_target_var = ctk.StringVar(value="Оба сразу")
+
+            labels = [d["label"] for d in self.nox_active_devices] + ["Оба сразу"]
+
+            def _on_nox_target(val):
+                idx_map = {d["label"]: d for d in self.nox_active_devices}
+                if val in idx_map:
+                    self.device_param = idx_map[val]["param"]
+                    self.log(f"[√] NOX цель: {val}")
+                else:
+                    self.device_param = self.nox_active_devices[0]["param"]
+                    self.log("[√] NOX цель: оба экземпляра")
+
+            self._field_label(self.nox_sect, "ЦЕЛЬ", row=1)
+            self._combo(self.nox_sect, labels, self.nox_target_var, row=2,
+                        command=_on_nox_target, pad_bottom=6)
+
+            ports_text = "   ".join(
+                f"{d['label']}: порт {d['port']}" for d in self.nox_active_devices
+            )
+            ctk.CTkLabel(
+                self.nox_sect, text=ports_text,
+                font=self.F("mono", 10), text_color=C["muted"],
+                anchor="w",
+            ).grid(row=3, column=0, padx=16, pady=(0, 14), sticky="w")
+
+            _on_nox_target(self.nox_target_var.get())
+        else:
+            self.nox_sect.grid_remove()
+            self.nox_target_var = None
 
     def detect_app_folders(self, *args):
         # Всё блокирующее (ADB + select_connection) — в фоновый поток.
         # GUI обновляем только через root.after, чтобы не было гонки с потоком установки.
         def _run():
             if self.select_connection():
-                self.root.after(0, self._update_emu_selector)
+                self.root.after(0, self._update_nox_selector)
                 # Снимаем снапшот сразу после select_connection
                 adb_path = self.adb_path
                 device_param = list(self.device_param)
@@ -1626,7 +1665,7 @@ class MEmuHudManager:
                 def _clear():
                     self.app_menu.configure(values=[])
                     self.app_var.set("")
-                    self._update_emu_selector()
+                    self._update_nox_selector()
                 self.root.after(0, _clear)
         threading.Thread(target=_run, daemon=True).start()
 
@@ -2007,6 +2046,10 @@ class MEmuHudManager:
         self.root.after(2000, self.on_close)
 
     def finalize_launch(self):
+        # Можно вызывать из главного потока: всё тяжёлое уходит в фон
+        threading.Thread(target=self._finalize_worker, daemon=True).start()
+
+    def _finalize_worker(self):
         if self.full_logging:
             self.load_commit_info = self.fetch_last_commit("Load.js", "HassleB")
             self.script_commit_info = self.fetch_last_commit("hasslebot_exe.py", "installerEXE")
@@ -2014,21 +2057,21 @@ class MEmuHudManager:
             self.load_commit_info = ""
             self.script_commit_info = ""
         self.root.after(0, self.setup_gui)
-        self.root.after(0, self.initialize_checks)
+        self.initialize_checks()      # ADB: скачивание/запуск сервера — в фоне
+
+    def _msgbox_async(self, kind, title, text):
+        # tkinter-диалоги можно создавать только в главном потоке
+        self.root.after(0, lambda: self._msgbox(kind, title, text))
 
     def initialize_checks(self):
+        # Выполняется в фоновом потоке — к виджетам только через root.after
         memu_found = self.check_memu_installation()
         nox_found = self.check_nox_installation()
-        if memu_found or nox_found:
-            if not self.download_and_extract_adb():
-                self._msgbox("error", "Ошибка", "ADB не готов. Перезапустите программу.")
-                return
-        else:
-            if not self.download_and_extract_adb():
-                self._msgbox("error", "Ошибка", "ADB не готов. Перезапустите программу.")
-                return
+        if not self.download_and_extract_adb():
+            self._msgbox_async("error", "Ошибка", "ADB не готов. Перезапустите программу.")
+            return
         if not self.check_adb_exists():
-            self._msgbox("error", "Ошибка", "ADB не найден. Перезапустите программу.")
+            self._msgbox_async("error", "Ошибка", "ADB не найден. Перезапустите программу.")
             return
         try:
             subprocess.run(
@@ -2040,8 +2083,8 @@ class MEmuHudManager:
         except Exception:
             pass
         self.log("[√] Система готова")
-        self._set_ready()
-        # Авто-определение папок при запуске
+        self.root.after(0, self._set_ready)
+        # Авто-определение папок при запуске (к этому моменту setup_gui уже отработал: after(0) идёт раньше)
         self.root.after(200, self.detect_app_folders)
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -2181,7 +2224,20 @@ class MEmuHudManager:
 
         self._nav_item(self.side_bottom, "Выход", self.on_close, danger=True)
 
+    def _start_auth(self):
+        threading.Thread(target=self._auth_worker, daemon=True).start()
+
+    def _auth_worker(self):
+        try:
+            self.activate_launch_permission()
+        except Exception as e:
+            self.log(f"[X] Ошибка проверки доступа: {e}")
+            self.root.after(0, lambda: self.show_no_access_screen("Ошибка проверки доступа"))
+        finally:
+            self._auth_done = True
+
     def activate_launch_permission(self):
+        # Выполняется в фоновом потоке (wmic и сеть больше не блокируют окно)
         self.hwid = self.get_hwid()
         self.log(f"HWID: {self.hwid}")
         self.log("Проверка доступа в List.js...")
@@ -2663,85 +2719,31 @@ class MEmuHudManager:
                      else f"[X] Не выполнено: Ошибка проверки устройства: {e}")
             return False
 
-    def _memu_vm_names(self):
-        """{индекс экземпляра: имя} из memuc.exe listvms — те же имена, что в окне Multi-MEmu.
-        Если memuc не найден или упал — пустой словарь (тогда будет «MEmu #индекс»)."""
-        if not self.memu_path:
-            return {}
-        memuc = Path(self.memu_path).with_name("memuc.exe")
-        if not memuc.exists():
-            return {}
-        try:
-            r = subprocess.run(
-                [str(memuc), "listvms"], capture_output=True, timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-            )
-        except Exception:
-            return {}
-        text = None
-        for enc in ("utf-8", "mbcs", "cp866"):
-            try:
-                text = r.stdout.decode(enc)
-                break
-            except (UnicodeDecodeError, LookupError):
-                continue
-        if text is None:
-            text = r.stdout.decode("utf-8", errors="replace")
-        names = {}
-        for line in text.splitlines():
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 2 and parts[0].isdigit() and parts[1]:
-                names[int(parts[0])] = parts[1]
-        return names
-
     def check_memu_device(self):
-        self.log("Проверка подключения...")
-        found = []   # [(индекс экземпляра, порт)]
-        for idx in range(self.MEMU_MAX_INSTANCES):
-            port = self.MEMU_BASE_PORT + idx * self.MEMU_PORT_STEP
-            if not self._is_port_open(port):
-                continue
-            addr = f"127.0.0.1:{port}"
+        self.log("Проверка подключения..." if not self.full_logging
+                 else "Проверка подключения к MEmu...")
+        memu_ports = ["21503", "21513", "21523"]
+        for port in memu_ports:
             try:
                 subprocess.run(
-                    [self.adb_path, "connect", addr],
+                    [self.adb_path, "connect", f"127.0.0.1:{port}"],
                     capture_output=True, timeout=10,
                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
                 )
                 result = subprocess.run(
-                    [self.adb_path, "-s", addr, "get-state"],
+                    [self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
                     capture_output=True, text=True, timeout=10,
                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
                 )
-                if result.returncode == 0 and "device" in result.stdout:
-                    found.append((idx, port))
+                if result.returncode == 0:
+                    self.device_param = ["-s", f"127.0.0.1:{port}"]
+                    self.log("[√] Успешно: Подключено к эмулятору MEmu" if not self.full_logging
+                             else "[√] Выполнено: Подключено к эмулятору MEmu")
+                    return True
             except Exception:
                 continue
-
-        if not found:
-            self.memu_active_devices = []
-            self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
-            return False
-
-        names = self._memu_vm_names()
-        devices, used = [], set()
-        for idx, port in found:
-            label = names.get(idx) or f"MEmu #{idx}"
-            if label in used:                       # одинаковые имена — различаем по индексу
-                label = f"{label} #{idx}"
-            used.add(label)
-            devices.append({
-                "port": str(port), "index": idx, "label": label,
-                "param": ["-s", f"127.0.0.1:{port}"],
-            })
-        self.memu_active_devices = devices
-        self._apply_emu_target(devices)
-
-        if len(devices) == 1:
-            self.log(f"[√] Подключено к эмулятору MEmu: {devices[0]['label']}")
-        else:
-            self.log(f"[√] Подключено к MEmu: найдено экземпляров — {len(devices)}")
-        return True
+        self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
+        return False
 
     def _is_port_open(self, port, host="127.0.0.1", timeout=0.5):
         try:
@@ -2787,22 +2789,24 @@ class MEmuHudManager:
             {"port": p, "label": f"NOX {i+1}", "param": ["-s", f"127.0.0.1:{p}"]}
             for i, p in enumerate(found)
         ]
-        self._apply_emu_target(self.nox_active_devices)
+        self.device_param = self.nox_active_devices[0]["param"]
         self.log(f"[√] Подключено к NOX: найдено экземпляров — {len(found)}")
         return True
 
     def select_app_folder(self):
         return self.app_var.get()
 
-    def _get_emu_targets(self):
-        """Список экземпляров, если выбрано «Все сразу» (MEmu/NOX, 2+ запущено), иначе None."""
-        devices = self._emu_list()
-        if len(devices) >= 2 and self.emu_target_label in (None, self.EMU_ALL):
-            return devices
+    def _get_nox_targets(self):
+        if (self.conn_var.get() == "NOX"
+                and len(self.nox_active_devices) >= 2
+                and hasattr(self, 'nox_target_var')
+                and self.nox_target_var
+                and self.nox_target_var.get() == "Оба сразу"):
+            return self.nox_active_devices
         return None
 
     def _run_on_targets(self, func, app_folder):
-        targets = self._get_emu_targets()
+        targets = self._get_nox_targets()
         if targets:
             orig_param = self.device_param[:]
             for inst in targets:
@@ -3221,20 +3225,18 @@ class MEmuHudManager:
         self._set_status(clean, level)
 
         # Не больше 4 уведомлений одновременно
-        try:
-            kids = self._notif_strip.winfo_children()
-            while len(kids) >= 4:
-                kids[0].destroy()
-                kids = self._notif_strip.winfo_children()
-        except Exception:
-            pass
+        self._toasts = [t for t in self._toasts if self._alive(t)]
+        while len(self._toasts) >= 4:
+            try:
+                self._toasts.pop(0).destroy()
+            except Exception:
+                pass
 
         shown = clean if len(clean) <= 54 else clean[:53] + "…"
         card = ctk.CTkFrame(
-            self._notif_strip, fg_color=C["card2"], corner_radius=8,
-            border_width=1, border_color=C["border2"], height=34,
+            self.main, fg_color=C["card2"], corner_radius=8,
+            border_width=1, border_color=C["border2"], width=380, height=34,
         )
-        card.pack(fill="x", pady=(0, 4))
         card.pack_propagate(False)
 
         ctk.CTkFrame(card, width=3, corner_radius=2, fg_color=bar).pack(
@@ -3248,10 +3250,8 @@ class MEmuHudManager:
             text_color=C["text"] if level != "info" else C["subtext"], anchor="w",
         ).pack(side="left", fill="x", expand=True, padx=(4, 10))
 
-        try:
-            self._notif_strip.lift()
-        except Exception:
-            pass
+        self._toasts.append(card)
+        self._layout_toasts()
 
         def _dismiss():
             try:
@@ -3259,29 +3259,62 @@ class MEmuHudManager:
                     card.destroy()
             except Exception:
                 pass
+            self._layout_toasts()
         self.root.after(3500, _dismiss)
+
+    @staticmethod
+    def _alive(w):
+        try:
+            return bool(w.winfo_exists())
+        except Exception:
+            return False
+
+    def _layout_toasts(self):
+        """Плашки стопкой справа снизу, новая — самая нижняя. Пустого контейнера больше нет."""
+        self._toasts = [t for t in self._toasts if self._alive(t)]
+        for i, t in enumerate(reversed(self._toasts)):
+            try:
+                t.place(relx=1.0, rely=1.0, x=-20, y=-100 - i * 38, anchor="se")
+                t.lift()
+            except Exception:
+                pass
 
     # ──────────────────────────────────────────────────────────────────────────
     # Завершение
     # ──────────────────────────────────────────────────────────────────────────
     def on_close(self):
-        self.delete_telegram_message()
-        self.root.destroy()
+        if self._closing:
+            return
+        self._closing = True
+        try:
+            self.root.withdraw()          # окно исчезает сразу, дальше — тихая уборка
+        except Exception:
+            pass
+        try:
+            self.delete_telegram_message()
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
         if not self.launch_allowed:
-            try:
-                exe_path = sys.executable
-                if self.full_logging:
-                    self.log(f"Попытка удаления исполняемого файла: {exe_path}")
-                os.remove(exe_path)
-                self.log("[√] Успешно: Программа завершена")
-            except PermissionError:
-                self.log("[X] Ошибка: Доступ запрещен")
-            except FileNotFoundError:
-                self.log("[X] Ошибка: Файл не найден")
-            except Exception:
-                self.log("[X] Ошибка: Не удалось завершить программу")
-            finally:
-                os._exit(0)
+            # Самоудаление — только если проверка доступа реально завершилась отказом.
+            # Если закрыли окно, пока идёт проверка, просто выходим, ничего не удаляя.
+            if self._auth_done:
+                try:
+                    exe_path = sys.executable
+                    if self.full_logging:
+                        self.log(f"Попытка удаления исполняемого файла: {exe_path}")
+                    os.remove(exe_path)
+                    self.log("[√] Успешно: Программа завершена")
+                except PermissionError:
+                    self.log("[X] Ошибка: Доступ запрещен")
+                except FileNotFoundError:
+                    self.log("[X] Ошибка: Файл не найден")
+                except Exception:
+                    self.log("[X] Ошибка: Не удалось завершить программу")
+            os._exit(0)
 
     def cleanup(self):
         try:
