@@ -61,7 +61,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.26';
+var VERSION = 'code3 v1.27';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -2629,7 +2629,7 @@ function ensureChatAddHook() {
                 if (!vv) { gtAdd('~r~Голос~n~~w~Модуль не загружен (нужен Telegram-блок Code3)', 3500, 3); return; }
                 if (cmd === '/c3vtest') {
                     gtAdd('~y~Голос~n~~w~Шлю тест в Telegram…', 2500, 3);
-                    vv.test(function (r) { gtAdd(r.ok ? '~g~Голос~n~~w~Тест ушёл в Telegram (' + r.method + ')' : '~r~Голос~n~~w~Не отправилось: ' + r.err, 6000, 3); });
+                    vv.test(function (r) { gtAdd(r.ok ? '~g~Голос~n~~w~Тест ушёл в Telegram (' + r.method + ')' : '~r~Голос~n~~w~Не отправилось: ' + String(r.err).slice(0, 170) + '~n~~y~полный текст: /c3v diag', 9000, 3); });
                     return;
                 }
                 var cv = (a[1] || '').toLowerCase();
@@ -4052,9 +4052,12 @@ try { (function () {
             parts.forEach(function (p) { out.set(p, o); o += p.length; });
             return { body: out, type: 'multipart/form-data; boundary=' + bd };
         }
-        // method: 'fd' (FormData + Blob) | 'raw' (multipart руками, тело — Uint8Array). cb(err|null): err = {retry} | {net} | {code,text} | {ex}
+        // method: 'fd' (FormData + Blob) | 'raw' (multipart руками, тело — Uint8Array) | 'buf' (то же, но ArrayBuffer)
+        //         | 'bin' (то же, но строка байтов через sendAsBinary — если движок это умеет).
+        // В движке игры (Coherent) FormData/Blob может не быть вовсе — тогда 'fd' даже не пробуем.
+        // cb(err|null): err = {retry} | {net} | {code,text} | {ex}
         function post(method, fields, bytes, cb) {
-            let xhr, payload, ctype = null;
+            let xhr, payload;
             try {
                 xhr = new XMLHttpRequest();
                 xhr.open('POST', 'https://api.telegram.org/bot' + config.botToken + '/sendVoice', true);
@@ -4065,9 +4068,14 @@ try { (function () {
                     fd.append('voice', new Blob([bytes], { type: 'audio/ogg' }), 'voice.ogg');
                     payload = fd;
                 } else {
-                    const mp = multipart(fields, bytes);
-                    payload = mp.body; ctype = mp.type;
-                    xhr.setRequestHeader('Content-Type', ctype);
+                    const mp = multipart(fields, bytes), u8 = mp.body;
+                    if (method === 'buf') payload = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+                    else if (method === 'bin') {
+                        const parts = [];
+                        for (let i = 0; i < u8.length; i += 8192) parts.push(String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + 8192, u8.length))));
+                        payload = parts.join('');
+                    } else payload = u8;
+                    xhr.setRequestHeader('Content-Type', mp.type);
                 }
             } catch (ex) { cb({ ex: String(ex && ex.message || ex) }); return; }
             xhr.onload = function () {
@@ -4078,26 +4086,41 @@ try { (function () {
             };
             xhr.onerror = function () { cb({ net: true }); };
             xhr.ontimeout = function () { cb({ net: true, timeout: true }); };
-            try { xhr.send(payload); }
-            catch (ex) {
-                if (method === 'raw' && payload && payload.buffer) { try { xhr.send(payload.buffer); return; } catch (e2) {} }
-                cb({ ex: String(ex && ex.message || ex) });
-            }
+            try { if (method === 'bin') xhr.sendAsBinary(payload); else xhr.send(payload); }
+            catch (ex) { cb({ ex: String(ex && ex.message || ex) }); }
+        }
+        function errText(err) { return err.code ? err.code + ' ' + err.text : err.ex || (err.timeout ? 'таймаут' : err.net ? 'сеть' : err.retry ? 'флуд-лимит' : '?'); }
+        // какие способы вообще есть в этом движке
+        function methodsAvail() {
+            const m = [];
+            if (typeof FormData === 'function' && typeof Blob === 'function') m.push('fd');
+            m.push('raw');
+            if (typeof ArrayBuffer === 'function') m.push('buf');
+            try { if (typeof XMLHttpRequest.prototype.sendAsBinary === 'function') m.push('bin'); } catch (e) {}
+            return m;
+        }
+        function caps() {
+            const t = function (n, v) { return n + ':' + typeof v; };
+            let sab = '?'; try { sab = typeof XMLHttpRequest.prototype.sendAsBinary; } catch (e) {}
+            return [t('FormData', typeof FormData === 'undefined' ? undefined : FormData), t('Blob', typeof Blob === 'undefined' ? undefined : Blob),
+                t('ArrayBuffer', typeof ArrayBuffer === 'undefined' ? undefined : ArrayBuffer), t('TextEncoder', typeof TextEncoder === 'undefined' ? undefined : TextEncoder),
+                'sendAsBinary:' + sab].join(' ');
         }
         function sendVoice(bytes, caption, durSec, cb) {
             const chat = config.chatIds && config.chatIds[0];
             if (!chat || !config.botToken) { cb({ ex: 'нет chatId/токена' }); return; }
             const fields = { chat_id: String(chat), caption: caption, parse_mode: 'HTML', duration: String(Math.max(1, Math.round(durSec))) };
-            const def = (typeof FormData === 'function' && typeof Blob === 'function') ? ['fd', 'raw'] : ['raw', 'fd'];
-            const order = S.method ? [S.method, S.method === 'fd' ? 'raw' : 'fd'] : def;   // запомненный способ — первым
+            const avail = methodsAvail();
+            const order = (S.method && avail.indexOf(S.method) >= 0 ? [S.method] : []).concat(avail.filter(function (m) { return m !== S.method; }));   // запомненный способ — первым
+            const tried = [];
             let last = null;
             (function next(i) {
-                if (i >= order.length) { cb(last); return; }
+                if (i >= order.length) { last = last || { ex: '?' }; last.all = tried.join(' | '); cb(last); return; }
                 post(order[i], fields, bytes, function (err) {
                     if (!err) { S.method = order[i]; cb(null); return; }
-                    last = err;
-                    if (err.retry || err.net) { cb(err); return; }   // это не про формат загрузки (флуд-лимит / сеть) — повторит очередь
-                    next(i + 1);                                     // Telegram не принял тело (400) или способ недоступен в движке — пробуем второй
+                    last = err; tried.push(order[i] + ': ' + errText(err));
+                    if (err.retry || err.net) { err.all = tried.join(' | '); cb(err); return; }   // это не про формат загрузки (флуд-лимит / сеть) — повторит очередь
+                    next(i + 1);                                                                   // Telegram не принял тело или способ не работает в движке — пробуем следующий
                 });
             })(0);
         }
@@ -4131,7 +4154,7 @@ try { (function () {
                 }
                 if (err.retry) { window._hassleTgBlockedUntil = Math.max(window._hassleTgBlockedUntil || 0, Date.now() + err.retry * 1000); S.st.lastErr = '429, ждём ' + err.retry + ' с'; setTimeout(pump, err.retry * 1000 + 50); return; }
                 it.tries = (it.tries || 0) + 1;
-                S.st.lastErr = 'sendVoice: ' + (err.code ? err.code + ' ' + err.text : err.ex || (err.timeout ? 'таймаут' : 'сеть'));
+                S.st.lastErr = 'sendVoice: ' + (err.all || errText(err));
                 if (it.tries >= 3) { S.queue.shift(); S.st.fail++; reportFail(S.st.lastErr); }
                 setTimeout(pump, err.net ? 3000 : gapMs);
             });
@@ -4150,7 +4173,8 @@ try { (function () {
             const b = OGG.build(pk, { ch: 1, rate: 48000 });
             sendVoice(b.bytes, '🧪 <b>Тест голоса</b>: загрузка файла в Telegram работает (способ: ' + (S.method || '?') + ')\n(' + esc(displayName) + ')', b.ms / 1000, function (err) {
                 if (!err) { cb({ ok: true, method: S.method, bytes: b.bytes.length }); return; }
-                cb({ ok: false, err: err.code ? err.code + ' ' + err.text : err.ex || (err.net ? 'сеть' : err.retry ? 'флуд-лимит' : '?') });
+                const full = err.all || errText(err); S.st.lastErr = 'test: ' + full; try { console.log('[CODE3] c3vtest: ' + full + ' | ' + caps()); } catch (e) {}
+                cb({ ok: false, err: full });
             });
         }
         function status() {
@@ -4162,7 +4186,8 @@ try { (function () {
         function diag() {
             const s = status();
             return 'голос: ' + (s.enabled ? 'работает' : s.on ? 'включён, но ждёт (скин/звание Лицензёр или licVoiceAnySkin)' : 'выключен') +
-                '\nмод: ' + s.mod + ' · прокси: ' + s.proxy + ' · способ загрузки: ' + (s.method || 'ещё не определён') +
+                '\nмод: ' + s.mod + ' · прокси: ' + s.proxy + ' · способ загрузки: ' + (s.method || 'ещё не определён') + ' (доступны: ' + methodsAvail().join(',') + ')' +
+                '\nдвижок: ' + caps() +
                 '\nопросов: ' + s.stats.polls + ', событий: ' + s.stats.events + ', пакетов: ' + s.stats.packets + ', потеряно: ' + s.stats.lost +
                 '\nфраз: ' + s.stats.phrases + ' (слишком коротких: ' + s.stats.tooShort + ', без имени: ' + s.stats.noName + '), отправлено: ' + s.stats.sent + ', ошибок: ' + s.stats.fail +
                 '\nочередь: ' + s.queue + ', декодеров: ' + s.decoders + (s.stats.lastErr ? '\nпоследняя ошибка: ' + s.stats.lastErr : '') +
