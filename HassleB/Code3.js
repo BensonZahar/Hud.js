@@ -61,7 +61,7 @@ try { (function () {
 // ── Повторная загрузка: сначала снимаем всё, что поставил прошлый запуск ──
 if (typeof window.__code3Cleanup === 'function') { try { window.__code3Cleanup(); } catch (e) {} }
 
-var VERSION = 'code3 v1.28';
+var VERSION = 'code3 v1.29';
 var _dead = false;          // true после cleanup — «старые» обёртки становятся прозрачными
 var _undo = [];
 function onUndo(fn) { _undo.push(fn); }
@@ -4074,14 +4074,28 @@ try { (function () {
             try { if (typeof x.getAllResponseHeaders === 'function') h = String(x.getAllResponseHeaders() || '').replace(/\r?\n/g, ';').slice(0, 100); } catch (e) {}
             return '[пустой ответ; statusText=' + (x.statusText || '') + (h ? '; ' + h : '') + ']';
         }
-        // method: 'fd' (FormData+Blob) | 'raw' (Uint8Array) | 'buf' (ArrayBuffer) | 'bin' (sendAsBinary) | 'str' (строка байтов через send — только если проба
-        //         показала, что движок шлёт строки без перекодирования в UTF-8). cb(err|null): err = {retry} | {net} | {code,text} | {ex}
+        // Общий разбор ответа Telegram. На 200 сверяем размер файла у Telegram с отправленным: если тело исказилось — удаляем сообщение и считаем способ негодным.
+        function finish(status, text, detail, expect, cb) {
+            if (status === 200) {
+                let j = null; try { j = JSON.parse(text); } catch (e) {}
+                const v = j && j.result && j.result.voice;
+                if (v && typeof v.file_size === 'number' && v.file_size !== expect) {
+                    try { if (typeof deleteMessage === 'function') deleteMessage(j.result.chat.id, j.result.message_id); } catch (e) {}
+                    cb({ ex: 'у Telegram файл ' + v.file_size + ' Б вместо ' + expect + ' (тело искажено)' }); return;
+                }
+                cb(null); return;
+            }
+            if (status === 429) { let ra = 5; try { ra = (JSON.parse(text).parameters || {}).retry_after || 5; } catch (e) {} cb({ retry: ra }); return; }
+            cb({ code: status, text: String(text || detail || '').slice(0, 200) });
+        }
+        // Способы: 'fd' (FormData+Blob) | 'xblob' (XHR, тело — Blob) | 'fblob' / 'fraw' / 'fbuf' (fetch: Blob / Uint8Array / ArrayBuffer)
+        //          | 'raw' / 'buf' (XHR: Uint8Array / ArrayBuffer) | 'bin' (sendAsBinary) | 'str' (строка байтов; только если проба подтвердила).
+        // В Cohtml (движок игры) FormData нет, XHR не отправляет типизированные массивы, а строки режет по нулевому символу — поэтому Blob и fetch.
         function post(method, fields, bytes, cb) {
-            let xhr, payload;
+            const url = 'https://api.telegram.org/bot' + config.botToken + '/sendVoice', expect = bytes.length;
+            const isFetch = method === 'fblob' || method === 'fraw' || method === 'fbuf';
+            let payload, ctype = null;
             try {
-                xhr = new XMLHttpRequest();
-                xhr.open('POST', 'https://api.telegram.org/bot' + config.botToken + '/sendVoice', true);
-                xhr.timeout = 60000;
                 if (method === 'fd') {
                     const fd = new FormData();
                     Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
@@ -4089,27 +4103,40 @@ try { (function () {
                     payload = fd;
                 } else {
                     const mp = multipart(fields, bytes), u8 = mp.body;
-                    if (method === 'buf') payload = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+                    ctype = mp.type;
+                    if (method === 'xblob' || method === 'fblob') payload = new Blob([u8], { type: mp.type });
+                    else if (method === 'buf' || method === 'fbuf') payload = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
                     else if (method === 'bin' || method === 'str') payload = binStr(u8);
                     else payload = u8;
-                    xhr.setRequestHeader('Content-Type', mp.type);
                 }
             } catch (ex) { cb({ ex: String(ex && ex.message || ex) }); return; }
-            xhr.onload = function () {
-                if (xhr.status === 200) { cb(null); return; }
-                let ra = 0;
-                if (xhr.status === 429) { try { ra = (JSON.parse(bodyOf(xhr)).parameters || {}).retry_after || 5; } catch (e) { ra = 5; } cb({ retry: ra }); return; }
-                cb({ code: xhr.status, text: (bodyOf(xhr) || xdetail(xhr)).slice(0, 200) });
-            };
+            if (isFetch) {
+                if (typeof fetch !== 'function') { cb({ ex: 'fetch нет' }); return; }
+                try {
+                    fetch(url, { method: 'POST', headers: { 'Content-Type': ctype }, body: payload }).then(function (r) {
+                        return r.text().then(function (t) { finish(r.status, t, '[пустой ответ fetch]', expect, cb); }, function () { finish(r.status, '', '[пустой ответ fetch]', expect, cb); });
+                    }, function (e) { cb({ ex: 'fetch: ' + String(e && e.message || e) }); });
+                } catch (ex) { cb({ ex: String(ex && ex.message || ex) }); }
+                return;
+            }
+            let xhr;
+            try {
+                xhr = new XMLHttpRequest(); xhr.open('POST', url, true); xhr.timeout = 60000;
+                if (ctype) xhr.setRequestHeader('Content-Type', ctype);
+            } catch (ex) { cb({ ex: String(ex && ex.message || ex) }); return; }
+            xhr.onload = function () { finish(xhr.status, bodyOf(xhr), xdetail(xhr), expect, cb); };
             xhr.onerror = function () { cb({ net: true }); };
             xhr.ontimeout = function () { cb({ net: true, timeout: true }); };
             try { if (method === 'bin') xhr.sendAsBinary(payload); else xhr.send(payload); }
             catch (ex) { cb({ ex: String(ex && ex.message || ex) }); }
         }
         function errText(err) { return err.code ? err.code + ' ' + err.text : err.ex || (err.timeout ? 'таймаут' : err.net ? 'сеть' : err.retry ? 'флуд-лимит' : '?'); }
-        function methodsAvail() {   // какие способы вообще есть в этом движке
-            const m = [];
-            if (typeof FormData === 'function' && typeof Blob === 'function') m.push('fd');
+        function methodsAvail() {   // какие способы вообще есть в этом движке (порядок = порядок попыток)
+            const m = [], hasBlob = typeof Blob === 'function', hasFetch = typeof fetch === 'function';
+            if (typeof FormData === 'function' && hasBlob) m.push('fd');
+            if (hasBlob) m.push('xblob');
+            if (hasFetch && hasBlob) m.push('fblob');
+            if (hasFetch) { m.push('fraw'); if (typeof ArrayBuffer === 'function') m.push('fbuf'); }
             m.push('raw');
             if (typeof ArrayBuffer === 'function') m.push('buf');
             try { if (typeof XMLHttpRequest.prototype.sendAsBinary === 'function') m.push('bin'); } catch (e) {}
@@ -4121,7 +4148,7 @@ try { (function () {
             let sab = '?'; try { sab = typeof XMLHttpRequest.prototype.sendAsBinary; } catch (e) {}
             return [t('FormData', typeof FormData === 'undefined' ? undefined : FormData), t('Blob', typeof Blob === 'undefined' ? undefined : Blob),
                 t('ArrayBuffer', typeof ArrayBuffer === 'undefined' ? undefined : ArrayBuffer), t('TextEncoder', typeof TextEncoder === 'undefined' ? undefined : TextEncoder),
-                'sendAsBinary:' + sab].join(' ');
+                'fetch:' + (typeof fetch), 'sendAsBinary:' + sab].join(' ');
         }
 
         // ── пробник: что движок делает с телом запроса. Шлёт в чат крошечные тестовые сообщения/файлы и сразу их удаляет ──
@@ -4142,7 +4169,15 @@ try { (function () {
             if (withFile) r += '--' + bd + '\r\nContent-Disposition: form-data; name="document"; filename="probe.bin"\r\nContent-Type: application/octet-stream\r\n\r\n' + fileStr + '\r\n';
             return r + '--' + bd + '--\r\n';
         }
-        // tests: список имён из T1..T6; cb(строки-отчёта[]). Побочно: S.strOk (true — строка уходит байт-в-байт)
+        function fr(url, hdrs, body, cb) {   // fetch-вариант пробы
+            if (typeof fetch !== 'function') { cb({ ex: 'fetch нет' }); return; }
+            try {
+                fetch(url, { method: 'POST', headers: hdrs, body: body }).then(function (r) {
+                    return r.text().then(function (t) { cb({ status: r.status, text: t || (r.status === 200 ? '' : '[пустой ответ fetch]') }); }, function () { cb({ status: r.status, text: '[пустой ответ fetch]' }); });
+                }, function (e) { cb({ ex: 'fetch: ' + String(e && e.message || e) }); });
+            } catch (e) { cb({ ex: String(e && e.message || e) }); }
+        }
+        // only: список имён тестов; cb(строки-отчёта[]). Побочно: S.strOk (true — строка уходит байт-в-байт)
         function runProbe(only, cb) {
             const chat = config.chatIds && config.chatIds[0];
             if (!chat || !config.botToken) { cb(['нет chatId/токена']); return; }
@@ -4152,33 +4187,41 @@ try { (function () {
             const bd = '----c3p' + Date.now().toString(16);
             const CT = { 'Content-Type': 'multipart/form-data; boundary=' + bd };
             const f0 = { chat_id: String(chat), disable_notification: 'true' };
-            let str256 = ''; for (let i = 0; i < 256; i++) str256 += String.fromCharCode(i);
+            const DOC = ['sendDocument'];
+            const mpOf = function (bytes) { return multipart(f0, bytes, 'document', 'probe.bin', 'application/octet-stream'); };
+            const blobOf = function (bytes) { const m = mpOf(bytes); return { h: { 'Content-Type': m.type }, b: new Blob([m.body], { type: m.type }) }; };
+            let str256 = '', str255 = ''; for (let i = 0; i < 256; i++) { str256 += String.fromCharCode(i); if (i) str255 += String.fromCharCode(i); }
             const tests = {
-                T1: ['T1 multipart-строка, только текст (sendMessage)', 'sendMessage', function () { return { h: CT, b: mpStr(bd, { chat_id: String(chat), text: 'c3v probe', disable_notification: 'true' }, false), how: 'send' }; }, null],
-                T2: ['T2 Uint8Array, 9 байт ASCII', 'sendDocument', function () { const m = multipart(f0, ascii, 'document', 'probe.bin', 'application/octet-stream'); return { h: { 'Content-Type': m.type }, b: m.body, how: 'send' }; }, 9],
-                T3: ['T3 ArrayBuffer, 9 байт ASCII', 'sendDocument', function () { const m = multipart(f0, ascii, 'document', 'probe.bin', 'application/octet-stream'); return { h: { 'Content-Type': m.type }, b: m.body.buffer.slice(m.body.byteOffset, m.body.byteOffset + m.body.byteLength), how: 'send' }; }, 9],
-                T4: ['T4 Uint8Array, байты 0..255', 'sendDocument', function () { const m = multipart(f0, bytes256, 'document', 'probe.bin', 'application/octet-stream'); return { h: { 'Content-Type': m.type }, b: m.body, how: 'send' }; }, 256],
-                T5: ['T5 строка, символы 0..255 (256=без перекодировки, 384=UTF-8)', 'sendDocument', function () { return { h: CT, b: mpStr(bd, f0, true, str256), how: 'send' }; }, 256],
-                T6: ['T6 sendAsBinary, байты 0..255', 'sendDocument', function () { return { h: CT, b: mpStr(bd, f0, true, str256), how: 'bin' }; }, 256]
+                T1: ['T1 строка-multipart, только текст', 'sendMessage', function () { return { h: CT, b: mpStr(bd, { chat_id: String(chat), text: 'c3v probe', disable_notification: 'true' }, false), how: 'xhr' }; }, null],
+                T7: ['T7 XHR + Blob, 9 байт ASCII', DOC[0], function () { const o = blobOf(ascii); o.how = 'xhr'; return o; }, 9],
+                T8: ['T8 XHR + Blob, байты 0..255', DOC[0], function () { const o = blobOf(bytes256); o.how = 'xhr'; return o; }, 256],
+                T9: ['T9 fetch + Uint8Array, 9 байт ASCII', DOC[0], function () { const m = mpOf(ascii); return { h: { 'Content-Type': m.type }, b: m.body, how: 'fetch' }; }, 9],
+                T10: ['T10 fetch + Blob, байты 0..255', DOC[0], function () { const o = blobOf(bytes256); o.how = 'fetch'; return o; }, 256],
+                T11: ['T11 fetch + ArrayBuffer, байты 0..255', DOC[0], function () { const m = mpOf(bytes256); return { h: { 'Content-Type': m.type }, b: m.body.buffer.slice(m.body.byteOffset, m.body.byteOffset + m.body.byteLength), how: 'fetch' }; }, 256],
+                T12: ['T12 строка с нулевым символом внутри (ab\\0cd)', DOC[0], function () { return { h: CT, b: mpStr(bd, f0, true, 'ab' + String.fromCharCode(0) + 'cd'), how: 'xhr' }; }, 5],
+                T13: ['T13 строка, символы 1..255 (255=байт-в-байт, 383=UTF-8)', DOC[0], function () { return { h: CT, b: mpStr(bd, f0, true, str255), how: 'xhr' }; }, 255],
+                T5: ['T5 строка, символы 0..255', DOC[0], function () { return { h: CT, b: mpStr(bd, f0, true, str256), how: 'xhr' }; }, 256]
             };
-            const names = only.filter(function (n) { return n !== 'T6' || (function () { try { return typeof XMLHttpRequest.prototype.sendAsBinary === 'function'; } catch (e) { return false; } })(); });
+            const names = only;
             const out = [];
             (function next(i) {
                 if (i >= names.length) { cb(out); return; }
-                const t = tests[names[i]], q = t[2]();
-                xr(base + t[1], q.h, q.b, q.how, function (r) {
+                const t = tests[names[i]];
+                let q; try { q = t[2](); } catch (e) { out.push(t[0] + ' → не собрать: ' + String(e && e.message || e)); next(i + 1); return; }
+                const done = function (r) {
                     let size = null, mid = null;
                     if (r.status === 200) { try { const j = JSON.parse(r.text); mid = j.result.message_id; size = j.result.document ? j.result.document.file_size : null; } catch (e) {} }
                     if (mid !== null) { try { if (typeof deleteMessage === 'function') deleteMessage(chat, mid); } catch (e) {} }
                     if (names[i] === 'T5') { S.strOk = (size === 256); S.strTry++; }
-                    out.push(t[0] + ' → ' + (r.net ? (r.timeout ? 'таймаут' : 'сеть') : r.ex ? 'исключение ' + r.ex : r.status + (r.status === 200 ? (size !== null ? ', размер файла у Telegram: ' + size + (t[3] !== null && size !== t[3] ? '  ✗ ожидалось ' + t[3] : '  ✓') : ' ок') : ' ' + (r.text || '(пусто)').slice(0, 110))));
+                    out.push(t[0] + ' → ' + (r.net ? (r.timeout ? 'таймаут' : 'сеть') : r.ex ? 'исключение ' + r.ex : r.status + (r.status === 200 ? (size !== null ? ', размер у Telegram: ' + size + (t[3] !== null && size !== t[3] ? '  ✗ ожидалось ' + t[3] : '  ✓') : ' ок') : ' ' + String(r.text || '(пусто)').slice(0, 60))));
                     setTimeout(function () { next(i + 1); }, 1100);
-                });
+                };
+                if (q.how === 'fetch') fr(base + t[1], q.h, q.b, done); else xr(base + t[1], q.h, q.b, 'send', done);
             })(0);
         }
         function learnStr(cb) { runProbe(['T5'], function () { cb(); }); }
         function probe(cb) {
-            runProbe(['T1', 'T2', 'T3', 'T4', 'T5', 'T6'], function (lines) {
+            runProbe(['T1', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'T13'], function (lines) {
                 let ua = ''; try { ua = String(navigator.userAgent || ''); } catch (e) {}
                 cb('c3v probe\nдвижок: ' + caps() + '\nUA: ' + ua.slice(0, 120) + '\n' + lines.join('\n') + '\nstrOk: ' + S.strOk);
             });
@@ -4194,12 +4237,6 @@ try { (function () {
             let last = null;
             (function next(i) {
                 if (i >= order.length) {
-                    // все обычные способы не прошли (не флуд и не сеть) — один раз проверяем, шлёт ли движок строку байт-в-байт, и если да — пробуем 'str'
-                    if (S.strOk === undefined && S.strTry < 2 && !S.strBusy && last && !last.retry && !last.net) {
-                        S.strBusy = true;
-                        learnStr(function () { S.strBusy = false; if (S.strOk) order.push('str'); else tried.push('str: движок шлёт строки не байт-в-байт'); next(i); });
-                        return;
-                    }
                     last = last || { ex: '?' }; last.all = tried.join(' | '); cb(last); return;
                 }
                 post(order[i], fields, bytes, function (err) {
