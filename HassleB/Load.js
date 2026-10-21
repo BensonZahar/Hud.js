@@ -323,10 +323,6 @@ function hassleCleanupHooks() {
     if (typeof window.__ozvCleanup === 'function') {
         try { window.__ozvCleanup(); console.log('[Hassle Cleanup] Ozv снят'); } catch(e) {}
     }
-    // rec.js (реконнект через мод Near) подклеен после Code3 и стоит поверх — снимаем его раньше Code3
-    if (typeof window.__recCleanup === 'function') {
-        try { window.__recCleanup(); console.log('[Hassle Cleanup] rec.js снят'); } catch(e) {}
-    }
     // Code3 (помощник лицензёра) стоит поверх хуков Code.js/Code2.js — снимаем его первым
     if (typeof window.__code3Cleanup === 'function') {
         try { window.__code3Cleanup(); console.log('[Hassle Cleanup] Code3 снят'); } catch(e) {}
@@ -438,18 +434,17 @@ async function initializeScripts() {
         console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
 
         // ── ЭТАП 1: скачиваем всё, старая копия пока работает ──
-        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, rec.js (параллельно)...');
+        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js (параллельно)...');
         const optional = (name, retries) => fetchRawText(name, retries).catch(e => {
             console.warn(`⚠️ ${name} не загружен (работаем без него):`, e && e.message);
             return null;
         });
-        const [listText, code2Text, codeText, code3Raw, ozvText, recText] = await Promise.all([
+        const [listText, code2Text, codeText, code3Raw, ozvText] = await Promise.all([
             fetchRawText('List.js'),
             fetchRawText('Code2.js'),
             fetchRawText('Code.js'),
             optional('Code3.js', 3),   // помощник лицензёра — необязательный
-            optional('Ozv.js', 1),     // озвучка — необязательная; 404 не повторяется
-            optional('rec.js', 1)      // реконнект через мод Near — необязательный
+            optional('Ozv.js', 1)      // озвучка — необязательная; 404 не повторяется
         ]);
 
         // ── Проверка синтаксиса до замены копий ──
@@ -496,12 +491,6 @@ async function initializeScripts() {
         // Вложенный eval в try: если Ozv.js сломан — Code2/Code3 это не ломает.
         if (ozvText) {
             window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(ozvText) + '); } catch (eOzv) { console.warn("[OZV] не запущен:", eOzv && eOzv.message); }\n';
-        }
-
-        // rec.js (реконнект /rec через мод Near) — отдельный файл, подклеиваем последним (его хук чата стоит поверх Code3).
-        // Вложенный eval в try: если rec.js сломан — Code2/Code3 это не ломает.
-        if (recText) {
-            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(recText) + '); } catch (eRec) { console.warn("[REC] не запущен:", eRec && eRec.message); }\n';
         }
 
         // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
