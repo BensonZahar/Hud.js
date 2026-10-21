@@ -274,47 +274,6 @@ function gtAdd(text, duration, type) {
     } catch (e) {}
 }
 
-// ══════════════════════════ /rec — РЕКОННЕКТ ЧЕРЕЗ НАТИВНЫЙ МОД NEAR ══════════════════════════
-// /rec [секунд] (1–600, по умолчанию 5): мод Near (HTTP 127.0.0.1:17771..17780) РАЗРЫВАЕТ соединение сразу
-// (штатный RakPeer::CloseConnection с уведомлением серверу) и подключается заново через N секунд. /rec2 — синоним.
-function recNative(sec) {
-    var t = parseInt(sec, 10);
-    if (isNaN(t)) t = 5;
-    if (t < 1) t = 1;
-    if (t > 600) t = 600;
-    var ports = [], idx = 0, i;
-    for (i = 0; i < 10; i++) ports.push(17771 + i);
-    function get(url, ok, fail, timeout) {
-        try {
-            var r = new XMLHttpRequest();
-            r.open('GET', url, true);
-            r.timeout = timeout || 800;
-            r.onload = function () { r.status === 200 ? ok(r.responseText) : fail(); };
-            r.onerror = r.ontimeout = fail;
-            r.send();
-        } catch (e) { fail(); }
-    }
-    function next() {
-        if (_dead) return;
-        if (idx >= ports.length) {
-            gtAdd('~r~Реконнект: мод Near не отвечает', 4000, 3);
-            warn('/rec: мод Near не найден на портах 17771..17780');
-            return;
-        }
-        var base = 'http://127.0.0.1:' + ports[idx++];
-        get(base + '/ping', function (txt) {
-            if (txt !== 'hassle-near') return next();
-            get(base + '/rec?t=' + t, function (resp) {
-                var j = null;
-                try { j = JSON.parse(resp); } catch (e) {}
-                if (j && j.ok) { gtAdd('~g~Отключено, подключение через ' + t + ' сек', 3000, 3); log('/rec: ок', resp); }
-                else { gtAdd('~r~Реконнект: ' + (j && j.why ? j.why : 'ошибка'), 5000, 3); warn('/rec:', resp); }
-            }, function () { gtAdd('~r~Реконнект: нет ответа от мода', 4000, 3); warn('/rec: нет ответа'); }, 3000);
-        }, next, 400);
-    }
-    next();
-}
-
 // ══════════════════════════ НИК ЦЕЛИ ══════════════════════════
 // Списка игроков движка (PlayersOnline / updatePlayerList) больше нет. И ID по нику, и проверка ник ↔ ID идут ТОЛЬКО через
 // серверную команду /id (см. ниже «ПРОВЕРКА НИК ↔ ID ЧЕРЕЗ СЕРВЕРНЫЙ /id»).
@@ -2537,7 +2496,6 @@ function ensureChatAddHook() {
     var myChat = function (e) {
         if (!_dead && typeof e === 'string') {
             var a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
-            if (cmd === '/rec' || cmd === '/rec2') { recNative(a[1]); return; }   // реконнект через нативный мод Near: отключение сразу, подключение через N сек (по умолчанию 5)
             if (cmd === '/code3') {   // работает всегда (не только лицензёру): вкл/выкл «в консоли только логи Code3»
                 var ca = (a[1] || '').toLowerCase();
                 setOnly((ca === 'on' || ca === '1' || ca === 'вкл') ? true : (ca === 'off' || ca === '0' || ca === 'выкл') ? false : !STATE.only);
