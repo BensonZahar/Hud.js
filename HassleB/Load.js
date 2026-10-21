@@ -323,7 +323,7 @@ function hassleCleanupHooks() {
     if (typeof window.__ozvCleanup === 'function') {
         try { window.__ozvCleanup(); console.log('[Hassle Cleanup] Ozv снят'); } catch(e) {}
     }
-    // rec.js (реконнект через мод Near) подклеен после Code3 и стоит поверх — снимаем его раньше Code3
+    // Старая копия rec.js (если осталась с прошлой загрузки в этой же сессии) стоит поверх Code3 — снимаем её раньше Code3
     if (typeof window.__recCleanup === 'function') {
         try { window.__recCleanup(); console.log('[Hassle Cleanup] rec.js снят'); } catch(e) {}
     }
@@ -438,18 +438,17 @@ async function initializeScripts() {
         console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
 
         // ── ЭТАП 1: скачиваем всё, старая копия пока работает ──
-        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, rec.js (параллельно)...');
+        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js (параллельно)...');
         const optional = (name, retries) => fetchRawText(name, retries).catch(e => {
             console.warn(`⚠️ ${name} не загружен (работаем без него):`, e && e.message);
             return null;
         });
-        const [listText, code2Text, codeText, code3Raw, ozvText, recText] = await Promise.all([
+        const [listText, code2Text, codeText, code3Raw, ozvText] = await Promise.all([
             fetchRawText('List.js'),
             fetchRawText('Code2.js'),
             fetchRawText('Code.js'),
             optional('Code3.js', 3),   // помощник лицензёра — необязательный
-            optional('Ozv.js', 1),     // озвучка — необязательная; 404 не повторяется
-            optional('rec.js', 1)      // реконнект через мод Near — необязательный
+            optional('Ozv.js', 1)      // озвучка — необязательная; 404 не повторяется
         ]);
 
         // ── Проверка синтаксиса до замены копий ──
@@ -498,11 +497,7 @@ async function initializeScripts() {
             window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(ozvText) + '); } catch (eOzv) { console.warn("[OZV] не запущен:", eOzv && eOzv.message); }\n';
         }
 
-        // rec.js (реконнект /rec через мод Near) — отдельный файл, подклеиваем последним (его хук чата стоит поверх Code3).
-        // Вложенный eval в try: если rec.js сломан — Code2/Code3 это не ломает.
-        if (recText) {
-            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(recText) + '); } catch (eRec) { console.warn("[REC] не запущен:", eRec && eRec.message); }\n';
-        }
+        // /rec теперь нативная чат-команда внутри APK (мод Near регистрирует её в WebViewSystem) — rec.js больше не подгружается.
 
         // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
         window.__WAIT_CODE2__ = true;
