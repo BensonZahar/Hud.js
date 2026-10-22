@@ -153,6 +153,8 @@ const dlg = {
     priority:      0,               // приоритет диалога (3-й аргумент addDialogInQueue)
     prefillValue:  '',              // предзаполнение для INPUT/PASSWORD (parsed[8])
 };
+// Для Code.js (тихий скан /find для званий): пока открыт любой другой диалог — свой /find не запускаем, чтобы его не перебить
+window._hassleDlgBusy = function () { return !!dlg.active; };
 
 // ── Вспомогательные функции ───────────────────────────────────
 

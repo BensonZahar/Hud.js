@@ -7109,9 +7109,19 @@ function initializeChatMonitor() {
             // Проверяем, что сообщение отправлено из радиуса CLOSE
             if (chatRadius === CHAT_RADIUS.CLOSE) {
                 if (checkGovMessageConditions(messageText, senderName, senderId)) {
-                    const replyMarkup = getNotificationReplyMarkup();
                     const factionLabel = getFactionLabel(config.currentFaction) || 'фракции';
-                    sendToTelegram(`🏛️ <b>${messageText}</b>\n👤 ${senderName} [ID: ${senderId}]\nСообщение от сотрудника [${factionLabel}] (${displayName})`, false, replyMarkup);
+                    // Ник[ID] как в оригинале + звание из кэша /find (модуль WARNING CHECK ниже).
+                    // Звание уже в кэше — уходит сразу; нет — тихо читаем /find (до ~7 сек), и при любой неудаче шлём без звания.
+                    const _sendGov = function (rank) {
+                        const rankPart = rank ? ' — ' + String(rank).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+                        sendToTelegram(`🏛️ <b>${messageText}</b>\n👤 ${senderName}[${senderId}]${rankPart}\nСообщение от сотрудника [${factionLabel}] (${displayName})`, false, getNotificationReplyMarkup());
+                    };
+                    if (typeof window._hassleGetRank === 'function') {
+                        try { window._hassleGetRank(senderName, senderId, _sendGov); }
+                        catch (e) { debugLog('[ROSTER] ошибка запроса звания: ' + e.message); _sendGov(null); }
+                    } else {
+                        _sendGov(null);
+                    }
                 }
             }
         }
@@ -8373,7 +8383,8 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         pageTimer:   null,
         failCount:   0,       // сколько раз проверка прерывалась подряд
         retryTimer:  null,    // отложенный перезапуск после прерывания
-        nickWait:    0        // сколько раз ждали появления ника
+        nickWait:    0,       // сколько раз ждали появления ника
+        mode:        'warn'   // 'warn' — проверка выговоров, 'roster' — тихое чтение списка для званий
     };
 
     // ── Утилиты ──────────────────────────────────────────────────
@@ -8388,6 +8399,159 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
     // Флаг «есть следующая страница» может прийти как true/1/'1'/'true' — строку 'false' считаем ложью
     function _truthy(v) { return v === true || v === 1 || v === '1' || v === 'true'; }
+
+    // ── Список сотрудников (кэш /find) — для звания в сообщениях сотрудников ──
+    // Читаем тем же невидимым перехватом /find, что и выговоры: диалог игре не отдаётся, ничего не рисуется.
+    // Кэш живёт на window (переживает /reload). Скан не запускается, пока открыт любой другой диалог
+    // (window._hassleDlgBusy из Code2) или грузится профиль — чтобы не перебить чужой диалог.
+    const ROSTER_TTL_MS      = 15 * 60 * 1000; // старше — при следующем сообщении тихо обновим в фоне
+    const ROSTER_MISS_TTL_MS = 5 * 60 * 1000;  // ник не нашли в полном списке — не ищем снова столько
+    const ROSTER_MIN_GAP_MS  = 45 * 1000;      // не чаще одного скана раз в 45 сек
+    const ROSTER_WAIT_MS     = 7000;           // дольше сообщение в Telegram не задерживаем
+    const roster = (window._hassleRoster = window._hassleRoster || { map: {}, ts: 0, miss: {}, lastTry: 0, waiters: [] });
+    if (!Array.isArray(roster.waiters)) roster.waiters = [];
+    let rosterTmp = null;   // страницы текущего скана
+
+    function _dialogBusy() {
+        try { return typeof window._hassleDlgBusy === 'function' && !!window._hassleDlgBusy(); }
+        catch (e) { return false; }
+    }
+
+    function _capFirst(s) { s = String(s || '').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+    // Строка: "Nick_Name[ID] | Должность[ранг] - (статус) [ФРАКЦИЯ] | телефон [X / Y]".
+    // Разделители колонок не важны (<t> уже превращён в пробел) — ищем Ник[ID], дальше первую «Должность[ранг]».
+    // [ранг] — число → название берём из таблицы званий своей фракции; текст → берём как есть; нет скобок → «Должность».
+    function _parseRosterRow(row) {
+        const nm = row.match(/(?:^|[^A-Za-z0-9_])(?:\d+\.\s*)?([A-Za-z0-9_.\-]+)\[(\d+)\]/);
+        if (!nm) return null;
+        const rest = row.slice(nm.index + nm[0].length).replace(/^[\s|│]+/, '').replace(/^-\s*AFK\b\s*/i, '');   // «Ник[ID] - AFK  Звание[N] - (в форме)»
+        const seg  = rest.split(/\s+-\s+\(/)[0].split(/\s*[|│]\s*/)[0].trim();
+        const pm   = seg.match(/^(.*?)\s*\[([^\]]+)\]\s*$/);
+        const post = (pm ? pm[1] : seg).trim();
+        const tok  = pm ? pm[2].trim() : '';
+        // Сервер пишет в строке точное название звания: «Название[номер]» — берём его; таблица званий только запасной вариант
+        let rankNum = null, rank = post;
+        if (/^\d+$/.test(tok)) {
+            rankNum = parseInt(tok, 10);
+            if (!rank) {
+                try {
+                    const f = factions[config.currentFaction];
+                    if (f && f.ranks && f.ranks[rankNum]) rank = _capFirst(f.ranks[rankNum]);
+                } catch (e) { /* таблицы нет */ }
+            }
+        } else if (!rank && tok) {
+            rank = tok;
+        }
+        rank = String(rank || '').replace(/[\[\]<>]/g, '').trim();
+        return { nick: nm[1], id: nm[2], post: post, rankNum: rankNum, rank: rank };
+    }
+
+    function _cacheRows(dataRows, target) {
+        if (!target) return;
+        for (const row of dataRows) {
+            const e = _parseRosterRow(row);
+            if (e) target[e.nick.toLowerCase()] = e;
+        }
+    }
+
+    function _flushWaiters(complete) {
+        const list = roster.waiters.splice(0, roster.waiters.length);
+        const now = Date.now();
+        list.forEach(function (w) {
+            if (complete && !roster.map[w.key]) roster.miss[w.key] = now;
+            clearTimeout(w.timer);
+            w.finish();
+        });
+    }
+
+    // Конец скана списка: complete=true — дошли до последней страницы
+    function _rosterFinish(dialogId, complete) {
+        _clearTimers();
+        warnCheck.active   = false;
+        window._warnCheckActive = false;
+        warnCheck.mode     = 'warn';
+        warnCheck.dialogId = null;
+        _respondClose(dialogId);
+        const tmp = rosterTmp || {};
+        rosterTmp = null;
+        const n = Object.keys(tmp).length;
+        if (n > 0) {
+            if (complete) { roster.map = tmp; roster.ts = Date.now(); }
+            else Object.assign(roster.map, tmp);
+        } else if (complete) {
+            _log('[ROSTER] ⚠️ Ни одна строка /find не распознана как Ник[ID] — звания не определить');
+        }
+        _log('[ROSTER] Скан ' + (complete ? 'завершён' : 'прерван') + ': в кэше ' + Object.keys(roster.map).length + ' сотрудников');
+        _flushWaiters(complete && n > 0);
+    }
+
+    // Запуск тихого скана. true — скан идёт (наш или уже шедший), false — сейчас нельзя
+    function startRosterScan(reason) {
+        if (_stale()) return false;
+        if (warnCheck.active) return warnCheck.mode === 'roster';   // уже идёт — просто подождём
+        if (!config.currentFaction) return false;
+        if (!(config.accountInfo && config.accountInfo.nickname)) return false;
+        if (window._hassleProfileLoading) return false;
+        if (_dialogBusy()) { _log('[ROSTER] Открыт другой диалог — скан не запускаем'); return false; }
+        const now = Date.now();
+        if (now - roster.lastTry < ROSTER_MIN_GAP_MS) return false;
+        roster.lastTry = now;
+
+        warnCheck.active    = true;
+        window._warnCheckActive = true;
+        warnCheck.mode      = 'roster';
+        warnCheck.pageIndex = 0;
+        warnCheck.pages     = 0;
+        warnCheck.lastCount = -1;
+        warnCheck.dialogId  = null;
+        warnCheck.priority  = 0;
+        warnCheck.retries   = 0;
+        rosterTmp = {};
+
+        warnCheck.timeout = setTimeout(function () {
+            if (_stale()) return;
+            _log('[ROSTER] ⏰ Общий таймаут — прерываем скан');
+            _abort();
+        }, TOTAL_TIMEOUT_MS);
+
+        _log('[ROSTER] Отправляем /find для списка сотрудников (' + reason + ')');
+        try { sendChatInput('/find'); } catch (e) {
+            _log('[ROSTER] Ошибка отправки /find: ' + e.message);
+            _abort();
+            return false;
+        }
+        _armPageTimer();
+        return true;
+    }
+
+    // Звание сотрудника: cb(rank|null) вызывается ровно один раз — сразу, если ник в кэше, иначе после скана (≤ 7 сек)
+    function _getRank(nick, id, cb) {
+        let done = false;
+        const key = String(nick || '').toLowerCase();
+        function finish() {
+            if (done) return;
+            done = true;
+            const e = roster.map[key];
+            try { cb(e && e.rank ? e.rank : null); } catch (err) { _log('[ROSTER] ошибка в обработчике звания: ' + err.message); }
+        }
+        const now = Date.now();
+        if (roster.map[key]) {
+            if (now - roster.ts > ROSTER_TTL_MS) startRosterScan('обновление кэша');   // в фоне, сообщение не ждёт
+            finish();
+            return;
+        }
+        if (roster.miss[key] && now - roster.miss[key] < ROSTER_MISS_TTL_MS) { finish(); return; }
+        if (!startRosterScan('нет звания: ' + nick)) { finish(); return; }
+        const w = { key: key, finish: finish, timer: null };
+        w.timer = setTimeout(function () {
+            const i = roster.waiters.indexOf(w);
+            if (i >= 0) roster.waiters.splice(i, 1);
+            finish();
+        }, ROSTER_WAIT_MS);
+        roster.waiters.push(w);
+    }
+    window._hassleGetRank = _getRank;
 
     function _log(msg) {
         if (typeof debugLog === 'function') debugLog(msg);
@@ -8431,6 +8595,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 warnCheck.pageIndex = 0;
                 warnCheck.pages     = 0;
                 warnCheck.lastCount = -1;
+                if (warnCheck.mode === 'roster') rosterTmp = {};
                 try { sendChatInput('/find'); } catch (e) { _log('[WARN] Ошибка отправки /find: ' + e.message); _abort(); return; }
                 _armPageTimer();
             } else {
@@ -8475,6 +8640,11 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         warnCheck.pages++;
 
         if (allRows.length === 0) {
+            if (warnCheck.mode === 'roster') {
+                _log('[ROSTER] Пустой диалог /find — завершаем скан');
+                _rosterFinish(dialogId, true);
+                return;
+            }
             _log('[WARN] Пустой диалог /find — завершаем с 0 выговоров');
             _finalize(dialogId, 0, 3);
             return;
@@ -8482,6 +8652,10 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
         // Первая строка — заголовок колонок (Имя | Должность | Телефон)
         const dataRows = allRows.slice(1);
+        const _rosterMode = (warnCheck.mode === 'roster');
+        // Каждая страница /find пополняет кэш званий (при проверке выговоров — дописываем в общий, при скане — в свежий)
+        try { _cacheRows(dataRows, _rosterMode ? rosterTmp : roster.map); } catch (e) { _log('[ROSTER] ошибка разбора строк: ' + e.message); }
+        if (dataRows.length) _log('[ROSTER] Пример строки: "' + dataRows[0] + '" → ' + JSON.stringify(_parseRosterRow(dataRows[0])));
         _log('[WARN] Страница ' + warnCheck.pageIndex + ': ' + dataRows.length + ' строк, следующая: ' + (hasNext === null ? '?' : hasNext));
 
         const targetNick = (warnCheck.nickname || '').trim();
@@ -8494,7 +8668,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             'i'
         );
 
-        for (const row of dataRows) {
+        for (const row of (_rosterMode ? [] : dataRows)) {
             if (re.test(row)) {
                 _log('[WARN] ✅ Найден: "' + row + '"');
                 const warnData = _parseWarnings(row);
@@ -8516,8 +8690,12 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         warnCheck.lastCount = dataRows.length;
 
         if (isFinalPage) {
-            _log('[WARN] Последняя страница, ник не найден → 0 выговоров');
-            _finalize(dialogId, 0, 3);
+            if (_rosterMode) {
+                _rosterFinish(dialogId, true);
+            } else {
+                _log('[WARN] Последняя страница, ник не найден → 0 выговоров');
+                _finalize(dialogId, 0, 3);
+            }
         } else if (warnCheck.pages >= MAX_PAGES) {
             _log('[WARN] Превышен лимит страниц (' + MAX_PAGES + ') — прерываем');
             _respondClose(dialogId);
@@ -8549,12 +8727,18 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         setTimeout(function () {
             if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(true);
         }, 400);
+        // Прогрев списка сотрудников (звания в сообщениях сотрудников) — чуть позже, чтобы не частить командой /find
+        setTimeout(function () { if (!_stale()) startRosterScan('прогрев после проверки выговоров'); }, 6000);
     }
 
     // ── Прервать проверку (таймаут/ошибка) ───────────────────────
     // Не оставляем в приветствии вечное «проверяем...»: перезапускаем (до MAX_ABORT_RETRIES раз),
     // а если и это не помогло — ставим статус «не удалось проверить» и обновляем сообщение.
     function _abort() {
+        if (warnCheck.mode === 'roster') {   // скан списка не влияет на выговоры: ни повторов, ни «не удалось проверить»
+            _rosterFinish(warnCheck.dialogId, false);
+            return;
+        }
         _clearTimers();
         // Если на сервере остался открытый диалог — закрываем (клиентского нет, но сервер ждёт ответ)
         _respondClose(warnCheck.dialogId);
@@ -8603,6 +8787,11 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         }
         warnCheck.nickWait = 0;
         if (warnCheck.active) {
+            if (warnCheck.mode === 'roster') {   // идёт тихий скан списка — подождём его конца (он ограничен по времени)
+                _log('[WARN] Идёт скан списка сотрудников — повторим через 2 сек');
+                setTimeout(startWarningCheck, 2000);
+                return;
+            }
             _log('[WARN] Проверка уже идёт — пропускаем');
             return;
         }
@@ -8615,6 +8804,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
         warnCheck.active    = true;
         window._warnCheckActive = true;
+        warnCheck.mode      = 'warn';
         warnCheck.nickname  = nick;
         warnCheck.pageIndex = 0;
         warnCheck.pages     = 0;

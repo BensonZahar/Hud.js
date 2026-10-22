@@ -3281,7 +3281,7 @@ try { (function () {
     // Code.js после «Пауза», «Авторизация», «Назад из движений» перерисовывает клавиатуру через getNotificationReplyMarkup() —
     // для сообщений игроков дописываем обратно строку «Выдача лицензии».
     const _playerMsgs = {};   // 'chatId:messageId' → { id: ID игрока, text: его сообщение }
-    const PLAYER_TG_RE = /^(?:💬|🏛\uFE0F?)\s*([\s\S]*?)\n👤[^\n]*?\[ID:\s*(\d+)\]/;   // 💬 — игрок (наш пересыл), 🏛️ — сотрудник фракции (пересыл Code.js)
+    const PLAYER_TG_RE = /^(?:💬|🏛\uFE0F?)\s*([\s\S]*?)\n👤[^\n]*?(?:\[ID:\s*|\[)(\d+)\]/;   // 💬 — игрок (наш пересыл), 🏛️ — сотрудник фракции (пересыл Code.js)
     if (typeof editMessageReplyMarkup === 'function' && !editMessageReplyMarkup.__licWrapped) {
         const origEditMarkup = editMessageReplyMarkup;
         const wrappedEdit = function (chatId, messageId, markup) {
@@ -3609,7 +3609,7 @@ try { (function () {
     // Code.js отправляет «🏛️ текст / 👤 Ник [ID] / Сообщение от сотрудника [фракция]» через sendToTelegram. Перехватываем отправку:
     // дописываем под сообщением «Выдача лицензии» (как у сообщений игроков) и запоминаем, что оно уже ушло, —
     // тогда «Все сообщения игроков» не пришлёт то же самое второй раз. Code.js не меняется.
-    const GOV_OUT_RE = /^🏛\uFE0F?\s*<b>([\s\S]*?)<\/b>\n👤[^\n]*?\[ID:\s*(\d+)\]\nСообщение от сотрудника \[/;
+    const GOV_OUT_RE = /^🏛\uFE0F?\s*<b>([\s\S]*?)<\/b>\n👤[^\n]*?(?:\[ID:\s*|\[)(\d+)\][^\n]*\nСообщение от сотрудника \[/;   // «Ник[ID] — звание» (и старый «Ник [ID: n]»)
     const _govSent = {};   // ID отправителя → { t: нормализованный текст, at: время }
     function govNorm(x) { return String(x).replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\s+/g, ' ').trim(); }
     if (typeof sendToTelegram === 'function' && !sendToTelegram.__licGovWrapped) {
