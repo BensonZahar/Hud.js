@@ -3281,7 +3281,7 @@ try { (function () {
     // Code.js после «Пауза», «Авторизация», «Назад из движений» перерисовывает клавиатуру через getNotificationReplyMarkup() —
     // для сообщений игроков дописываем обратно строку «Выдача лицензии».
     const _playerMsgs = {};   // 'chatId:messageId' → { id: ID игрока, text: его сообщение }
-    const PLAYER_TG_RE = /^(?:💬|🏛\uFE0F?)\s*([\s\S]*?)\n👤[^\n]*?(?:\[ID:\s*|\[)(\d+)\]/;   // 💬 — игрок (наш пересыл), 🏛️ — сотрудник фракции (пересыл Code.js)
+    const PLAYER_TG_RE = /^(?:💬|🏛\uFE0F?|🏥|📺|🪖|🚒|🚓|🕶\uFE0F?|⛓\uFE0F?|🛡\uFE0F?)\s*(?:(?:Правительство|МЗ|ТРК|МО|МЧС|МВД|ФСБ|ФСИН|Нацгвардия)\n)?([\s\S]*?)\n👤[^\n]*?(?:\[ID:\s*|\[)(\d+)\]/;   // 💬 — игрок (наш пересыл), 🏛️ — сотрудник фракции (пересыл Code.js)
     if (typeof editMessageReplyMarkup === 'function' && !editMessageReplyMarkup.__licWrapped) {
         const origEditMarkup = editMessageReplyMarkup;
         const wrappedEdit = function (chatId, messageId, markup) {
@@ -3512,7 +3512,7 @@ try { (function () {
             }
             const edRec = ((ev.sold || ev.end) && offerFresh()) ? _offerMsg : null;   // сообщение с тихим предложением, если оно ещё «живое»
             const body = ev.icon + ' <b>' + ev.title + '</b>\n' +
-                (showL ? '🪪 ' + esc(l.name) + ' → ' + esc(nick || 'игрок') + ' [ID: ' + esc(l.targetId) + ']\n' : '') +
+                (showL ? '🪪 ' + esc(l.name) + ' → ' + esc(nick || 'игрок') + '[' + esc(l.targetId) + ']\n' : '') +
                 (ev.end && edRec && edRec.text ? '📨 ' + esc(edRec.text) + '\n' : '') +   // что именно предлагали (лицензия и цена)
                 (ev.hint ? '👉 ' + esc(ev.hint) + '\n' : '') +
                 '<i>' + esc(text) + '</i>\n(' + esc(displayName) + ')';
@@ -3650,7 +3650,7 @@ try { (function () {
         if (!once(nick + '|' + text, 2000)) return;                     // дубль строки чата
         const where = radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
         const markup = playerMarkup(id, text);                              // как у сотрудников фракции + внизу «Выдача лицензии» (там же перевыдача)
-        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', false, markup,
+        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + '[' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', false, markup,
             function (cid, mid) { _playerMsgs[cid + ':' + mid] = { id: id, text: text }; });   // запоминаем сообщение: кнопки переживут «Пауза» / «Движения»
     }
     function installChatHook() {
@@ -3684,15 +3684,24 @@ try { (function () {
     // дописываем под сообщением «Выдача лицензии» (как у сообщений игроков) и запоминаем, что оно уже ушло, —
     // тогда «Все сообщения игроков» не пришлёт то же самое второй раз. Code.js не меняется.
     const GOV_OUT_RE = /^🏛\uFE0F?\s*<b>([\s\S]*?)<\/b>\n👤[^\n]*?(?:\[ID:\s*|\[)(\d+)\][^\n]*\nСообщение от сотрудника \[/;   // «Ник[ID] — звание» (и старый «Ник [ID: n]»)
+    // Смайлик перед сообщением сотрудника — по фракции из строки «Сообщение от сотрудника [МЗ]» (Code.js всегда ставит 🏛️, и фракцию не отличить с первого взгляда).
+    // Подписи — те же, что в FACTION_NAMES Code.js. Незнакомая подпись остаётся с 🏛️. Эти же смайлики разобраны в PLAYER_TG_RE.
+    const FACTION_EMOJI = { 'Правительство': '🏛️', 'МЗ': '🏥', 'ТРК': '📺', 'МО': '🪖', 'МЧС': '🚒', 'МВД': '🚓', 'ФСБ': '🕶️', 'ФСИН': '⛓️', 'Нацгвардия': '🛡️' };
     const _govSent = {};   // ID отправителя → { t: нормализованный текст, at: время }
     function govNorm(x) { return String(x).replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/\s+/g, ' ').trim(); }
     if (typeof sendToTelegram === 'function' && !sendToTelegram.__licGovWrapped) {
         const origSend = sendToTelegram;
         const wrappedSend = function (message, silent, replyMarkup, onMessageSent) {
+            // Единый вид ID во всех сообщениях в Telegram: «Ник[12]» (как в игровом чате) вместо «Ник [ID: 12]» — в т.ч. выговор / увольнение / тюрьма из Code.js
+            if (typeof message === 'string' && message.indexOf('[ID:') !== -1) message = message.replace(/\s*\[ID:\s*(\d+)\]/g, '[$1]');
             try { onMessageSent = trackSent(message, replyMarkup, onMessageSent); } catch (e) { c3Dbg('[LIC] track send error: ' + e.message); }
             try {
                 const gm = (typeof message === 'string') ? message.match(GOV_OUT_RE) : null;
                 if (gm) {
+                    const fl = message.match(/\nСообщение от сотрудника \[([^\]]+)\]/), fe = fl && FACTION_EMOJI[fl[1]];
+                    if (fe) {   // 🏛️ → смайлик фракции; название фракции — первой строкой в <code>, из последней строки убираем
+                        message = fe + ' <code>' + fl[1] + '</code>\n' + message.replace(/^🏛\uFE0F?\s*/, '').replace('\nСообщение от сотрудника [' + fl[1] + ']', '\nСообщение от сотрудника');
+                    }
                     const gid = gm[2], gtext = govNorm(gm[1]);
                     _govSent[gid] = { t: gtext, at: Date.now() };
                     if (ready()) {
