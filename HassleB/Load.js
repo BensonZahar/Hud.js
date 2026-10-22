@@ -319,7 +319,11 @@ function hassleCleanupHooks() {
     if (typeof window.__hassleProfileUnwrap === 'function') {
         try { window.__hassleProfileUnwrap(); console.log('[Hassle Cleanup] Обёртка чтения профиля снята'); } catch(e) {}
     }
-    // Ozv (озвучка) подклеен после Code3 и стоит поверх — снимаем его самым первым
+    // Near (игроки рядом) подклеен последним и стоит поверх всех — снимаем его самым первым
+    if (typeof window.__nearCleanup === 'function') {
+        try { window.__nearCleanup(); console.log('[Hassle Cleanup] Near снят'); } catch(e) {}
+    }
+    // Ozv (озвучка) подклеен после Code3 и стоит поверх — снимаем его после Near
     if (typeof window.__ozvCleanup === 'function') {
         try { window.__ozvCleanup(); console.log('[Hassle Cleanup] Ozv снят'); } catch(e) {}
     }
@@ -434,17 +438,18 @@ async function initializeScripts() {
         console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
 
         // ── ЭТАП 1: скачиваем всё, старая копия пока работает ──
-        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js (параллельно)...');
+        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, Near.js (параллельно)...');
         const optional = (name, retries) => fetchRawText(name, retries).catch(e => {
             console.warn(`⚠️ ${name} не загружен (работаем без него):`, e && e.message);
             return null;
         });
-        const [listText, code2Text, codeText, code3Raw, ozvText] = await Promise.all([
+        const [listText, code2Text, codeText, code3Raw, ozvText, nearRaw] = await Promise.all([
             fetchRawText('List.js'),
             fetchRawText('Code2.js'),
             fetchRawText('Code.js'),
             optional('Code3.js', 3),   // помощник лицензёра — необязательный
-            optional('Ozv.js', 1)      // озвучка — необязательная; 404 не повторяется
+            optional('Ozv.js', 1),     // озвучка — необязательная; 404 не повторяется
+            optional('Near.js', 2)     // игроки рядом (нужен APK с модом Near) — необязательный
         ]);
 
         // ── Проверка синтаксиса до замены копий ──
@@ -459,6 +464,16 @@ async function initializeScripts() {
                 console.warn('⚠️ Code3.js с синтаксической ошибкой — пропущен:', err3.message);
                 loaderNotify(`⚠️ <b>Code3.js</b> с синтаксической ошибкой — пропущен (бот работает без него)\n<code>${String(err3.message).replace(/</g, '&lt;')}</code>`);
                 code3Text = null;
+            }
+        }
+
+        let nearText = nearRaw;
+        if (nearText) {
+            const errN = syntaxError(nearText);
+            if (errN) {
+                console.warn('⚠️ Near.js с синтаксической ошибкой — пропущен:', errN.message);
+                loaderNotify(`⚠️ <b>Near.js</b> с синтаксической ошибкой — пропущен (бот работает без него)\n<code>${String(errN.message).replace(/</g, '&lt;')}</code>`);
+                nearText = null;
             }
         }
 
@@ -491,6 +506,12 @@ async function initializeScripts() {
         // Вложенный eval в try: если Ozv.js сломан — Code2/Code3 это не ломает.
         if (ozvText) {
             window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(ozvText) + '); } catch (eOzv) { console.warn("[OZV] не запущен:", eOzv && eOzv.message); }\n';
+        }
+
+        // Near.js (игроки рядом: /near, /neartg, /neardist, /neardiag, window.NearPlayers) — подклеиваем последним, поверх Ozv:
+        // ему нужен sendToTelegram из области видимости Code.js. Вложенный eval в try: сломанный Near.js остальное не ломает.
+        if (nearText) {
+            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(nearText) + '); } catch (eNear) { console.warn("[NEAR] не запущен:", eNear && eNear.message); }\n';
         }
 
         // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
