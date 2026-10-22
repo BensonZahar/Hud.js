@@ -2,7 +2,7 @@
 // Мод Near (libHassleExtended в APK) отдаёт по HTTP на 127.0.0.1:17771..17780:
 //   /ping -> 'hassle-near'   /near -> JSON игроков рядом   /diag -> журнал мода   /rec?t=N -> реконнект (его делает rec.js)
 // JSON /near: {ok, stage, ago, me:{id,x,y,z,vx,vy,vz,age,ping}, n:[{id,nick,label,x,y,z,vx,vy,vz,age,d,d2,hp,ar,ping,score,veh}]};
-//   d — дистанция 3D, d2 — по горизонтали (м); vx,vy,vz — скорость м/с; age — мс с последней смены позиции; ago — мс от тика мода до ответа.
+//   d — дистанция 3D, d2 — по горизонтали (м); список, сортировка и радиус считаются по d (3D); vx,vy,vz — скорость м/с; age — мс с последней смены позиции; ago — мс от тика мода до ответа.
 //
 // АКТУАЛЬНОСТЬ ПОЗИЦИИ (v2). Позиции берутся из sync-пакетов, поэтому отстают: мод читает их 10 раз/с, а Near.js знает возраст снимка
 // (ago + пол-RTT запроса + время с получения) и скорости. Сервер проверяет дальность (/givelic: IsPlayerInRangeOfPoint 6.0, 3D) по СВОИМ
@@ -18,7 +18,7 @@
 //
 // API для других скриптов (Code3 и т.д.), window.NearPlayers:
 //   .list()          — массив игроков рядом, ближайшие первыми
-//   .within(м)       — те, кто ближе м метров (по горизонтали)
+//   .within(м)       — те, кто ближе м метров (3D)
 //   .byNick('ivan')  — по части ника (без учёта регистра)
 //   .byId(123)       — игрок по ID или null
 //   .me()            — {id,x,y,z} или null
@@ -144,8 +144,10 @@ function refresh(cb) {
 }
 
 function fresh() { return !!(snap && Date.now() - stamp < FRESH_MS); }
+// Расстояние для списка/сортировки/радиуса — 3D (p.d), как проверяет сервер; если d нет — по горизонтали (d2)
+function dist(p) { return p.d != null ? p.d : (p.d2 != null ? p.d2 : null); }
 function sorted(arr) {
-    return arr.slice().sort(function (a, b) { return (a.d2 == null ? 1e9 : a.d2) - (b.d2 == null ? 1e9 : b.d2); });
+    return arr.slice().sort(function (a, b) { var da = dist(a), db = dist(b); return (da == null ? 1e9 : da) - (db == null ? 1e9 : db); });
 }
 
 // ── Прогноз дистанции на момент прихода команды на сервер ──
@@ -221,7 +223,7 @@ var API = {
             cb({ ok: true, found: true, p: p, id: p.id, nick: p.nick, d: m.d, dp: m.dp, err: m.err, age: m.age, vt: m.vt, vm: m.vm, verdict: verdictFor(m, r), radius: r });
         });
     },
-    within: function (m) { return this.list().filter(function (p) { return p.d2 != null && p.d2 <= m; }); },
+    within: function (m) { return this.list().filter(function (p) { var d = dist(p); return d != null && d <= m; }); },
     byNick: function (s) {
         s = String(s).toLowerCase();
         return this.list().filter(function (p) { return (p.nick || '').toLowerCase().indexOf(s) >= 0; });
@@ -247,8 +249,9 @@ onUndo(function () { if (window.NearPlayers === API) { try { delete window.NearP
 
 // ══════════════════════════ КОМАНДЫ ЧАТА ══════════════════════════
 function fmtDist(p) {
-    if (p.d2 == null) return '?';
-    return (p.d2 < 10 ? p.d2.toFixed(1) : String(Math.round(p.d2))) + ' м';
+    var d = dist(p);
+    if (d == null) return '?';
+    return (d < 10 ? d.toFixed(1) : String(Math.round(d))) + ' м';
 }
 function pName(p) { return p.nick || p.label || '?'; }
 function parseRadius(s) {
@@ -271,7 +274,7 @@ function showNear(radius, toTg) {
             return;
         }
         var arr = sorted(j.n || []);
-        if (radius) arr = arr.filter(function (p) { return p.d2 != null && p.d2 <= radius; });
+        if (radius) arr = arr.filter(function (p) { var d = dist(p); return d != null && d <= radius; });
         var head = 'Рядом: ' + arr.length + (radius ? ' (до ' + radius + ' м)' : '');
         log(head);
         var k;
