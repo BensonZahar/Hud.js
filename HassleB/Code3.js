@@ -3538,17 +3538,91 @@ try { (function () {
     function teaOn() {
         try { const a = api(); return !!(a && a.state && a.state().tea); } catch (e) { return false; }
     }
+    // ── Чай за PayDay: копим всё, что игроки нам дали, и пишем итог в сообщение «+ PayDay |» ──
+    // Источники: /pay (строка сервера) и обмен (доплата в окне TradeItems: сервер-часть обмена в моде не вынесена в чат,
+    // поэтому после закрытия окна смотрим, вырос ли наличный баланс). Считаем всегда, «Просьба о чае» влияет только на Telegram-уведомления.
+    // Журнал лежит на window — переживает /reload; записи старше TEA_KEEP_MS отбрасываются (если PayDay-сообщение не пришло).
+    const TEA_KEEP_MS = 2 * 3600 * 1000;
+    const _tea = window.__code3Tea = window.__code3Tea || { log: [] };
+    if (!Array.isArray(_tea.log)) _tea.log = [];
+    function teaPrune() { const lim = Date.now() - TEA_KEEP_MS; _tea.log = _tea.log.filter(function (r) { return r && r.t >= lim; }); }
+    function teaAdd(sum, src, nick) { teaPrune(); _tea.log.push({ t: Date.now(), sum: sum, src: src, nick: nick || '' }); }
+    function teaTotals() {
+        teaPrune();
+        const o = { total: 0, pay: 0, trade: 0, n: 0 };
+        _tea.log.forEach(function (r) { o.total += r.sum; o.n++; if (r.src === 'trade') o.trade += r.sum; else o.pay += r.sum; });
+        return o;
+    }
+    // Строка для «+ PayDay |» / «- PayDay |»; журнал после неё обнуляется — следующий час считается с нуля
+    function teaPaydayLine() {
+        const o = teaTotals();
+        _tea.log = [];
+        if (!o.n) return '';
+        const parts = [];
+        if (o.pay) parts.push('/pay: ' + money(o.pay));
+        if (o.trade) parts.push('обмен: ' + money(o.trade));
+        c3Dbg('[TEA] в PayDay: ' + o.total + ' руб (' + parts.join(', ') + '), переводов: ' + o.n);
+        return '\n\n☕ <b>Чай за PayDay: ' + money(o.total) + '</b>' + (parts.length > 1 || o.n > 1 ? '\n' + parts.join(' · ') + ' · переводов: ' + o.n : '');
+    }
+    window.__code3TeaTotals = function () { return teaTotals(); };   // для консоли: window.__code3TeaTotals()
+
+    // ── Время в PayDay-чеке, как в игре ──
+    // Сервер перед чеком шлёт всем строку «Текущее время: 23:00» (SendClientMessageToAll, OnPayDay в new.pwn). Запоминаем её дословно
+    // и вставляем в «+ PayDay |» / «- PayDay |» перед «БАНКОВСКИЙ ЧЕК» — чек в Telegram получается один в один как в чате игры.
+    let _payTime = null;   // { t: 'ЧЧ:ММ' как написал сервер, at: когда пришло }
+    function notePayTime(cm) {
+        if (cm.indexOf('Текущее время:') === -1 || cm.indexOf('Время в игре') !== -1) return;
+        const m = cm.match(/Текущее время:\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
+        if (m) { _payTime = { t: m[1], at: Date.now() }; c3Dbg('[PAYDAY] время сервера: ' + m[1]); }
+    }
+    function payTimeLine() {
+        if (!_payTime || Date.now() - _payTime.at > 180000) return '';   // протухло (не PayDay) — не вставляем
+        return 'Текущее время: ' + _payTime.t + '\n';
+    }
+
     function handleTip(text, colorArg) {
-        if (!teaOn()) return false;
         if (/^\s*-\s/.test(text) || PLAYER_MSG_RE.test(text)) return false;   // строки чата игроков — не переводы
         if (!colorOk(colorArg, '3399FF')) return false;                           // системная строка, а не текст игрока
         const tm = text.match(TIP_RE);
         if (!tm) return false;
         const nick = tm[1].trim(), sum = parseInt(tm[2], 10);
         if (!sum || !once('tip|' + nick + '|' + sum, 3000)) return true;
-        sendToTelegram('☕ <b>Вам перевели деньги: ' + money(sum) + '</b>\n👤 ' + esc(nick) + '\n(' + esc(displayName) + ')', true, null);
+        teaAdd(sum, 'pay', nick);
+        if (teaOn()) sendToTelegram('☕ <b>Вам перевели деньги: ' + money(sum) + '</b>\n👤 ' + esc(nick) + '\n(' + esc(displayName) + ')', true, null);
         return true;
     }
+
+    // ── Чай через обмен (окно TradeItems, поле «Введите сумму» — доплата) ──
+    // Открылось окно → запоминаем наличные; закрылось → через 2.5 с сравниваем. Рост = нам доплатили. Убыль (платили мы) и 0 (отмена / обмен без доплаты) не считаем.
+    function tradeOpen() { try { return !!window.getInterfaceStatus('TradeItems'); } catch (e) { return false; } }
+    function tradeCash() {
+        try { const s = window.App && window.App.$store; const v = s && s.getters['player/money']; return (typeof v === 'number' && isFinite(v)) ? v : null; } catch (e) { return null; }
+    }
+    function tradeSettle(base) {
+        if (base === null) return;
+        const now = tradeCash();
+        if (now === null) return;
+        const delta = now - base;
+        if (delta <= 0) { c3Dbg('[TEA] обмен закрыт: наличные ' + base + ' → ' + now + ' — доплаты нам не было'); return; }
+        teaAdd(delta, 'trade', '');
+        c3Dbg('[TEA] обмен: +' + delta + ' руб (наличные ' + base + ' → ' + now + ')');
+        if (teaOn()) sendToTelegram('☕ <b>Чай в обмене: +' + money(delta) + '</b>\n(' + esc(displayName) + ')', true, null);
+    }
+    (function startTradeWatch() {
+        const prev = window.__code3TeaTrade;
+        if (prev && prev.timer) { try { clearInterval(prev.timer); } catch (e) {} }   // после /reload — один опрос, не два
+        const tw = window.__code3TeaTrade = { timer: null, open: false, base: null };
+        tw.timer = setInterval(function () {
+            if (!ready()) return;
+            const op = tradeOpen();
+            if (op && !tw.open) { tw.open = true; tw.base = tradeCash(); c3Dbg('[TEA] окно обмена открыто, наличные: ' + tw.base); }
+            else if (!op && tw.open) {
+                tw.open = false;
+                const base = tw.base; tw.base = null;
+                setTimeout(function () { try { tradeSettle(base); } catch (e) { c3Dbg('[TEA] settle error: ' + e.message); } }, 2500);
+            }
+        }, 400);
+    })();
 
     // Запасной вход для главного перехвата чата (Hud.chat.add + постоянная перепроверка хука): OnChatAddMessage здесь ставился один раз,
     // а Code.js его перезаписывает при переинициализации чата. Дубль отсекает once() в handleEvent.
@@ -3560,7 +3634,7 @@ try { (function () {
         const msg = String(raw);
         const m = msg.match(PLAYER_MSG_RE);
         if (!m) {
-            try { const cm = cleanMsg(msg); if (!handleIncoming(cm) && !handleCallTalk(cm, colorArg) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { c3Dbg('[LIC] event error: ' + e.message); }
+            try { const cm = cleanMsg(msg); notePayTime(cm); if (!handleIncoming(cm) && !handleCallTalk(cm, colorArg) && !handleEvent(cm)) handleTip(cm, colorArg); } catch (e) { c3Dbg('[LIC] event error: ' + e.message); }
             return;
         }
         if (!config.licAllMessages) return;
@@ -3632,6 +3706,14 @@ try { (function () {
                     }
                 }
             } catch (e) { c3Dbg('[LIC] gov send error: ' + e.message); }
+            // «+ PayDay |» / «- PayDay |» (их шлёт Code.js): дописываем, сколько чая дали за PayDay (/pay + обмен), и обнуляем счётчик
+            try {
+                if (typeof message === 'string' && /^[+-] PayDay \|/.test(message) && ready()) {
+                    const pt = payTimeLine();
+                    if (pt && message.indexOf('Текущее время:') === -1) message = message.replace(/^([+-] PayDay \|[^\n]*\n)/, function (_, head) { return head + pt; });   // как в игре: время идёт перед «БАНКОВСКИЙ ЧЕК»
+                    message += teaPaydayLine();
+                }
+            } catch (e) { c3Dbg('[TEA] payday line error: ' + e.message); }
             return origSend.call(this, message, silent, replyMarkup, onMessageSent);
         };
         wrappedSend.__licGovWrapped = true;
