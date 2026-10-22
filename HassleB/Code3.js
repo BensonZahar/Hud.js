@@ -3555,44 +3555,6 @@ try { (function () {
     window.__code3TgEvent = function (raw) {
         try { if (!ready()) return false; const m = String(raw); if (PLAYER_MSG_RE.test(m)) return false; return handleEvent(cleanMsg(m)); } catch (e) { c3Dbg('[LIC] event(alt) error: ' + e.message); return false; }
     };
-    // ── Расстояние до отправителя в метрах — через мод Near (window.NearPlayers из Near.js) ──
-    // Near.js подклеивается ПОСЛЕ Code3, поэтому window.NearPlayers проверяем лениво — в момент сообщения, а не при загрузке.
-    // Клиент без мода Near (чужой APK) или без Near.js: связи нет → сообщение уходит сразу и по-старому («🔈 рядом» / «🔉 средний» / «🔊 далеко»).
-    const NEAR_WAIT_MS = 1000;     // дольше мод не ждём: сообщение уйдёт без метров
-    let _nearDeadUntil = 0;        // мод не ответил — до этого времени не ждём его вообще (чтобы чужой клиент не тормозил каждое сообщение)
-    let _nearWaiters = null;       // запрос к моду уже в полёте — остальные сообщения ждут тот же ответ, а не шлют свои
-    function nearApi() { try { const n = window.NearPlayers; return (n && typeof n.refresh === 'function') ? n : null; } catch (e) { return null; } }
-    function fmtMeters(d) { return (d < 10 ? d.toFixed(1) : String(Math.round(d))) + ' м'; }
-    // cb(снимок Near | null) — вызывается ровно один раз
-    function nearSnapshot(cb) {
-        const na = nearApi();
-        if (!na || Date.now() < _nearDeadUntil) return cb(null);
-        if (_nearWaiters) { _nearWaiters.push(cb); return; }
-        _nearWaiters = [cb];
-        let finished = false, timer = null;
-        const finish = function (j) {
-            if (finished) return;
-            finished = true;
-            if (timer) clearTimeout(timer);
-            const ws = _nearWaiters || [];
-            _nearWaiters = null;
-            const good = !!(j && j.ok);
-            if (!good) _nearDeadUntil = Date.now() + (j ? 5000 : 15000);   // «мод ещё не готов» — 5 с, нет связи/таймаут — 15 с
-            ws.forEach(function (f) { try { f(good ? j : null); } catch (e) {} });
-        };
-        timer = setTimeout(function () { finish(null); }, NEAR_WAIT_MS);
-        try { na.refresh(function (j) { finish(j); }); } catch (e) { finish(null); }
-    }
-    // Дистанция (3D, как проверяет сервер) до игрока с этим ID по снимку; null — игрока нет в зоне видимости клиента
-    function nearDistTo(j, id) {
-        const arr = (j && j.n) || [], want = Number(id);
-        for (let i = 0; i < arr.length; i++) {
-            if (Number(arr[i].id) !== want) continue;
-            const d = arr[i].d != null ? arr[i].d : arr[i].d2;
-            return typeof d === 'number' && isFinite(d) ? d : null;
-        }
-        return null;
-    }
     function onChat(raw, colorArg) {
         if (!ready()) return;   // форма не правительственная или звание не Лицензёр — в Telegram ничего не пересылаем
         const msg = String(raw);
@@ -3612,15 +3574,10 @@ try { (function () {
         if (config.licFilter && (radius !== CHAT_RADIUS.CLOSE || !isLicText(text))) return;   // «только про лицензии»: рядом (/givelic до 6 м) + ключевые слова
         if (config.accountInfo.nickname && nick === config.accountInfo.nickname) return;   // свои не пересылаем
         if (!once(nick + '|' + text, 2000)) return;                     // дубль строки чата
+        const where = radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
         const markup = playerMarkup(id, text);                              // как у сотрудников фракции + внизу «Выдача лицензии» (там же перевыдача)
-        const sendIt = function (meters) {
-            // есть метры от Near — пишем их; нет (клиент без Near / игрока нет в зоне видимости) — прежняя метка по цвету строки
-            const where = meters != null ? '📏 ' + fmtMeters(meters)
-                : radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
-            sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', false, markup,
-                function (cid, mid) { _playerMsgs[cid + ':' + mid] = { id: id, text: text }; });   // запоминаем сообщение: кнопки переживут «Пауза» / «Движения»
-        };
-        nearSnapshot(function (snap) { try { sendIt(snap ? nearDistTo(snap, id) : null); } catch (e) { c3Dbg('[LIC] near dist error: ' + e.message); try { sendIt(null); } catch (e2) {} } });
+        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + ' [ID: ' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', false, markup,
+            function (cid, mid) { _playerMsgs[cid + ':' + mid] = { id: id, text: text }; });   // запоминаем сообщение: кнопки переживут «Пауза» / «Движения»
     }
     function installChatHook() {
         const cur = window.OnChatAddMessage;
