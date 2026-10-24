@@ -1,3 +1,16 @@
+// ═══════════ ДИАЛОГИ ОТКЛЮЧЕНЫ (временно) ═══════════
+// Причина: вылет игры со сборкой extreme (ScriptLoader.asi) на серверных диалогах и при отправке в чат.
+// true  → АХК не хукает диалоги (addDialogInQueue / closeLastDialog / A-D навигация),
+//         не открывает свои диалоги (/dahk-меню, ввод ID, /givelic) и не шлёт "/c 60" (таймер → серверный диалог).
+// false → всё работает как раньше. LoadPravo.js может задать window.AHK_NO_DIALOGS до загрузки этого файла.
+var AHK_NO_DIALOGS = (typeof window.AHK_NO_DIALOGS === 'boolean') ? window.AHK_NO_DIALOGS : true;
+window.AHK_NO_DIALOGS = AHK_NO_DIALOGS;
+function _ahkAddDialog() {
+    if (AHK_NO_DIALOGS) { return; }
+    return window.addDialogInQueue.apply(window, arguments);
+}
+// ═══════════ END ДИАЛОГИ ОТКЛЮЧЕНЫ ═══════════
+
 // ⚠️ ЧТО ЭТО ЗА ФАЙЛ pravo.js — ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ ПРАВО И ФУНКЦИЙ ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ.
 
 // ПРОВЕРКА НИКА Добавляй/убирай ники здесь.
@@ -919,6 +932,7 @@ let _timerDokladiWasOpen = false;
 
 // Таймер после отыгровки: "/c 60" (латинская C, слитно) + автозакрытие диалога "Точное время" Если для конкретного пункта включено в устано...
 function runPostActionTimer(actionKey) {
+    if (AHK_NO_DIALOGS) return;   // /c 60 открывает серверный диалог "Точное время"
     if (!Array.isArray(MENU_TIMER_ITEMS) || !MENU_TIMER_ITEMS.includes(actionKey)) return;
     sendChatInput("/c 60");
     console.log(`[AHK-TIMER] "${actionKey}": отправлена команда /c 60`);
@@ -1201,7 +1215,7 @@ let _navPending = false; // флаг: A/D навигация обработан�
 
 // Перехватываем нативные A/D кнопки навигации TABLIST_HEADERS диалогов
 const _origSendClientEventHandle = window.sendClientEventHandle;
-window.sendClientEventHandle = function(event, ...args) {
+if (!AHK_NO_DIALOGS) window.sendClientEventHandle = function(event, ...args) {
     if (args[0] === 'OnMultiDialogClickNavigButton') {
         const direction = parseInt(args[1]); // 0 = назад (A), 1 = вперёд (D)
         const dlgId = parseInt(args[2]);
@@ -4104,7 +4118,7 @@ window.showGiveLicenseDialog = (e) => {
     availableTypes.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-    window.addDialogInQueue(`[666,2,"АХК tg:ZaharKonst | СБ: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    _ahkAddDialog(`[666,2,"АХК tg:ZaharKonst | СБ: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 // ── Внутренний построитель диалога 667 (Повседневная) ───────────────────────
 // Используется как window.showPovsednevMenuPage (начальный вызов, сбрасывает страницу),
@@ -4117,7 +4131,7 @@ function _buildPovsednevDialog() {
     // остальные кликабельны. Индексы ответа считаются БЕЗ заголовка (0 = первый пункт).
     let _content = 'AHK by konstt<n>';
     _visible.forEach(function(opt) { _content += opt.name + '<n>'; });
-    window.addDialogInQueue(
+    _ahkAddDialog(
         '[667,4,"ПРАВИТЕЛЬСТВО | Повседневная","","Выбрать","Назад",0,0]',
         _content, 0
     );
@@ -4175,6 +4189,7 @@ window._mvdExecuteDoklad = function(reportType, reportName, stage) {
         }
         if (text) {
             sendChatInput(text);
+            if (AHK_NO_DIALOGS) return;   // дальше только /c 60 + ожидание диалога "Точное время"
             // Отдельной командой (не частью текста доклада) — переключение на канал
             // 60. Важно: слитно "/c", без пробела между слэшем и "c".
             sendChatInput('/c 60');
@@ -4247,7 +4262,7 @@ window.showMvdSubMenu = (e) => {
     availableSub.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-    window.addDialogInQueue(`[677,4,"ПРАВИТЕЛЬСТВО","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    _ahkAddDialog(`[677,4,"ПРАВИТЕЛЬСТВО","","Выбрать","Отмена",0,0]`, licenseList, 0);
     // ── Hassle: показываем Interaction поверх диалога (только если диалог открыт НЕ из кнопки Interactions) ──
     // Если диалог открыт кнопкой 9900 (АНК Меню) — Interactions уже были закрыты и не должны появляться
     // поверх диалога. Флаг _pravoSkipIntReopen выставляется обработчиком 9900 и сбрасывается здесь.
@@ -4518,7 +4533,7 @@ window.showIdInputDialog = (e) => {
     window._pravoKbDialogId = 668; // FIX: авто-подтверждение через клавиатуру
     window._pravoKbDialogAt = Date.now();
     window._pravoScheduleKeyboardNumeric && window._pravoScheduleKeyboardNumeric();
-    window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
+    _ahkAddDialog(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
 };
 
 // ==================== /givelic — БЫСТРАЯ ВЫДАЧА ЛИЦЕНЗИИ ====================
@@ -4536,7 +4551,7 @@ window.showGiveLicIdInputDialog = () => {
     window._pravoKbDialogId = 678; // FIX: авто-подтверждение через клавиатуру
     window._pravoKbDialogAt = Date.now();
     window._pravoScheduleKeyboardNumeric && window._pravoScheduleKeyboardNumeric();
-    window.addDialogInQueue(`[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]`, "", 0);
+    _ahkAddDialog(`[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]`, "", 0);
 };
 
 // Диалог 679 — выбор типа лицензии после ввода ID
@@ -4548,7 +4563,7 @@ window.showGiveLicTypeDialog = (id, nickHint) => {
     _GIVE_LIC_TYPES.forEach((t, i) => {
         list += `${i + 1}. ${t.name}  [${t.price.toLocaleString('ru-RU')} ₽]<n>`;
     });
-    window.addDialogInQueue(`[679,4,"Выдача лицензии | ID: ${id}${_nk ? ' | ' + _nk : ''}","","Выдать","Отмена",0,0]`, list, 0);
+    _ahkAddDialog(`[679,4,"Выдача лицензии | ID: ${id}${_nk ? ' | ' + _nk : ''}","","Выдать","Отмена",0,0]`, list, 0);
 };
 // Прямая выдача по индексу типа лицензии — для выбора в кольце PlayerInteraction (без диалога 679).
 // Делает то же, что ветка диалога 679: шлёт /givelic, запоминает данные для авто-перевыдачи, обновляет Interaction.
@@ -4918,7 +4933,7 @@ sendClientEvent = sendClientEventCustom;
 
 
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
-window.addDialogInQueue = function(dialogParams, content, priority) {
+if (!AHK_NO_DIALOGS) window.addDialogInQueue = function(dialogParams, content, priority) {
     try {
         if (dialogParams && typeof dialogParams === 'string') {
             const parsed = JSON.parse(dialogParams.trim());
@@ -6794,7 +6809,7 @@ function _detach() {
 // ── Хук открытия диалога ───────────────────────────────────────────────────
 var _prevAddDialog = window.addDialogInQueue;
 
-window.addDialogInQueue = function (dialogParams, content, priority) {
+if (!AHK_NO_DIALOGS) window.addDialogInQueue = function (dialogParams, content, priority) {
     var dialogId = null;
     var dialogStyle = null;
 
@@ -6857,7 +6872,7 @@ window.addDialogInQueue = function (dialogParams, content, priority) {
 // ── Хук закрытия диалога ───────────────────────────────────────────────────
 var _prevCloseLastDialog = window.closeLastDialog;
 
-window.closeLastDialog = function () {
+if (!AHK_NO_DIALOGS) window.closeLastDialog = function () {
     _detach();
 
     if (typeof _prevCloseLastDialog === 'function') {
