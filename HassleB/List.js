@@ -17,8 +17,8 @@ const USER_CONFIGS = {
     },
     'Kirill': {
         HWID: '',     // 16-символьный HWID из HassleBot (несколько — через запятую) 0C6A9FA676AE519E
-        DEBUG: false,                  // false = без отладки
-        CHAT_IDS: ['-1003955247799'],
+        DEBUG: false,                  // false = без отладки -1003955247799
+        CHAT_IDS: ['-100395524779'],
         PASSWORD: '',                  // пароль больше не хранится здесь — его задаёт установщик (пусто = берём из установщика)
         RECONNECT_ENABLED_DEFAULT: true
     }
