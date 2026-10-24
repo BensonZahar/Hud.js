@@ -2658,7 +2658,7 @@ window.__code3 = {
     // API для Telegram-вкладки «Лицензёр» (Code2.js)
     types: LIC_TYPES,
     ready: licensorReady,
-    give: function (id, idx) { return licensorReady() && giveByIndex(String(id), idx); },
+    give: function (id, idx, nick) { return licensorReady() && giveByIndex(String(id), idx, nick); },   // nick — необязательный: если задан, /id сверит ник с ID перед /givelic
     reissue: function () { if (!licensorReady() || !STATE.last || STATE.last.done) return false; reissueLic(); return true; },
     cancel: function () { return cancelOffer(); },                       // /cancel — отозвать своё исходящее предложение (кнопка «Отменить» в Telegram)
     cancelAt: function () { return _cancelAt; },
@@ -2722,6 +2722,8 @@ log(VERSION + ' загружен. Помощник лицензёра актив
 // ║     в разговоре — текст сразу в звонок (без /p);         ║
 // ║   • «Выдача лицензий» — выбор лицензии → ID игрока →     ║
 // ║     /givelic через Code3.js (window.__code3);            ║
+// ║     в нашем клиенте (konstt) ещё «📍 Игроки рядом»:       ║
+// ║     кнопки с расстоянием → игрок → лицензия (Near.js);   ║
 // ║   • под сообщением игрока — те же кнопки, что у сообщений ║
 // ║     сотрудников фракции + внизу «Выдача лицензии»        ║
 // ║     (выдача / перевыдача этому игроку);                  ║
@@ -2789,11 +2791,93 @@ try { (function () {
     }
     // Выбор лицензии → потом спросим ID ответом на сообщение
     function showTypes(chatId, messageId, uid) {
-        const rows = types().map(function (t, i) {
-            return [btn(t.name + ' — ' + money(t.price), PFX + 'pick|' + i + '|' + uid)];
+        const rows = [];
+        if (nearAvailable()) rows.push([btn('📍 Игроки рядом', PFX + 'near|' + uid, 'primary')]);   // только в нашем клиенте (konstt) и при загруженном Near.js
+        types().forEach(function (t, i) {
+            rows.push([btn(t.name + ' — ' + money(t.price), PFX + 'pick|' + i + '|' + uid)]);
         });
         rows.push([btn('⬅️ Вернуться назад', PFX + 'menu|' + uid)]);
         editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
+    }
+
+    // ── «Игроки рядом»: список кнопками с расстоянием → выбор игрока → выбор лицензии ──
+    // Работает только в нашем клиенте: Code.js проверяет константу KONSTT-CLIENT (window.KONSTT_CLIENT.ours === true),
+    // список игроков отдаёт мод Near через Near.js (window.NearPlayers). callback_data: lic|near|<uid> (список),
+    // lic|np|<ID>|<uid> (игрок → типы лицензий), lic|npg|<ID>|<тип>|<uid> (выдать). Зелёным 🟢 отмечены только те, до кого /givelic достаёт (6 м), остальные без отметки.
+    const NEAR_R = 6;      // /givelic работает до 6 м (IsPlayerInRangeOfPoint 6.0)
+    const NEAR_MAX = 20;   // сколько ближайших игроков показывать кнопками
+    function isOurClient() { try { return !!(window.KONSTT_CLIENT && window.KONSTT_CLIENT.ours === true); } catch (e) { return false; } }
+    function nearApi() { try { return (window.NearPlayers && typeof window.NearPlayers.refresh === 'function') ? window.NearPlayers : null; } catch (e) { return null; } }
+    function nearAvailable() { return isOurClient() && !!nearApi(); }
+    function nearDist(p) { return p.d != null ? p.d : (p.d2 != null ? p.d2 : null); }
+    function nearFmt(d) { return d == null ? '?' : (d < 10 ? d.toFixed(1) : String(Math.round(d))) + ' м'; }
+    function nearName(p) { return String(p.nick || p.label || '?').replace(/_/g, ' '); }
+    // Отмечаем ТОЛЬКО тех, до кого /givelic достаёт (сервер: IsPlayerInRangeOfPlayer 6.0, 3D): прогнозная дистанция на момент прихода команды ≤ 6 м.
+    // Остальные — без значка и без цвета.
+    function nearReach(na, p) {
+        let m = null;
+        try { m = na.measure(p); } catch (e) {}
+        const d = m ? m.dp : nearDist(p);
+        return d != null && d <= NEAR_R;
+    }
+    function nearBackRow(uid) { return [btn('⬅️ Назад', PFX + 'types|' + uid)]; }
+    function nearStatusRows(uid, text, retryAction, retryArg) {
+        return { inline_keyboard: [[btn(text, PFX + retryAction + '|' + (retryArg !== undefined ? retryArg + '|' : '') + uid, 'danger')], nearBackRow(uid)] };
+    }
+    // Свежий снимок от мода → cb(na, j) или показ ошибки на кнопках
+    function nearFetch(chatId, messageId, uid, onOk) {
+        const na = nearApi();
+        if (!isOurClient()) { editMessageReplyMarkup(chatId, messageId, nearStatusRows(uid, '❌ Клиент не наш (нет KONSTT-CLIENT)', 'near')); return; }
+        if (!na) { editMessageReplyMarkup(chatId, messageId, nearStatusRows(uid, '❌ Near.js не загружен', 'near')); return; }
+        na.refresh(function (j) {
+            if (!j) { editMessageReplyMarkup(chatId, messageId, nearStatusRows(uid, '❌ Мод Near не отвечает — повторить', 'near')); return; }
+            if (!j.ok) { editMessageReplyMarkup(chatId, messageId, nearStatusRows(uid, '⏳ Мод не готов: ' + (j.stage || 'нет данных') + ' — обновить', 'near')); return; }
+            onOk(na, j);
+        });
+    }
+    function nearSorted(arr) {
+        return arr.slice().sort(function (a, b) { const da = nearDist(a), db = nearDist(b); return (da == null ? 1e9 : da) - (db == null ? 1e9 : db); });
+    }
+    // Список игроков рядом (ближайшие первыми); нажатие на игрока → выбор лицензии
+    function showNear(chatId, messageId, uid) {
+        nearFetch(chatId, messageId, uid, function (na, j) {
+            const arr = nearSorted(j.n || []), shown = arr.slice(0, NEAR_MAX);
+            const rows = [[btn('🔄 Рядом: ' + arr.length + ' · 🟢 — достаёт (до ' + NEAR_R + ' м)', PFX + 'near|' + uid)]];
+            shown.forEach(function (p) {
+                const ok = nearReach(na, p);
+                rows.push([btn((ok ? '🟢 ' : '') + nearName(p) + ' [' + p.id + '] — ' + nearFmt(nearDist(p)), PFX + 'np|' + p.id + '|' + uid, ok ? 'success' : undefined)]);
+            });
+            if (!arr.length) rows.push([btn('Рядом никого нет — обновить', PFX + 'near|' + uid)]);
+            else if (arr.length > shown.length) rows.push([btn('… и ещё ' + (arr.length - shown.length) + ' (дальше)', PFX + 'near|' + uid)]);
+            rows.push(nearBackRow(uid));
+            editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
+        });
+    }
+    // Выбранный игрок: сверху — ник, ID и свежая дистанция (нажатие обновляет), ниже — типы лицензий
+    function showNearPlayer(chatId, messageId, uid, id) {
+        nearFetch(chatId, messageId, uid, function (na, j) {
+            const p = (j.n || []).filter(function (q) { return String(q.id) === String(id); })[0];
+            if (!p) { showNear(chatId, messageId, uid); return; }   // вышел из зоны видимости — назад к списку
+            const ok = nearReach(na, p);
+            const rows = [[btn((ok ? '🟢 ' : '') + nearName(p) + ' [' + p.id + '] — ' + nearFmt(nearDist(p)) + ' (обновить)', PFX + 'np|' + p.id + '|' + uid, ok ? 'success' : undefined)]];
+            types().forEach(function (t, i) { rows.push([btn(t.name + ' — ' + money(t.price), PFX + 'npg|' + p.id + '|' + i + '|' + uid)]); });
+            rows.push([btn('⬅️ К списку игроков', PFX + 'near|' + uid)]);
+            editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
+        });
+    }
+    // Выдача выбранному игроку: свежая проверка дальности; явно «вне радиуса» — не шлём (серверу лишнего не отправляем), иначе /givelic с ником для сверки по /id
+    function giveToNear(chatId, messageId, uid, id, idx) {
+        const na = nearApi();
+        if (!na || !isOurClient()) { sendToTelegram('❌ <b>Игроки рядом недоступны (' + esc(displayName) + ')</b>\nНужен наш клиент и Near.js.', false, null); return; }
+        na.check(id, NEAR_R, function (r) {
+            const t = types()[idx];
+            if (r && r.ok && r.found && r.verdict === 'no') {
+                sendToTelegram('📍 <b>Игрок далеко (' + esc(displayName) + ')</b>\n👤 ' + esc(r.nick || '?') + ' [' + esc(id) + '] — ~' + r.dp.toFixed(1) + ' м, а /givelic работает до ' + NEAR_R + ' м.\n' + (t ? esc(t.name) + ': ' : '') + 'не отправлено — подойдите ближе и нажмите ещё раз.', false, null);
+                showNearPlayer(chatId, messageId, uid, id);
+                return;
+            }
+            doGive(id, idx, (r && r.ok && r.found && r.nick) ? r.nick : '');
+        });
     }
     // Когда пришёл последний ответ сервера на выдачу (handleEvent) — по нему сторож понимает, ушёл ли запрос
     let _evAt = 0;
@@ -2812,12 +2896,12 @@ try { (function () {
             }
         }, WATCH_MS);
     }
-    function doGive(target, idx) {
+    function doGive(target, idx, nick) {
         const t = types()[idx];
         if (!t) return false;
         if (!ready()) { sendToTelegram(notReadyText(), false, null); return false; }
         const giveAt = Date.now();
-        const ok = !!api().give(target, idx);
+        const ok = !!api().give(target, idx, nick);
         if (ok) {
             // Сразу ничего не пишем: в Telegram уйдёт ответ сервера («Вы предложили…» / причина отказа) — см. handleEvent
             watchGive(giveAt, target);
@@ -3183,6 +3267,17 @@ try { (function () {
             case 'types':
                 if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
                 showTypes(chatId, messageId, d.uid);
+                break;
+            case 'near':   // список «Игроки рядом» (кнопки с расстоянием)
+                if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
+                showNear(chatId, messageId, d.uid);
+                break;
+            case 'np':     // выбран игрок из списка → типы лицензий
+                if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
+                showNearPlayer(chatId, messageId, d.uid, d.args[0]);
+                break;
+            case 'npg':    // тип лицензии выбран → выдать этому игроку (клавиатура остаётся — можно выдать другую)
+                if (once('npg|' + d.args[0] + '|' + d.args[1], 4000)) giveToNear(chatId, messageId, d.uid, d.args[0], parseInt(d.args[1], 10));
                 break;
             case 'to':   // из пересланного сообщения игрока
                 if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
