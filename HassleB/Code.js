@@ -35,6 +35,85 @@ const setInterval = function (fn, ms) {
 };
 
 // ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: ОПРЕДЕЛЕНИЕ КЛИЕНТА (наш клиент konstt или нет)  ║
+// ║  Наш клиент отдаёт константу «KONSTT-CLIENT <сборка>» по ║
+// ║  GET http://127.0.0.1:17771..17780/konstt. Обычный или   ║
+// ║  чужой клиент там ничего не слушает.                     ║
+// ║  Пока ТОЛЬКО сообщаем: функционал не отключается. Если   ║
+// ║  константы нет — строка в консоль и одно сообщение в     ║
+// ║  Telegram за запуск игры.                                ║
+// ║  Результат для других скриптов (Code2, Code3, Near…):    ║
+// ║    window.KONSTT_CLIENT = { ours: null|true|false,       ║
+// ║                             build, port, checked, ms }   ║
+// ║    window.konsttWhenChecked() — Promise до результата    ║
+// ║  Сервер мода стартует после готовности игры, поэтому     ║
+// ║  опрашиваем раз в 3 с, до 90 с.                          ║
+// ╚══════════════════════════════════════════════════════════╝
+window.KONSTT_CLIENT = window.KONSTT_CLIENT || { ours: null, port: 0, build: '', checked: false, ms: 0 };
+function konsttGet(port, path) {
+    return new Promise(resolve => {
+        let done = false;
+        const fin = v => { if (!done) { done = true; resolve(v); } };
+        try {
+            const x = new XMLHttpRequest();
+            x.open('GET', 'http://127.0.0.1:' + port + path + '?t=' + Date.now(), true);
+            x.timeout = 1500;
+            x.onload = () => fin(x.status === 200 ? String(x.responseText || '').trim() : null);
+            x.onerror = () => fin(null);
+            x.ontimeout = () => fin(null);
+            x.send();
+        } catch (e) { fin(null); }
+    });
+}
+async function konsttProbePort(port) {
+    const id = await konsttGet(port, '/konstt');
+    return (id && id.indexOf('KONSTT-CLIENT') === 0) ? { build: id.slice(13).trim() || '?' } : null;
+}
+function konsttDetectClient() {
+    const st = window.KONSTT_CLIENT;
+    if (st.checked && st.ours) return Promise.resolve(st);                         // наш клиент в рамках запуска игры не меняется
+    if (st.__running && st.__gen === __HASSLE_GEN && window.__konsttWait) return window.__konsttWait;   // эта копия уже проверяет
+    st.__running = true; st.__gen = __HASSLE_GEN;                                  // /reload: прошлая копия остановилась — начинаем заново
+    st.ours = null; st.port = 0; st.build = ''; st.checked = false;
+    const t0 = Date.now();
+    const GIVE_UP_MS = 90000, EVERY_MS = 3000;
+    window.__konsttWait = new Promise(resolve => {
+        const attempt = async () => {
+            let found = 0, info = null;
+            for (let p = 17771; p <= 17780 && !found; p++) {
+                info = await konsttProbePort(p);
+                if (info) found = p;
+            }
+            if (found) {
+                st.ours = true; st.port = found; st.build = info.build;
+            } else if (Date.now() - t0 >= GIVE_UP_MS) {
+                st.ours = false;
+            } else {
+                setTimeout(attempt, EVERY_MS);
+                return;
+            }
+            st.checked = true; st.ms = Date.now() - t0; st.__running = false;
+            console.log(st.ours ? `🧩 Клиент: НАШ (сборка ${st.build}, порт ${st.port}, ${st.ms} мс)` : `🧩 Клиент: обычный/чужой (мод не найден за ${st.ms} мс)`);
+            if (!st.ours && !window.__konsttWarned) {
+                window.__konsttWarned = true;
+                console.warn('⚠️ Клиент не наш: константа KONSTT-CLIENT не получена — функционал, завязанный на наш клиент, работать не будет');
+                try {
+                    if (typeof sendToTelegram === 'function') {
+                        sendToTelegram(`⚠️ <b>Клиент не наш</b> — аккаунт #${window.ACCOUNT_NUMBER || '?'} (${window.CURRENT_USER || '—'}): константа KONSTT-CLIENT не получена за ${Math.round(st.ms / 1000)} с`, true);
+                    }
+                } catch (e) { console.warn('[KONSTT] не удалось отправить в Telegram:', e && e.message); }
+            }
+            resolve(st);
+        };
+        attempt();
+    });
+    return window.__konsttWait;
+}
+window.konsttDetectClient = konsttDetectClient;
+window.konsttWhenChecked = function () { return window.__konsttWait || konsttDetectClient(); };
+konsttDetectClient();
+
+// ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
 // ║  Описание: Глобальные флаги состояния                    ║
 // ║             (AFK, тюрьма, ID последних сообщений)        ║
