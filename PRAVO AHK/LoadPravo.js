@@ -18,6 +18,19 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 (function() {
+// ═══════════ AHK DIAG — поиск причины вылета с ScriptLoader (extreme) ═══════════
+// Меняйте флаги по одному и проверяйте: открыть серверный диалог (например /c 60).
+//   muteConsole : true  → глушит ВСЕ console.* (в т.ч. из fkonst.js и pravo.js)  — тест №1
+//   skipFkonst  : true  → fkonst.js не грузится ([DLG]/[TS]/[GT] хуки на диалоги) — тест №2
+//   skipPravo   : true  → pravo.js не грузится (остаётся только LoadPravo)        — тест №3
+// Когда причина найдена — верните всё в false (или удалите этот блок).
+var AHK_DIAG = { muteConsole: true, skipFkonst: false, skipPravo: false };
+if (AHK_DIAG.muteConsole) {
+    ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir', 'table'].forEach(function(k) {
+        try { console[k] = function() {}; } catch (e) {}
+    });
+}
+// ═══════════ END AHK DIAG ═══════════
 // ── Универсальный матчер хоткеев (по физической клавише e.code, не зависит от раскладки) ──
 var _HK_ALIAS = {up:'arrowup',down:'arrowdown',left:'arrowleft',right:'arrowright',esc:'escape'};
 var _HK_PUNCT = {'-':'minus','=':'equal','[':'bracketleft',']':'bracketright',';':'semicolon',"'":'quote',',':'comma','.':'period','/':'slash','\\':'backslash','`':'backquote'};
@@ -588,9 +601,13 @@ if (AUTO_PASSWORD) {
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
 // Запуск: сначала fkonst.js (из MVD AHK — там он хранится), затем pravo.js
-loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function() {
+if (!AHK_DIAG.skipFkonst) {
+    loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function() {
+        if (!AHK_DIAG.skipPravo) loadScriptFromGitHub(username, repo, folder, filename);
+    });
+} else if (!AHK_DIAG.skipPravo) {
     loadScriptFromGitHub(username, repo, folder, filename);
-});
+}
 // ── Мышь/колесо для MENU_KEY, GIVELIC_KEY, REISSUE_KEY ───────
 // Клавиатурные обработчики этих хоткеев живут в mvdF.js / pravo.js (keydown, общий матчер _hkMatch).
 // Колесо и кнопки мыши keydown не ловит — регистрируем здесь тем же матчером (строгие модификаторы).
