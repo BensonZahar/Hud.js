@@ -2803,7 +2803,7 @@ try { (function () {
     // ── «Игроки рядом»: список кнопками с расстоянием → выбор игрока → выбор лицензии ──
     // Работает только в нашем клиенте: Code.js проверяет константу KONSTT-CLIENT (window.KONSTT_CLIENT.ours === true),
     // список игроков отдаёт мод Near через Near.js (window.NearPlayers). callback_data: lic|near|<uid> (список),
-    // lic|np|<ID>|<uid> (игрок → типы лицензий), lic|npg|<ID>|<тип>|<uid> (выдать). Зелёным 🟢 отмечены только те, до кого /givelic достаёт (6 м), остальные без отметки.
+    // lic|nearp|<ID сообщения>|<uid> (то же из меню лицензий под сообщением игрока), lic|np|<ID>|<uid> (игрок → типы лицензий), lic|npg|<ID>|<тип>|<uid> (выдать). Зелёным 🟢 отмечены только те, до кого /givelic достаёт (6 м), остальные без отметки.
     // Пока экран открыт, кнопки сами обновляются раз в NEAR_LIVE_MS (3 с), автообновление гаснет через 3 мин без нажатий.
     const NEAR_R = 6;      // /givelic работает до 6 м (IsPlayerInRangeOfPoint 6.0)
     const NEAR_MAX = 20;   // сколько ближайших игроков показывать кнопками
@@ -2821,7 +2821,12 @@ try { (function () {
         const d = m ? m.dp : nearDist(p);
         return d != null && d <= NEAR_R;
     }
-    function nearBackRow(uid) { return [btn('⬅️ Назад', PFX + 'types|' + uid)]; }
+    // Откуда открыли «Игроки рядом»: из вкладки «Выдача лицензий» (Назад → типы) или из меню лицензий под сообщением игрока (Назад → это меню)
+    const _nearCtx = {};   // 'chatId:messageId' → { id } — открыто из сообщения игрока с этим ID
+    function nearBackRow(uid, chatId, messageId) {
+        const c = _nearCtx[chatId + ':' + messageId];
+        return [btn('⬅️ Назад', c ? PFX + 'open|' + c.id + '|' + uid : PFX + 'types|' + uid)];
+    }
 
     // ── Автообновление: пока открыт список / карточка игрока, кнопки перерисовываются сами ──
     // Тик раз в NEAR_LIVE_MS; одно «живое» сообщение за раз. Останавливается: уход на другой экран меню, прошло NEAR_LIVE_MAX без нажатий,
@@ -2867,16 +2872,16 @@ try { (function () {
         if (l) l.last = js;
         editMessageReplyMarkup(chatId, messageId, markup);
     }
-    function nearStatusMarkup(uid, text) { return { inline_keyboard: [[btn(text, PFX + 'near|' + uid, 'danger')], nearBackRow(uid)] }; }
+    function nearStatusMarkup(uid, text, chatId, messageId) { return { inline_keyboard: [[btn(text, PFX + 'near|' + uid, 'danger')], nearBackRow(uid, chatId, messageId)] }; }
     // Свежий снимок от мода → onOk(na, j, put); при ошибке показываем причину кнопкой (в автообновлении она сама сменится списком, когда мод оживёт)
     function nearFetch(chatId, messageId, uid, onOk, auto) {
         const put = function (mk) { nearPut(chatId, messageId, mk, auto); };
         const na = nearApi();
-        if (!isOurClient()) { put(nearStatusMarkup(uid, '❌ Клиент не наш (нет KONSTT-CLIENT)')); return; }
-        if (!na) { put(nearStatusMarkup(uid, '❌ Near.js не загружен')); return; }
+        if (!isOurClient()) { put(nearStatusMarkup(uid, '❌ Клиент не наш (нет KONSTT-CLIENT)', chatId, messageId)); return; }
+        if (!na) { put(nearStatusMarkup(uid, '❌ Near.js не загружен', chatId, messageId)); return; }
         na.refresh(function (j) {
-            if (!j) { put(nearStatusMarkup(uid, '❌ Мод Near не отвечает — повторить')); return; }
-            if (!j.ok) { put(nearStatusMarkup(uid, '⏳ Мод не готов: ' + (j.stage || 'нет данных') + ' — обновить')); return; }
+            if (!j) { put(nearStatusMarkup(uid, '❌ Мод Near не отвечает — повторить', chatId, messageId)); return; }
+            if (!j.ok) { put(nearStatusMarkup(uid, '⏳ Мод не готов: ' + (j.stage || 'нет данных') + ' — обновить', chatId, messageId)); return; }
             onOk(na, j, put);
         });
     }
@@ -2894,7 +2899,7 @@ try { (function () {
             });
             if (!arr.length) rows.push([btn('Рядом никого нет', PFX + 'near|' + uid)]);
             else if (arr.length > shown.length) rows.push([btn('… и ещё ' + (arr.length - shown.length) + ' (дальше)', PFX + 'near|' + uid)]);
-            rows.push(nearBackRow(uid));
+            rows.push(nearBackRow(uid, chatId, messageId));
             put({ inline_keyboard: rows });
         }, auto);
     }
@@ -3024,6 +3029,7 @@ try { (function () {
     function licMenuMarkup(id) {
         const rows = [];
         const l = lastGive();
+        if (nearAvailable()) rows.push([btn('📍 Игроки рядом', PFX + 'nearp|' + id + '|' + uniqueId, 'primary')]);   // вдруг рядом стоит его друг — выдать можно прямо отсюда
         types().forEach(function (t, i) { rows.push([btn(t.name + ' — ' + money(t.price), PFX + 'pgive|' + id + '|' + i + '|' + uniqueId)]); });
         rows.push([btn('⬅️ Назад', PFX + 'back|' + id + '|' + uniqueId)]);
         return { inline_keyboard: rows };
@@ -3252,7 +3258,7 @@ try { (function () {
         const d = parse(cq.data), chatId = cq.message.chat.id, messageId = cq.message.message_id;
         answerCallbackQuery(cq.id);
         // Ушли с экрана «Игроки рядом» на другой экран того же сообщения — автообновление выключаем (экран перерисует сам переход)
-        if (_nl && d.action !== 'near' && d.action !== 'np' && d.action !== 'npg' && nearSame(_nl, chatId, messageId)) nearLiveStop(false);
+        if (_nl && d.action !== 'near' && d.action !== 'nearp' && d.action !== 'np' && d.action !== 'npg' && nearSame(_nl, chatId, messageId)) nearLiveStop(false);
         switch (d.action) {
             case 'menu':   showMenu(chatId, messageId, d.uid); break;
             case 'toggle':
@@ -3317,7 +3323,14 @@ try { (function () {
             }
             case 'types':
                 if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
+                delete _nearCtx[chatId + ':' + messageId];   // вернулись во вкладку «Выдача лицензий»
                 showTypes(chatId, messageId, d.uid);
+                break;
+            case 'nearp':  // «Игроки рядом» из меню лицензий под сообщением игрока: «Назад» вернёт в это меню
+                if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
+                _nearCtx[chatId + ':' + messageId] = { id: d.args[0] };
+                nearLiveStart(chatId, messageId, d.uid, 'list');
+                showNear(chatId, messageId, d.uid);
                 break;
             case 'near':   // список «Игроки рядом» (кнопки с расстоянием)
                 if (!ready()) { sendToTelegram(notReadyText(), false, null); break; }
