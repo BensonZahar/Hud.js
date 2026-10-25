@@ -2821,6 +2821,38 @@ try { (function () {
         const d = m ? m.dp : nearDist(p);
         return d != null && d <= NEAR_R;
     }
+    // ── Расстояние до автора сообщения в Telegram (сообщения игроков и сотрудников фракции) ──
+    // Только наш клиент + Near.js. Свежий снимок уже есть (опрос идёт) — берём сразу, без задержки; иначе один быстрый запрос к моду,
+    // но не дольше NEAR_MSG_WAIT мс — потом шлём без расстояния. Мод не отвечает — 30 с не пробуем (не тормозим каждое сообщение).
+    // Расстояние — 3D, то же, что в кнопках «Игроки рядом» (позиции из sync-пакетов, возраст снимка до ~0,2–1,5 с).
+    const NEAR_MSG_WAIT = 700;
+    let _nearMsgDeadUntil = 0;
+    function nearMsgFmt(d) { return ' · 📏 ' + nearFmt(d); }
+    function nearFromSnap(j, id) {
+        const arr = (j && j.ok && j.n) || [];
+        for (let i = 0; i < arr.length; i++) if (String(arr[i].id) === String(id)) return nearDist(arr[i]);
+        return null;
+    }
+    function nearDistOf(id, cb) {   // cb(d | null) — ровно один раз
+        let done = false;
+        const fin = function (d) { if (done) return; done = true; try { cb(d); } catch (e) { c3Dbg('[LIC] near dist cb error: ' + e.message); } };
+        try {
+            if (!nearAvailable()) { fin(null); return; }
+            const na = nearApi();
+            if (Date.now() < _nearMsgDeadUntil) { fin(null); return; }
+            const st = na.status();   // заодно включает фоновый опрос на 15 с — следующие сообщения пойдут без запроса
+            if (st && st.alive && st.ok) {
+                const p = na.byId(Number(id));
+                if (p) { fin(nearDist(p)); return; }
+            }
+            const t = setTimeout(function () { _nearMsgDeadUntil = Date.now() + 30000; fin(null); }, NEAR_MSG_WAIT);
+            na.refresh(function (j) {
+                clearTimeout(t);
+                if (!j) { _nearMsgDeadUntil = Date.now() + 30000; fin(null); return; }
+                fin(nearFromSnap(j, id));
+            });
+        } catch (e) { c3Dbg('[LIC] near dist error: ' + e.message); fin(null); }
+    }
     // Откуда открыли «Игроки рядом»: из вкладки «Выдача лицензий» (Назад → типы) или из меню лицензий под сообщением игрока (Назад → это меню)
     const _nearCtx = {};   // 'chatId:messageId' → { id } — открыто из сообщения игрока с этим ID
     function nearBackRow(uid, chatId, messageId) {
@@ -3812,8 +3844,10 @@ try { (function () {
         if (!once(nick + '|' + text, 2000)) return;                     // дубль строки чата
         const where = radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
         const markup = playerMarkup(id, text);                              // как у сотрудников фракции + внизу «Выдача лицензии» (там же перевыдача)
-        sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + '[' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + '\n(' + esc(displayName) + ')', false, markup,
-            function (cid, mid) { _playerMsgs[cid + ':' + mid] = { id: id, text: text }; });   // запоминаем сообщение: кнопки переживут «Пауза» / «Движения»
+        nearDistOf(id, function (dist) {   // наш клиент + Near.js — дописываем расстояние до автора; иначе без него, как раньше
+            sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + '[' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + (dist != null ? nearMsgFmt(dist) : '') + '\n(' + esc(displayName) + ')', false, markup,
+                function (cid, mid) { _playerMsgs[cid + ':' + mid] = { id: id, text: text }; });   // запоминаем сообщение: кнопки переживут «Пауза» / «Движения»
+        });
     }
     function installChatHook() {
         const cur = window.OnChatAddMessage;
@@ -3857,6 +3891,7 @@ try { (function () {
             // Единый вид ID во всех сообщениях в Telegram: «Ник[12]» (как в игровом чате) вместо «Ник [ID: 12]» — в т.ч. выговор / увольнение / тюрьма из Code.js
             if (typeof message === 'string' && message.indexOf('[ID:') !== -1) message = message.replace(/\s*\[ID:\s*(\d+)\]/g, '[$1]');
             try { onMessageSent = trackSent(message, replyMarkup, onMessageSent); } catch (e) { c3Dbg('[LIC] track send error: ' + e.message); }
+            let govId = null;   // ID сотрудника — для расстояния (наш клиент + Near.js)
             try {
                 const gm = (typeof message === 'string') ? message.match(GOV_OUT_RE) : null;
                 if (gm) {
@@ -3866,6 +3901,7 @@ try { (function () {
                     }
                     const gid = gm[2], gtext = govNorm(gm[1]);
                     _govSent[gid] = { t: gtext, at: Date.now() };
+                    govId = gid;
                     if (ready()) {
                         const rows = ((replyMarkup && replyMarkup.inline_keyboard) || []).map(function (r) { return r.slice(); });
                         replyMarkup = { inline_keyboard: wrapRows(rows, gid, gtext) };
@@ -3885,6 +3921,14 @@ try { (function () {
                     message += teaPaydayLine();
                 }
             } catch (e) { c3Dbg('[TEA] payday line error: ' + e.message); }
+            if (govId !== null && nearAvailable()) {   // расстояние до сотрудника — в строку «👤 Ник[ID] — звание»; сообщение уходит сразу, как только есть данные (не дольше NEAR_MSG_WAIT)
+                const self = this, outMsg = message;
+                nearDistOf(govId, function (dist) {
+                    const msg = dist != null ? outMsg.replace(/(\n👤[^\n]*)(?=\nСообщение от сотрудника)/, '$1' + nearMsgFmt(dist)) : outMsg;
+                    origSend.call(self, msg, silent, replyMarkup, onMessageSent);
+                });
+                return;
+            }
             return origSend.call(this, message, silent, replyMarkup, onMessageSent);
         };
         wrappedSend.__licGovWrapped = true;
