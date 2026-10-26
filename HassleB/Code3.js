@@ -3982,7 +3982,7 @@ try { (function () {
     }
 
     // ▼▼▼ ВПИШИТЕ адрес страницы мини-аппа (https, GitHub Pages: https://<логин>.github.io/<репозиторий>/) ▼▼▼
-    const APP_URL = 'https://ВАШ_ЛОГИН.github.io/hassle-near/';
+    const APP_URL = 'https://bensonzahar.github.io/Hud.js/HassleB/MiniApp/';
     // ▲▲▲
     const URL_MAX = 1900;          // у Telegram лимит на длину ссылки кнопки — лишних дальних игроков из ссылки убираем
     const PLAYERS_MAX = 30;        // не больше игроков в мини-аппе
