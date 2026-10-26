@@ -16,8 +16,8 @@ try { (function () {
     }
     const APP_URL = 'https://bensonzahar.github.io/Hud.js/HassleB/MiniApp/joystick.html';
     const DB_URL = 'https://haeb-41fcc-default-rtdb.firebaseio.com';
-    const FAST_MS = 100, SLOW_MS = 1500, ACTIVE_MS = 6000, DEADMAN_MS = 700;
-    const P_STICK = '<Gamepad>/leftStick', P_JUMP = '<Keyboard>/leftShift', P_ATK = '<Mouse>/leftButton', P_SPRINT = '<Keyboard>/Space';
+    const FAST_MS = 70, SLOW_MS = 1000, ACTIVE_MS = 6000, DEADMAN_MS = 700;
+    const P_STICK = '<Gamepad>/leftStick', P_JUMP = '<Keyboard>/leftShift', P_ATK = '<Mouse>/leftButton', P_SPRINT = '<Keyboard>/Space', P_CROUCH = (typeof _MV_CROUCH === 'string' ? _MV_CROUCH : '<Keyboard>/c');
 
     function stale() { try { return typeof __hassleStale === 'function' && !!__hassleStale(); } catch (e) { return false; } }
 
@@ -41,7 +41,10 @@ try { (function () {
     const KEY = ctlKey();
 
     // ── Применение состояния ──
-    let lastSeq = null, lastChange = 0, lastC = null;
+    let lastSeq = null, lastChange = 0, lastC = null, lastJc = null, lastAc = null;
+    let ST = null;                          // последнее состояние из мини-аппа
+    const tapUntil = { j: 0, a: 0, c: 0 };        // короткое нажатие держим минимум TAP_MS, даже если палец уже отпущен
+    const TAP_MS = 160;
     function hold(path, kind, on) {
         const h = _mvHeld[path];
         if (on && !h) {
@@ -50,24 +53,37 @@ try { (function () {
             _mvHeld[path] = { kind: kind, tick: null, timer: null, joy: true };
         } else if (!on && h && h.joy) _mvRelease(path);
     }
-    function releaseAll() { [P_STICK, P_JUMP, P_ATK, P_SPRINT].forEach(function (p) { const h = _mvHeld[p]; if (h && h.joy) _mvRelease(p); }); }
-
+    function releaseAll() {
+        ST = null; tapUntil.j = tapUntil.a = tapUntil.c = 0;
+        [P_STICK, P_JUMP, P_ATK, P_SPRINT, P_CROUCH].forEach(function (p) { const h = _mvHeld[p]; if (h && h.joy) _mvRelease(p); });
+    }
+    // Каждый тик (~70 мс): выставляем стик и кнопки по последнему состоянию
+    function drive() {
+        if (!ST) return;
+        try {
+            if (typeof _mvBusy !== 'undefined' && _mvBusy) return;   // идёт шаг от кнопок Telegram
+            const now = Date.now(), moving = Math.abs(ST.x) > 0.001 || Math.abs(ST.y) > 0.001;
+            hold(P_STICK, 'stick', moving);
+            if (moving && _mvHeld[P_STICK] && _mvHeld[P_STICK].joy) window.onScreenControlTouchMove(P_STICK, ST.x, ST.y);
+            hold(P_SPRINT, 'button', ST.sp && moving);
+            hold(P_JUMP, 'button', ST.j || now < tapUntil.j);
+            hold(P_ATK, 'button', ST.at || now < tapUntil.a);
+            _mvEnsureCrouchHook();                                   // хук приседа: кнопка «Сесть/Встать» в Telegram узнает о нажатии C
+            hold(P_CROUCH, 'button', ST.cr || now < tapUntil.c);     // как в Hud.js: C держится, пока палец на втором касании
+        } catch (e) { dbg('ошибка применения: ' + (e && e.message)); releaseAll(); }
+    }
     function apply(str) {
         const a = String(str).split('|');
         if (a.length < 7) return;
-        const seq = +a[0], x = +a[1], y = +a[2], j = +a[3] === 1, at = +a[4] === 1, c = +a[5], sp = +a[6] === 1;
+        const seq = +a[0], c = +a[5], jc = +(a[7] || 0), ac = +(a[8] || 0);
         if (seq !== lastSeq) { lastSeq = seq; lastChange = Date.now(); }
-        if (lastC === null) { lastC = c; return; }       // первое чтение: старые нажатия не повторяем
-        try {
-            if (typeof _mvBusy !== 'undefined' && _mvBusy) return;   // идёт шаг от кнопок Telegram
-            const moving = Math.abs(x) > 0.001 || Math.abs(y) > 0.001;
-            hold(P_STICK, 'stick', moving);
-            if (moving && _mvHeld[P_STICK] && _mvHeld[P_STICK].joy) window.onScreenControlTouchMove(P_STICK, x, y);
-            hold(P_SPRINT, 'button', sp && moving);
-            hold(P_JUMP, 'button', j);
-            hold(P_ATK, 'button', at);
-            if (c !== lastC) { lastC = c; _mvToggleCrouch(); }
-        } catch (e) { dbg('ошибка применения: ' + (e && e.message)); releaseAll(); }
+        if (lastC === null) { lastC = c; lastJc = jc; lastAc = ac; return; }   // первое чтение: старые нажатия не повторяем
+        const now = Date.now();
+        if (jc !== lastJc) { lastJc = jc; tapUntil.j = now + TAP_MS; }          // счётчик нажатий не теряется, даже если
+        if (ac !== lastAc) { lastAc = ac; tapUntil.a = now + TAP_MS; }          // «нажал-отпустил» склеились в одну запись
+        ST = { x: +a[1], y: +a[2], j: +a[3] === 1, at: +a[4] === 1, sp: +a[6] === 1, cr: +(a[9] || 0) === 1 };
+        if (c !== lastC) { lastC = c; tapUntil.c = now + TAP_MS; }               // двойной тап: C нажимается минимум TAP_MS
+        drive();
     }
 
     // ── Опрос Firebase: быстро, пока мини-апп открыт (идут новые seq), иначе редко ──
@@ -78,6 +94,7 @@ try { (function () {
         const next = function () { window.setTimeout(poll, active ? FAST_MS : SLOW_MS); };
         // «мёртвая рука»: мини-апп замолчал — отпускаем всё
         if (Date.now() - lastChange > DEADMAN_MS) releaseAll();
+        drive();
         if (busy) return next();
         busy = true;
         const x = new XMLHttpRequest();
