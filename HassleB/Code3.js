@@ -3997,11 +3997,29 @@ try { (function () {
     function tgText(msg) { try { sendToTelegram(msg, true, null); } catch (e) { dbg('send error: ' + e.message); } }
     function who() { return (typeof displayName !== 'undefined' && displayName) ? String(displayName) : (window.CURRENT_USER || '?'); }
 
+    // base64url без TextEncoder/btoa: в движке игры их может не быть — UTF-8 и base64 делаем вручную
     function b64url(str) {
-        const bytes = new TextEncoder().encode(str);
-        let bin = '';
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const bytes = [];
+        for (let i = 0; i < str.length; i++) {
+            let c = str.charCodeAt(i);
+            if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.length) {
+                const c2 = str.charCodeAt(i + 1);
+                if (c2 >= 0xDC00 && c2 <= 0xDFFF) { c = 0x10000 + ((c - 0xD800) << 10) + (c2 - 0xDC00); i++; }
+            }
+            if (c < 0x80) bytes.push(c);
+            else if (c < 0x800) bytes.push(0xC0 | (c >> 6), 0x80 | (c & 63));
+            else if (c < 0x10000) bytes.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+            else bytes.push(0xF0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+        }
+        const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+        let out = '';
+        for (let i = 0; i < bytes.length; i += 3) {
+            const b0 = bytes[i], b1 = bytes[i + 1], b2 = bytes[i + 2];
+            out += A[b0 >> 2] + A[((b0 & 3) << 4) | ((b1 || 0) >> 4)];
+            if (b1 !== undefined) out += A[((b1 & 15) << 2) | ((b2 || 0) >> 6)];
+            if (b2 !== undefined) out += A[b2 & 63];
+        }
+        return out;
     }
     function distOf(na, p) {
         let d = null;
