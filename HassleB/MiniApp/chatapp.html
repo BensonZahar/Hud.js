@@ -11,20 +11,34 @@ html,body{height:100%}
 body{margin:0;display:flex;flex-direction:column;background:radial-gradient(120% 60% at 50% 0,#14110a 0,var(--bg) 60%) var(--bg);color:var(--tx);font:600 14px/1.35 "Open Sans",Arial,sans-serif}
 .hd{flex:none;position:relative;background:#010106f5;padding:env(safe-area-inset-top) 14px 0;display:flex;align-items:center;justify-content:space-between}
 .hd::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:#ffffff26}
-.tabs{display:flex;position:relative;height:50px;overflow-x:auto;scrollbar-width:none}
+.tabs{display:flex;position:relative;height:50px;overflow-x:auto;scrollbar-width:none;min-width:0}
 .tab{display:flex;align-items:center;gap:6px;margin-right:18px;padding:0 2px;font:italic 700 15px "Open Sans",Arial;font-stretch:75%;text-transform:uppercase;color:#fff9;cursor:pointer;white-space:nowrap;transition:.25s}
 .tab.on{color:#fff}
 #ln{position:absolute;bottom:0;left:0;height:3px;width:0;background:var(--a);border-radius:4px 4px 0 0;box-shadow:0 -3px 18px #f9b701;transition:.25s}
-.who{font:italic 700 13px "Open Sans";font-stretch:75%;text-transform:uppercase;color:#fff9;text-align:right;white-space:nowrap;padding-left:10px;overflow:hidden;text-overflow:ellipsis}
+.rt{display:flex;align-items:center;gap:8px;min-width:0;flex:none}
+.who{font:italic 700 13px "Open Sans";font-stretch:75%;text-transform:uppercase;color:#fff9;text-align:right;white-space:nowrap;padding-left:10px;overflow:hidden;text-overflow:ellipsis;max-width:32vw}
+.sbtn{flex:none;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:50%;cursor:pointer;font-size:16px;color:#fff;background:#ffffff14;transition:.2s;user-select:none}
+.sbtn.on{background:var(--a);color:#000}
+.sr{flex:none;display:none;align-items:center;gap:8px;padding:8px 14px;background:#010106f5;border-bottom:1px solid #ffffff1f}
+.sr.on{display:flex}
+.sr input{flex:1;min-width:0;background:#ffffff14;border:1px solid #ffffff26;border-radius:8px;color:var(--tx);font:600 16px "Open Sans",Arial,sans-serif;padding:7px 10px;outline:none}
+.sr input:focus{border-color:var(--a)}
+.sr input::placeholder{color:#fff6}
+#sc{flex:none;color:#fff9;font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+#sx{flex:none;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:50%;cursor:pointer;color:#fff9;font-size:15px;user-select:none}
 #log{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:10px 14px;max-width:640px;width:100%;margin:0 auto}
-.m{padding:3px 0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.35}
-.m time{color:#fff5;font-size:11px;font-weight:600;margin-right:6px;font-variant-numeric:tabular-nums}
-.empty{text-align:center;color:#fff6;padding:40px 0}
+/* Строка как в игре (Hud.css .chat-message): жирный, чёрный контур, «[ЧЧ:ММ:СС] » — часть текста того же цвета */
+.m{padding:2px 0;overflow-wrap:anywhere;font-weight:700;font-size:14px;line-height:1.4;
+ text-shadow:-1px -1px 0 #000,0 -1px 0 #000,1px -1px 0 #000,1px 0 0 #000,1px 1px 0 #000,0 1px 0 #000,-1px 1px 0 #000,-1px 0 0 #000}
+@media (pointer:coarse){.m{text-shadow:0 1px 2px #0d0d17,0 1px 2px #0d0d17,0 1px 2px #0d0d17,0 1px 2px #0d0d17,0 1px 2px #0d0d17}}
+mark{background:var(--a);color:#000;text-shadow:none;border-radius:2px;padding:0 1px}
+.empty{text-align:center;color:#fff6;padding:40px 0;text-shadow:none}
 .ft{flex:none;text-align:center;color:#fff5;font-size:11px;padding:6px 0 calc(6px + env(safe-area-inset-bottom));border-top:1px solid #ffffff14}
 .ok{color:var(--g)}.bad{color:var(--r)}.warn{color:var(--y)}.mut{color:#fff9}
 #dn{position:fixed;right:14px;bottom:calc(40px + env(safe-area-inset-bottom));display:none;padding:7px 14px;border-radius:20px;background:var(--a);color:#000;font:italic 800 12px "Open Sans";font-stretch:75%;text-transform:uppercase;box-shadow:0 4px 16px #0008;cursor:pointer}
 </style></head><body>
-<div class="hd"><div class="tabs" id="tabs"><i id="ln"></i></div><div class="who" id="who"></div></div>
+<div class="hd"><div class="tabs" id="tabs"><i id="ln"></i></div><div class="rt"><div class="who" id="who"></div><div class="sbtn" id="sb" title="Поиск">🔍</div></div></div>
+<div class="sr" id="sr"><input id="q" type="search" placeholder="Поиск по чату…" autocomplete="off" autocapitalize="off" spellcheck="false"><span id="sc"></span><span id="sx" title="Очистить / закрыть">✕</span></div>
 <div id="log"></div>
 <div id="dn">↓ новые</div>
 <div class="ft" id="ft"></div>
@@ -39,35 +53,58 @@ $('#who').textContent=Q.get('n')||'';
 // Радиус по цвету строки — как getChatRadius в Code.js
 const NEAR=['EEEEEE','CECECE','999999','6B6B6B'],RADIO=['33CC66'];
 const TABS=[['Все','💬',()=>true],['Рядом','🗣',m=>NEAR.includes(m[1])],['Рация','📻',m=>RADIO.includes(m[1])],['Остальное','📢',m=>!NEAR.includes(m[1])&&!RADIO.includes(m[1])]];
-let cur=0,all=[],seen=new Set(),got=false,fails=0,busy=false,lastT=null,seenAt=0,stick=true;
+let cur=0,all=[],seen=new Set(),got=false,fails=0,busy=false,lastT=null,seenAt=0,stick=true,words=[],Z=null;
 let snapT=null,usingSnap=false;
 // Снимок последних сообщений из ссылки (?d=…): [секунд назад, цвет, текст] — запасной вариант, если Firebase недоступен
 function dec(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s),c=>c.charCodeAt(0))))}
-try{const dq=Q.get('d');if(dq){const sn=dec(dq);if(sn&&Array.isArray(sn.m)){snapT=sn.t||Date.now();
+try{const dq=Q.get('d');if(dq){const sn=dec(dq);if(sn&&Array.isArray(sn.m)){snapT=sn.t||Date.now();if(typeof sn.z==='number')Z=sn.z;
  sn.m.forEach(r=>{const m=[snapT-(r[0]||0)*1000,r[1],r[2]];seen.add(m[0]+'|'+m[2]);all.push(m)});usingSnap=all.length>0}}}catch(e){}
 
-const pad=n=>String(n).padStart(2,'0'),
-hhmm=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())};
+const pad=n=>String(n).padStart(2,'0');
+// Время как в игре: игра форматирует Date.now() по СВОЕМУ часовому поясу (Hud.js formatTime) — Z пришёл из игры (getTimezoneOffset)
+function hms(t){const d=new Date(t-(Z==null?new Date().getTimezoneOffset():Z)*60000);return pad(d.getUTCHours())+':'+pad(d.getUTCMinutes())+':'+pad(d.getUTCSeconds())}
+
 // «{RRGGBB}» / «{RRGGBBAA}» в тексте меняет цвет дальше (как colors.js в игре); до первого кода — цвет строки.
 // Токен вида {xxxxxx} игра съедает всегда, но красит только если это настоящий hex-цвет.
-function paint(text,base){
- const b=/^[0-9A-F]{6}$/i.test(base)&&base!=='000000'?'#'+base:'var(--tx)';
- let out='',last=0,col=b,m;const rx=/\{([a-zA-Z0-9]{6}|[a-zA-Z0-9]{8})\}/g;
- while((m=rx.exec(text))){if(m.index>last)out+='<span style="color:'+col+'">'+E(text.slice(last,m.index))+'</span>';if(/^[0-9A-Fa-f]+$/.test(m[1]))col='#'+m[1];last=rx.lastIndex}
- if(last<text.length)out+='<span style="color:'+col+'">'+E(text.slice(last))+'</span>';
+const baseOf=b=>/^[0-9A-F]{6}$/i.test(b)&&b!=='000000'?'#'+b:'var(--tx)';
+function segs(text,base){
+ const out=[],rx=/\{([a-zA-Z0-9]{6}|[a-zA-Z0-9]{8})\}/g;let last=0,col=baseOf(base),m;
+ while((m=rx.exec(text))){if(m.index>last)out.push([col,text.slice(last,m.index)]);if(/^[0-9A-Fa-f]+$/.test(m[1]))col='#'+m[1];last=rx.lastIndex}
+ if(last<text.length)out.push([col,text.slice(last)]);
  return out}
+
+// ── Поиск: все слова должны встретиться (в любом порядке), регистр и ё/е не важны ──
+const norm=s=>s.replace(/ё/g,'е').replace(/Ё/g,'Е').toLowerCase();
+function hit(plain){if(!words.length)return true;const np=norm(plain);return words.every(w=>np.indexOf(w)>-1)}
+function ranges(plain){
+ if(!words.length)return[];const np=norm(plain);if(np.length!==plain.length)return[];
+ const r=[];words.forEach(w=>{let i=0;while((i=np.indexOf(w,i))>-1){r.push([i,i+w.length]);i+=w.length}});
+ r.sort((a,b)=>a[0]-b[0]);const o=[];
+ r.forEach(x=>{const l=o[o.length-1];if(l&&x[0]<=l[1])l[1]=Math.max(l[1],x[1]);else o.push([x[0],x[1]])});
+ return o}
+function row(m,sg,plain){
+ const rg=ranges(plain);let pos=0,out='<span style="color:'+baseOf(m[1])+'">['+hms(m[0])+'] </span>';
+ sg.forEach(x=>{const c=x[0],s=x[1],p=pos,e=p+s.length;let h='',i=0;
+  rg.forEach(r=>{if(r[1]<=p||r[0]>=e)return;const a=Math.max(r[0],p)-p,b=Math.min(r[1],e)-p;
+   if(a>i)h+=E(s.slice(i,a));h+='<mark>'+E(s.slice(a,b))+'</mark>';i=b});
+  if(i<s.length)h+=E(s.slice(i));
+  out+='<span style="color:'+c+'">'+h+'</span>';pos=e});
+ return out}
+
 function render(){
- const L=$('#log'),f=TABS[cur][2],list=all.filter(f);
- L.innerHTML=list.length?list.map(m=>'<div class="m"><time>'+hhmm(m[0])+'</time>'+paint(m[2],m[1])+'</div>').join(''):'<div class="empty">'+emptyMsg()+'</div>';
- if(stick)L.scrollTop=L.scrollHeight;
+ const L=$('#log'),st=L.scrollTop,base=all.filter(TABS[cur][2]),html=[];
+ for(const m of base){const sg=segs(m[2],m[1]),plain=sg.map(x=>x[1]).join('');if(!hit(plain))continue;html.push('<div class="m">'+row(m,sg,plain)+'</div>')}
+ L.innerHTML=html.length?html.join(''):'<div class="empty">'+emptyMsg()+'</div>';
+ $('#sc').textContent=words.length?html.length+' / '+base.length:'';
+ if(stick)L.scrollTop=L.scrollHeight;else L.scrollTop=st;
  $('#dn').style.display=stick?'none':'block'}
-function emptyMsg(){return !K&&!snapT?'Нет данных.<br>Откройте мини-апп кнопкой «💬 Чат» из бота.':got?(all.length?'В этой вкладке пока пусто.':'Сообщений пока нет.'):fails>=3?'Нет связи с сервером.':'Загружаю…'}
+function emptyMsg(){return words.length?'Ничего не найдено.':!K&&!snapT?'Нет данных.<br>Откройте мини-апп кнопкой «💬 Чат» из бота.':got?(all.length?'В этой вкладке пока пусто.':'Сообщений пока нет.'):fails>=3?'Нет связи с сервером.':'Загружаю…'}
 function show(i){cur=i;const T=document.querySelectorAll('.tab');T.forEach((t,k)=>t.classList.toggle('on',k==i));
  const t=T[i];$('#ln').style.width=t.offsetWidth+'px';$('#ln').style.transform='translateX('+t.offsetLeft+'px)';stick=true;render()}
 const ago=s=>s<60?s+' с':Math.floor(s/60)+' мин';
-function tick(){const f=$('#ft');if(!K){f.textContent=snapT?'Снимок на '+hhmm(snapT):'';return}
- const sn=usingSnap&&snapT?' · показан снимок от '+hhmm(snapT):'';
- const a=Math.max(0,Math.round((Date.now()-seenAt)/1000));
+function tick(){const f=$('#ft');if(!K){f.textContent=snapT?'Снимок на '+hms(snapT):'';return}
+ const a=Math.max(0,Math.round((Date.now()-seenAt)/1000)),
+ sn=usingSnap&&snapT?' · показан снимок от '+hms(snapT):'';
  f.innerHTML=fails>=3?'<span class="warn">⚠️ нет связи с сервером</span>'+(got?' · данные '+ago(a)+' назад':sn)
   :!got?'<span class="mut">подключаюсь…</span>'+sn
   :a<45?'<span class="ok">● live</span> · обновлено '+ago(a)+' назад'
@@ -87,12 +124,23 @@ async function poll(){
   if(typeof s==='string'){
    const o=JSON.parse(s);
    if(usingSnap){all=[];seen.clear();usingSnap=false}
+   if(typeof o.z==='number')Z=o.z;
    if(o.t!==lastT){lastT=o.t;seenAt=Date.now()-(first?Math.min(Math.max(0,Date.now()-o.t),36e5):0)}
    if(merge(o.m||[])||first)render()
   }else if(first)render();
   tick()
  }catch(e){fails++;tick();if(!all.length)render()}
  clearTimeout(tm);busy=false}
+
+// ── Поиск: кнопка 🔍, Esc/✕ — закрыть ──
+const qi=$('#q'),sr=$('#sr');
+function setQ(v){words=norm(v.trim()).split(/\s+/).filter(Boolean);stick=true;render()}
+function openS(on){sr.classList.toggle('on',on);$('#sb').classList.toggle('on',on);if(on)qi.focus();else{qi.value='';setQ('')}}
+$('#sb').onclick=()=>openS(!sr.classList.contains('on'));
+$('#sx').onclick=()=>{if(qi.value){qi.value='';setQ('');qi.focus()}else openS(false)};
+qi.addEventListener('input',()=>setQ(qi.value));
+qi.addEventListener('keydown',e=>{if(e.key==='Escape')openS(false);else if(e.key==='Enter')qi.blur()});
+
 const L=$('#log');
 L.addEventListener('scroll',()=>{stick=L.scrollHeight-L.scrollTop-L.clientHeight<40;$('#dn').style.display=stick?'none':'block'});
 $('#dn').onclick=()=>{stick=true;L.scrollTop=L.scrollHeight;$('#dn').style.display='none'};

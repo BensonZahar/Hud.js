@@ -29,6 +29,8 @@ try { (function () {
     const URL_MAX = 1900;         // лимит ссылки-кнопки Telegram (как в Stats.js)
     const SNAP_TXT = 150;         // обрезка строки в снимке-ссылке
 
+    // Часовой пояс игры (минуты, как Date.getTimezoneOffset): игра пишет [ЧЧ:ММ:СС] по своему времени — мини-апп показывает так же
+    function TZ() { try { return new Date().getTimezoneOffset(); } catch (e) { return 0; } }
     function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
     function stale() { try { return typeof __hassleStale === 'function' && !!__hassleStale(); } catch (e) { return false; } }
     function who() { return (typeof displayName !== 'undefined' && displayName) ? String(displayName) : (window.CURRENT_USER || '?'); }
@@ -80,10 +82,10 @@ try { (function () {
         const base = APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + 'k=' + chatKey() + '&n=' + encodeURIComponent(who()) + '&d=';
         const now = Date.now();
         const m = buf.map(function (r) { return [Math.max(0, Math.round((now - r[0]) / 1000)), r[1], String(r[2]).slice(0, SNAP_TXT)]; });
-        let url = base + b64url(JSON.stringify({ t: now, m: m }));
+        let url = base + b64url(JSON.stringify({ t: now, z: TZ(), m: m }));
         while (url.length > URL_MAX && m.length > 1) {
             m.shift();
-            url = base + b64url(JSON.stringify({ t: now, m: m }));
+            url = base + b64url(JSON.stringify({ t: now, z: TZ(), m: m }));
         }
         return url;
     }
@@ -131,7 +133,7 @@ try { (function () {
         const m = buf.slice();
         let str = '';
         for (;;) {
-            str = JSON.stringify({ t: now, m: m });
+            str = JSON.stringify({ t: now, z: TZ(), m: m });
             if (str.length <= DB_MAX || m.length <= 1) break;
             m.shift();   // не влезает в лимит — выкидываем самые старые
         }
