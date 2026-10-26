@@ -5,7 +5,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wdth,wght@0,75..100,400..800;1,75..100,700&display=swap" rel="stylesheet">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{--a:#ffb110;--bg:#010106;--tx:#eeeee6;--card:#ffffff0d;--g:#1aae39;--r:#e8433f}
+:root{--a:#ffb110;--bg:#010106;--tx:#eeeee6;--card:#ffffff0d;--g:#1aae39;--r:#e8433f;--y:#ffb110;--b:#4aa8ff}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;background:radial-gradient(120% 60% at 50% 0,#14110a 0,var(--bg) 60%) var(--bg);color:var(--tx);font:600 14px/1.35 "Open Sans",Arial,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
 .hd{position:sticky;top:0;z-index:3;background:#010106f5;padding:env(safe-area-inset-top) 14px 0;display:flex;align-items:center;justify-content:space-between}
@@ -14,13 +14,13 @@ body{margin:0;min-height:100vh;background:radial-gradient(120% 60% at 50% 0,#141
 .tab{display:flex;align-items:center;gap:6px;margin-right:18px;padding:0 2px;font:italic 700 15px "Open Sans",Arial;font-stretch:75%;text-transform:uppercase;color:#fff9;cursor:pointer;white-space:nowrap;transition:.25s}
 .tab.on{color:#fff}
 #ln{position:absolute;bottom:0;left:0;height:3px;width:0;background:var(--a);border-radius:4px 4px 0 0;box-shadow:0 -3px 18px #f9b701;transition:.25s}
-.who{font:italic 700 13px "Open Sans";font-stretch:75%;text-transform:uppercase;color:#fff9;text-align:right;white-space:nowrap}
+.who{font:italic 700 13px "Open Sans";font-stretch:75%;text-transform:uppercase;color:#fff9;text-align:right;white-space:nowrap;padding-left:10px}
 main{padding:14px;max-width:560px;margin:0 auto}
 .card{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .h{font:italic 700 12px "Open Sans";font-stretch:75%;text-transform:uppercase;color:#fff9;letter-spacing:.06em;margin:0 0 8px}
 .nick{font:italic 800 24px "Open Sans";font-stretch:75%;text-transform:uppercase;line-height:1.1}
 .sub{color:#fff9;font-weight:600;margin-top:2px}
-.vip{display:inline-block;margin-top:8px;padding:2px 9px;border-radius:20px;font:italic 700 12px "Open Sans";font-stretch:75%;text-transform:uppercase;border:1px solid}
+.vip,.flag{display:inline-block;margin:8px 6px 0 0;padding:2px 9px;border-radius:20px;font:italic 700 12px "Open Sans";font-stretch:75%;text-transform:uppercase;border:1px solid}
 .row{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .row b{font-weight:800}
 .bar{height:7px;border-radius:4px;background:#ffffff1a;margin-top:6px;overflow:hidden}
@@ -30,11 +30,13 @@ main{padding:14px;max-width:560px;margin:0 auto}
 .tile{background:var(--card);border-radius:10px;padding:10px;text-align:center}
 .tile span{display:block;color:#fff9;font-size:11px;text-transform:uppercase}
 .tile b{display:block;font:italic 800 20px "Open Sans";font-stretch:75%;margin-top:2px}
-.fin{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #ffffff14}
+.fin{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #ffffff14}
 .fin:last-child{border:0}
-.fin span{color:#fff9}
+.fin span{color:#fff9;flex:none}
+.fin b{text-align:right;min-width:0;overflow-wrap:anywhere}
 .chip{display:inline-block;margin:0 6px 6px 0;padding:4px 10px;border-radius:20px;font-size:13px}
-.ok{color:var(--g)}.bad{color:var(--r)}
+.code{font:600 13px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--tx);overflow-wrap:anywhere}
+.ok{color:var(--g)}.bad{color:var(--r)}.warn{color:var(--y)}.mut{color:#fff9}
 .empty{text-align:center;color:#fff6;padding:30px 0}
 .ft{text-align:center;color:#fff5;font-size:11px;margin:14px 0}
 </style></head><body>
@@ -47,29 +49,70 @@ N=v=>v==null||v===''?'—':Number(v).toLocaleString('ru-RU'),
 P=v=>v==null?'—':v+'%';
 function dec(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s),c=>c.charCodeAt(0))))}
 let D=null;
-try{const q=new URLSearchParams(location.search);if(q.get('d'))D=dec(q.get('d'));else if(q.has('demo'))D={n:'Nick_Name',s:1,f:'ФСБ',o:['Федеральная служба','Капитан',9,'Опер уполномоченный'],l:[24,1800,3000],h:312,m:[152000,2600000,120,8400],ph:'3486421',v:2,st:[56,78],lw:100,pr:[2,1,3],pd:[['Дом №200',3,20,1],['Дом #12',14,20,0],['Квартира',9,30,0]],b:[['+10% к опыту',0],['Голод',1]],j:[['Машинист метрополитена',2],['Пилот',5]],sal:[12500,'14:00'],t:Date.now()}}catch(e){}
+try{const q=new URLSearchParams(location.search);if(q.get('d'))D=dec(q.get('d'));else if(q.has('demo'))D={n:'Nick_Name',s:1,f:'ФСБ',id:312,sk:287,
+ o:['Федеральная служба','Капитан',9,'Опер уполномоченный'],w:[1,3,0],l:[24,1800,3000],h:312,
+ m:[152000,2600000,120,8400],ph:'3486421',v:2,st:[56,78],lw:100,pr:[2,1,3],
+ pd:[['Дом №200',3,20,1],['Дом #12',14,20,0],['Квартира',9,30,0]],
+ b:[['+10% к опыту',0],['Голод',1]],j:[['Машинист метрополитена',2],['Пилот',5]],
+ sal:['12.500','14:00','2.612.500'],
+ hud:[100,45,80,2,62,'deagle',7,35],pos:[1520,-840,24,180,0],on:5025,pz:0,
+ afk:['5/5 мин',95,'48.000'],ns:[1,1,0,1,1,0,0],t:Date.now()}}catch(e){}
 const tg=window.Telegram&&Telegram.WebApp;
 if(tg){try{tg.ready();tg.expand();tg.setHeaderColor('#010106');tg.setBackgroundColor('#010106')}catch(e){}}
 const bar=(v,m,c)=>`<div class="bar"><i style="width:${Math.max(0,Math.min(100,m?v/m*100:0))}%;background:${c}"></i></div>`,
 tile=(k,v)=>`<div class="tile"><span>${k}</span><b>${v}</b></div>`,
 fin=(k,v)=>`<div class="fin"><span>${k}</span><b>${v}</b></div>`,
+rub=v=>v==null||v===''?'—':E(v)+' ₽',                       // готовая строка (з/п приходит как есть, с точками)
 VIP=[null,['Silver','#c0c6d0'],['Gold','#ffb110'],['Platinum','#7fd6ff']],
-ico=n=>/квартир/i.test(n)?'🏢':/авто|машин/i.test(n)?'🚗':/бизнес|магазин/i.test(n)?'🏪':'🏠';
+ico=n=>/квартир/i.test(n)?'🏢':/авто|машин/i.test(n)?'🚗':/бизнес|магазин/i.test(n)?'🏪':'🏠',
+dur=s=>{s=Math.max(0,Math.floor(s||0));const p=n=>String(n).padStart(2,'0');return Math.floor(s/3600)+'ч '+p(Math.floor(s%3600/60))+'м '+p(s%60)+'с'},
+warnRow=d=>{const w=d.w;if(!w)return'';
+ if(w[2]===1)return fin('Выговоры','<span class="bad">не удалось проверить</span>');
+ if(w[2]===2)return fin('Выговоры','<span class="mut">проверяем…</span>');
+ const c=w[0]||0,m=w[1]||3,cl=c>=m?'bad':c>0?'warn':'ok';
+ return fin('Выговоры','<span class="'+cl+'">'+(c>=m?'🚫 ':c>0?'⚠️ ':'')+c+'/'+m+'</span>')};
 const TABS=[['Персонаж','👤',d=>{
- const o=d.o||[],l=d.l||[],s=d.st||[],p=d.pr||[],m=d.m||[],vp=VIP[d.v];
+ const o=d.o||[],l=d.l||[],s=d.st||[],p=d.pr||[],m=d.m||[],vp=VIP[d.v],w=d.w,
+  sub=[d.id!=null?'ID '+E(d.id):'',d.sk!=null?'Скин '+E(d.sk):''].filter(Boolean).join(' · ');
  return `<div class="card"><div class="nick">${E(d.n)||'—'}</div>
- <div class="sub">${E(o[0]||'—')} · ${E(o[1]||'—')}${o[2]?' (#'+o[2]+')':''}</div><div class="sub">${E(o[3]||'')}</div>
- ${vp?`<span class="vip" style="color:${vp[1]}">${vp[0]} VIP</span>`:''}</div>
+ ${sub?`<div class="sub">${sub}</div>`:''}
+ ${vp?`<span class="vip" style="color:${vp[1]}">${vp[0]} VIP</span>`:''}${d.pz?'<span class="flag bad">🔒 Тюрьма</span>':''}</div>
+ <div class="card"><p class="h">Фракция / Звание</p>${fin('Фракция',E(o[0]||'—'))}${fin('Звание',E(o[1]||'—')+(o[2]!=null&&o[2]!==''?' (#'+E(o[2])+')':''))}${fin('Статус',E(o[3]||'—'))}${warnRow(d)}
+ ${w&&w[2]==null&&w[0]>0?bar(w[0],w[1]||3,w[0]>=(w[1]||3)?'var(--r)':'var(--y)'):''}</div>
  <div class="card"><div class="row"><span class="h" style="margin:0">Уровень</span><b>${N(l[0])}${d.h!=null?' · '+N(d.h)+' ч':''}</b></div>
  ${bar(l[1],l[2],'linear-gradient(90deg,#ffb110,#f9d44a)')}<div class="sub" style="font-size:12px;margin-top:4px">${N(l[1])} / ${N(l[2])} XP</div></div>
  <div class="g2" style="margin-bottom:10px"><div class="card" style="margin:0"><div class="row"><span class="h" style="margin:0">Выносливость</span><b>${P(s[0])}</b></div>${bar(s[0],100,'var(--g)')}</div>
- <div class="card" style="margin:0"><div class="row"><span class="h" style="margin:0">Мускулатура</span><b>${P(s[1])}</b></div>${bar(s[1],100,'var(--r)')}</div></div>
+ <div class="card" style="margin:0"><div class="row"><span class="h" style="margin:0">Сила</span><b>${P(s[1])}</b></div>${bar(s[1],100,'var(--r)')}</div></div>
  <div class="g3" style="margin-bottom:10px">${tile('Дома',p[0]||0)}${tile('Бизнесы',p[1]||0)}${tile('Авто',p[2]||0)}</div>
- <div class="card"><p class="h">Финансы</p>${fin('Наличные',N(m[0])+' ₽')}${fin('Банк',N(m[1])+' ₽')}${m[2]!=null?fin('Donate',N(m[2])+' ₽'):''}${d.sal?fin('Последняя з/п',N(d.sal[0])+' ₽'+(d.sal[1]?' · '+E(d.sal[1]):'')):''}${fin('SIM',N(m[3])+' ₽')}${fin('Телефон',E(d.ph||'—'))}${fin('Законопослушность',N(d.lw))}</div>`}],
-['Имущество','🏠',d=>{const a=d.pd||[];return a.length?a.map(x=>{const dg=x[3];return `<div class="card"><div class="row"><span>${ico(x[0])} ${E(x[0])}</span><b class="${dg?'bad':''}">${x[1]}/${x[2]} дн.${dg?' ⚠️':''}</b></div>${bar(x[1],x[2],dg?'var(--r)':'var(--a)')}</div>`}).join(''):'<div class="empty">Имущества нет</div>'}],
+ <div class="card"><p class="h">Финансы</p>${fin('Наличные',N(m[0])+' ₽')}${fin('Банк',N(m[1])+' ₽')}
+ ${d.sal&&d.sal[0]?fin('💼 Последняя з/п',rub(d.sal[0])+(d.sal[2]?' · Банк: '+rub(d.sal[2]):'')+(d.sal[1]?' · '+E(d.sal[1]):'')):''}
+ ${m[2]!=null&&m[2]>0?fin('💎 Donate',N(m[2])+' ₽'):''}${fin('Телефон',E(d.ph||'—'))}${fin('Баланс SIM',m[3]!=null?N(m[3])+' ₽':'—')}
+ ${fin('VIP',vp?vp[0]:'—')}${fin('Законопослушность',N(d.lw))}</div>`}],
+
+['Состояние','❤️',d=>{
+ const h=d.hud,ps=d.pos,ns=d.ns,
+  NS=['Уведомления PayDay','Уведомления от сотрудников','Уведомления рации (все)','Рация — важные (строй/место/ID)','Уведомления выговоры','Отслеживание местоположения','Автоответ КАЧ/ЗП'];
+ let out='';
+ if(h){const wn=h[3]>0?'⭐'.repeat(Math.min(h[3],6)):'Нет';
+  out+=`<div class="card"><p class="h">Состояние персонажа</p>
+  <div class="g3" style="margin-bottom:6px">${tile('HP',P(h[0]))}${tile('Броня',P(h[1]))}${tile('Голод',P(h[2]))}</div>
+  ${bar(h[0],100,'var(--r)')}
+  ${fin('🚨 Розыск',wn)}${h[4]!=null&&h[4]<99?fin('🌊 Дыхание',P(h[4])):''}
+  ${h[5]?fin('🔫 Оружие',E(h[5])+' ('+N(h[6])+' / '+N(h[7])+')'):''}</div>`}
+ if(ps)out+=`<div class="card"><p class="h">Позиция</p><div class="code">x=${E(ps[0])} y=${E(ps[1])} z=${E(ps[2])} угол=${E(ps[3])}° interior=${ps[4]?'В интерьере':'Не в интерьере'}</div></div>`;
+ if(d.on!=null||d.pz||d.afk){out+=`<div class="card"><p class="h">Сессия</p>
+  ${d.on!=null?fin('⏰ Онлайн',dur(d.on)):''}${d.pz?fin('🔒 Тюрьма','<span class="bad">АКТИВНА</span>'):''}
+  ${d.afk?fin('🔄 AFK цикл активен',E(d.afk[0])):''}${d.afk?fin('Наиграно',N(d.afk[1])+' мин'):''}${d.afk?fin('Накоплено',rub(d.afk[2]||0)):''}</div>`}
+ if(ns)out+=`<div class="card"><p class="h">Уведомления</p>${NS.map((k,i)=>fin(k,ns[i]?'<span class="ok">ВКЛ</span>':'<span class="bad">ВЫКЛ</span>')).join('')}</div>`;
+ return out||'<div class="empty">Нет данных о состоянии</div>'}],
+
+['Имущество','🏠',d=>{const a=d.pd||[],p=d.pr||[];
+ return `<div class="g3" style="margin-bottom:10px">${tile('Дома',p[0]||0)}${tile('Бизнесы',p[1]||0)}${tile('Авто',p[2]||0)}</div>`+
+ (a.length?a.map(x=>{const dg=x[3];return `<div class="card"><div class="row"><span>${ico(x[0])} ${E(x[0])}</span><b class="${dg?'bad':''}">оплачен ${x[1]}/${x[2]} дн.${dg?' ⚠️':''}</b></div>${bar(x[1],x[2],dg?'var(--r)':'var(--a)')}</div>`}).join(''):'<div class="empty">Имущества нет</div>')}],
+
 ['Работы','💼',d=>{const b=d.b||[],j=d.j||[],ch=(x,c)=>x.length?x.map(y=>`<span class="chip ${c}" style="background:${c=='ok'?'#1aae3922':'#e8433f22'}">${E(y[0])}</span>`).join(''):'<span class="sub">—</span>';
- return `<div class="card"><p class="h">Баффы</p>${ch(b.filter(x=>!x[1]),'ok')}</div><div class="card"><p class="h">Дебаффы</p>${ch(b.filter(x=>x[1]),'bad')}</div>
- <div class="card"><p class="h">Работы</p>${j.length?j.map(x=>fin(E(x[0]),'ур. '+x[1])).join(''):'<span class="sub">—</span>'}</div>`}]];
+ return `<div class="card"><p class="h">⚡ Баффы</p>${ch(b.filter(x=>!x[1]),'ok')}</div><div class="card"><p class="h">💀 Дебаффы</p>${ch(b.filter(x=>x[1]),'bad')}</div>
+ <div class="card"><p class="h">Работы</p>${j.length?j.map(x=>fin(E(x[0]),'ур. '+E(x[1]))).join(''):'<span class="sub">—</span>'}</div>`}]];
 let cur=0;
 function show(i){cur=i;const T=document.querySelectorAll('.tab');T.forEach((t,k)=>t.classList.toggle('on',k==i));
  const t=T[i];$('#ln').style.width=t.offsetWidth+'px';$('#ln').style.transform='translateX('+t.offsetLeft+'px)';
