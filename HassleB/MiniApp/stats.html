@@ -113,11 +113,38 @@ const TABS=[['Персонаж','👤',d=>{
 ['Работы','💼',d=>{const b=d.b||[],j=d.j||[],ch=(x,c)=>x.length?x.map(y=>`<span class="chip ${c}" style="background:${c=='ok'?'#1aae3922':'#e8433f22'}">${E(y[0])}</span>`).join(''):'<span class="sub">—</span>';
  return `<div class="card"><p class="h">⚡ Баффы</p>${ch(b.filter(x=>!x[1]),'ok')}</div><div class="card"><p class="h">💀 Дебаффы</p>${ch(b.filter(x=>x[1]),'bad')}</div>
  <div class="card"><p class="h">Работы</p>${j.length?j.map(x=>fin(E(x[0]),'ур. '+E(x[1]))).join(''):'<span class="sub">—</span>'}</div>`}]];
-let cur=0;
-function show(i){cur=i;const T=document.querySelectorAll('.tab');T.forEach((t,k)=>t.classList.toggle('on',k==i));
- const t=T[i];$('#ln').style.width=t.offsetWidth+'px';$('#ln').style.transform='translateX('+t.offsetLeft+'px)';
- $('#v').innerHTML=D?TABS[i][2](D)+`<div class="ft">Обновлено ${Math.max(0,Math.round((Date.now()-(D.t||Date.now()))/60000))} мин назад</div>`:'<div class="empty">Нет данных.<br>Откройте мини-апп кнопкой из бота.</div>';scrollTo(0,0)}
+const DB='https://haeb-41fcc-default-rtdb.firebaseio.com',K=new URLSearchParams(location.search).get('k');
+let cur=0,lastSig='',lastT=null,got=false,fails=0,busy=false,seenAt=D?Date.now()-Math.max(0,Date.now()-(D.t||Date.now())):0;
+const ago=s=>s<60?s+' с':Math.floor(s/60)+' мин';
+function tick(){const f=$('#ft');if(!f||!D)return;
+ if(!K){f.textContent='Обновлено '+Math.max(0,Math.round((Date.now()-(D.t||Date.now()))/60000))+' мин назад';return}
+ const a=Math.max(0,Math.round((Date.now()-seenAt)/1000));
+ f.innerHTML=fails>=3?'<span class="warn">⚠️ нет связи с сервером</span> · данные '+ago(a)+' назад'
+  :!got?'<span class="mut">подключаюсь…</span>'
+  :a<45?'<span class="ok">● live</span> · обновлено '+ago(a)+' назад'
+  :'<span class="bad">● игра не отвечает</span> · данные '+ago(a)+' назад'}
+function emptyMsg(){return K?(got?'Игра ещё не прислала данные.<br>Проверьте, что она запущена.':fails>=3?'Нет связи с сервером.':'Загружаю данные…'):'Нет данных.<br>Откройте мини-апп кнопкой из бота.'}
+function show(i,keep){cur=i;const T=document.querySelectorAll('.tab');T.forEach((t,k)=>t.classList.toggle('on',k==i));
+ const t=T[i],y=scrollY;$('#ln').style.width=t.offsetWidth+'px';$('#ln').style.transform='translateX('+t.offsetLeft+'px)';
+ $('#v').innerHTML=D?TABS[i][2](D)+'<div class="ft" id="ft"></div>':'<div class="empty">'+emptyMsg()+'</div>';
+ if(D)$('#who').textContent='S'+(D.s||'?')+(D.f?' · '+D.f:'');
+ tick();scrollTo(0,keep?y:0)}
+async function poll(){
+ if(!K||busy||document.hidden)return;busy=true;
+ const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),8000);
+ try{
+  const r=await fetch(DB+'/stats/'+encodeURIComponent(K)+'.json',{cache:'no-store',signal:ac.signal});
+  if(!r.ok)throw 0;
+  const s=await r.json(),first=!got;got=true;fails=0;
+  if(typeof s==='string'){
+   const o=JSON.parse(s),c=Object.assign({},o);delete c.t;const sig=JSON.stringify(c);
+   if(o.t!==lastT){lastT=o.t;seenAt=Date.now()-(first?Math.min(Math.max(0,Date.now()-o.t),36e5):0)}
+   if(sig!==lastSig){lastSig=sig;D=o;show(cur,true)}else{D.t=o.t;tick()}
+  }else if(!D)show(cur,true)
+ }catch(e){fails++;tick();if(!D)show(cur,true)}
+ clearTimeout(tm);busy=false}
 TABS.forEach((t,i)=>{const e=document.createElement('div');e.className='tab';e.innerHTML=t[1]+'<span>'+t[0]+'</span>';e.onclick=()=>show(i);$('#tabs').appendChild(e)});
-if(D)$('#who').textContent='S'+(D.s||'?')+(D.f?' · '+D.f:'');
-show(0);document.fonts&&document.fonts.ready.then(()=>show(cur));
+show(0);document.fonts&&document.fonts.ready.then(()=>show(cur,true));
+setInterval(tick,1000);
+if(K){poll();setInterval(poll,3000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});try{tg&&tg.onEvent('activated',poll)}catch(e){}}
 </script></body></html>

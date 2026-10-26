@@ -18,6 +18,11 @@
 // ║  Блок «Информация об аккаунте» из welcome-текста убран — вся         ║
 // ║  статистика теперь в мини-аппе.                                      ║
 // ║  /statapp — карточка со свежим снимком командой из игрового чата.    ║
+// ║                                                                      ║
+// ║  LIVE: каждые ~4 с (и не реже раза в 20 с) снимок пишется в Firebase ║
+// ║  Realtime Database по секретному ключу из ссылки (?k=…). Открытый    ║
+// ║  мини-апп сам перечитывает его каждые 3 с — перезаходить не нужно.   ║
+// ║  Firebase недоступен — апп показывает снимок из ссылки (?d=…).       ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 try { (function () {
     function dbg(m) { try { console.log('[CODE3][STATAPP] ' + m); } catch (e) {} }
@@ -135,8 +140,8 @@ try { (function () {
     }
 
     // Ссылка со снимком; не влезает в лимит Telegram — по шагам убираем второстепенное
-    function buildUrl(d) {
-        const steps = [
+    function trimSteps(d) {
+        return [
             function () {},
             function () { delete d.ns; delete d.afk; },
             function () { delete d.pos; delete d.on; },
@@ -146,19 +151,86 @@ try { (function () {
             function () { d.pd = d.pd.slice(0, 4); d.b = d.b.slice(0, 1); },
             function () { d.pd = []; d.b = []; d.j = []; delete d.hud; }
         ];
+    }
+
+    // Ссылка: секретный ключ k (по нему мини-апп сам берёт свежие данные) + снимок d как запасной вариант
+    function buildUrl(d) {
+        const steps = trimSteps(d);
+        const base = APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + 'k=' + statsKey() + '&d=';
         let url = '';
         for (let i = 0; i < steps.length; i++) {
             steps[i]();
-            url = APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + 'd=' + b64url(JSON.stringify(d));
+            url = base + b64url(JSON.stringify(d));
             if (url.length <= URL_MAX) break;
         }
         return url;
     }
 
+    // ── LIVE: снимок каждые несколько секунд уходит в Firebase, открытый мини-апп читает его сам ──
+    const DB_URL = 'https://haeb-41fcc-default-rtdb.firebaseio.com';
+    const DB_MAX = 3900;           // правило Firebase: строка короче 4000 символов
+    const LIVE_EVERY = 4000;       // как часто проверяем, изменилось ли что-то, мс
+    const LIVE_HEARTBEAT = 20000;  // если не менялось — всё равно обновляем метку времени, мс
+
+    // Секретный ключ: случайный, создаётся один раз и хранится в localStorage игры
+    function statsKey() {
+        const lsName = 'hassleStatsKey' + (window.ACCOUNT_NUMBER ? '_' + window.ACCOUNT_NUMBER : '');
+        let k = null;
+        try { k = localStorage.getItem(lsName); } catch (e) {}
+        if (!k) k = window.__hassleStatsKey;
+        if (!k || !/^[A-Za-z0-9]{20,}$/.test(k)) {
+            const A = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let r = [];
+            try { const u = new Uint8Array(28); crypto.getRandomValues(u); r = Array.prototype.slice.call(u); } catch (e) {}
+            k = '';
+            for (let i = 0; i < 28; i++) k += A[(r.length ? r[i] : Math.floor(Math.random() * 62)) % 62];
+            try { localStorage.setItem(lsName, k); } catch (e) {}
+        }
+        window.__hassleStatsKey = k;
+        return k;
+    }
+
+    let liveSig = '', liveAt = 0, liveBusy = false, liveFails = 0;
+    function livePush(force) {
+        if (stale() || !ready() || liveBusy) return;
+        let d;
+        try { d = collect(); } catch (e) { return; }
+        const c = Object.assign({}, d); delete c.t;
+        const sig = JSON.stringify(c), now = Date.now();
+        if (!force && sig === liveSig && now - liveAt < LIVE_HEARTBEAT) return;   // ничего не поменялось
+        const steps = trimSteps(d);
+        let str = '';
+        for (let i = 0; i < steps.length; i++) { steps[i](); str = JSON.stringify(d); if (str.length <= DB_MAX) break; }
+        liveBusy = true;
+        const x = new XMLHttpRequest();
+        x.open('PUT', DB_URL + '/stats/' + statsKey() + '.json', true);
+        x.timeout = 10000;
+        const fin = function (ok, st) {
+            liveBusy = false;
+            if (ok) { if (liveFails) dbg('LIVE: связь с Firebase восстановлена'); liveFails = 0; liveSig = sig; liveAt = Date.now(); }
+            else {
+                liveFails++;
+                if (liveFails === 1 || liveFails % 30 === 0) dbg('LIVE: не записалось в Firebase (' + (st || 'сеть') + ')' + (st === 401 || st === 403 ? ' — проверьте Rules' : ''));
+            }
+        };
+        x.onload = function () { fin(x.status >= 200 && x.status < 300, x.status); };
+        x.onerror = function () { fin(false, 0); };
+        x.ontimeout = function () { fin(false, 0); };
+        x.send(JSON.stringify(str));   // правило базы принимает только строку — кладём JSON как строку
+    }
+
+    try { if (window.__hassleStatsTimer) clearInterval(window.__hassleStatsTimer); } catch (e) {}
+    const liveTimer = setInterval(function () {
+        if (stale()) { clearInterval(liveTimer); return; }
+        try { livePush(false); } catch (e) {}
+    }, LIVE_EVERY);
+    window.__hassleStatsTimer = liveTimer;
+
     function fm(n) { try { return fmtMoney(n); } catch (e) { return String(n); } }
 
     // web_app-кнопка работает только в личке с ботом; в группе — запасная кнопка-ссылка
     function sendCard() {
+        try { livePush(true); } catch (e) {}
         const d = collect(), url = buildUrl(d);
         const text = '📊 <b>Статистика (' + esc(who()) + ')</b>';
         (config.chatIds || []).forEach(function (chatId) {
@@ -242,7 +314,7 @@ try { (function () {
         obj.inline_keyboard.forEach(function (row) {
             row.forEach(function (b, i) {
                 if (!b || b.callback_data !== cb) return;
-                if (!url) url = buildUrl(collect());
+                if (!url) { url = buildUrl(collect()); try { livePush(false); } catch (e) {} }
                 const nb = { text: b.text };
                 if (b.style) nb.style = b.style;
                 if (priv) nb.web_app = { url: url }; else nb.url = url;
@@ -277,6 +349,6 @@ try { (function () {
         return origTgApi.call(this, method, payload, onSuccess, failBack, retryCount);
     };
 
-    dbg('Мини-апп статистики загружен (кнопка «Инфо об аккаунте» открывает его сразу, /statapp)');
+    dbg('Мини-апп статистики загружен (кнопка «Инфо об аккаунте» открывает его сразу, /statapp, live через Firebase)');
 })(); } catch (e) { try { console.error('[STATAPP] ошибка Stats.js:', e); } catch (e2) {} }
 // END Stats.js //
