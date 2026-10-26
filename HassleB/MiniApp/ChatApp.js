@@ -7,7 +7,7 @@
 // ║    копит последние сообщения чата: [время, цвет, текст].             ║
 // ║  • Каждые ~1.5 с (если были новые) пишет их в Firebase               ║
 // ║    /chat/<ключ>.json — строкой, как /stats (лимит < 4000 символов).  ║
-// ║  • В welcome-сообщение и в «Управление» добавляет кнопку «💬 Чат»:   ║
+// ║  • В меню «Функции» добавляет кнопку «💬 Чат» (рядом с «Написать»):  ║
 // ║    в личке — web_app, в беседе — ссылка. Не приняли — callback-кнопка║
 // ║    (local_chat_app_<id>) шлёт карточку с кнопкой.                    ║
 // ║  • /chatapp в игровом чате — прислать карточку с кнопкой.            ║
@@ -209,14 +209,15 @@ try { (function () {
     window.sendChatInputCustom = myChat;
     try { sendChatInput = myChat; } catch (e) {}
 
-    // ── Кнопка «💬 Чат» рядом с «Инфо об аккаунте» (welcome и «Управление») ──
-    // Вставляем отдельным рядом на лету в tgApi, код меню в Code.js не трогаем.
+    // ── Кнопка «💬 Чат» в меню «Функции» — в одном ряду с «📝 Написать в чат» ──
+    // Меню «Функции» есть и в Code.js, и в Code2.js (там своя копия showFunctionsMenu) — обе содержат кнопку request_chat_message_.
+    // Вставляем на лету в tgApi, код меню не трогаем.
     const BTN_ERR = /BUTTON_|WEB_APP|wrong HTTP URL|URL_INVALID/i;
-    const ACC = 'local_account_info_' + uniqueId;
+    const ANC = 'request_chat_message_' + uniqueId;   // «📝 Написать в чат» — рядом с ней встаёт «💬 Чат»
 
     function addChatButton(payload) {
         const mk = payload.reply_markup, isStr = typeof mk === 'string';
-        if (isStr && mk.indexOf(ACC) === -1 && mk.indexOf(CB) === -1) return false;
+        if (isStr && mk.indexOf(ANC) === -1 && mk.indexOf(CB) === -1) return false;
         let obj;
         try { obj = JSON.parse(isStr ? mk : JSON.stringify(mk)); } catch (e) { return false; }
         if (!obj || !obj.inline_keyboard) return false;
@@ -225,7 +226,7 @@ try { (function () {
         rows.forEach(function (row, i) {
             row.forEach(function (b) {
                 if (!b) return;
-                if (b.callback_data === ACC && idx < 0) idx = i;
+                if (b.callback_data === ANC && idx < 0) idx = i;
                 if (b.callback_data === CB || (b.text && b.text.indexOf('💬 Чат') === 0)) has = true;
             });
         });
@@ -239,7 +240,7 @@ try { (function () {
         if (has) {   // кнопка уже есть (например, от старой копии) — только подменяем callback на ссылку
             rows.forEach(function (row) { row.forEach(function (b, i) { if (b && b.callback_data === CB) row[i] = mkBtn(); }); });
         } else {
-            rows.splice(idx + 1, 0, [mkBtn()]);
+            rows[idx].push(mkBtn());
         }
         payload.reply_markup = isStr ? JSON.stringify(obj) : obj;
         return true;
@@ -265,7 +266,7 @@ try { (function () {
                     const o = JSON.parse(typeof backup === 'string' ? backup : JSON.stringify(backup));
                     const rows = o.inline_keyboard;
                     for (let i = 0; i < rows.length; i++) {
-                        if (rows[i].some(function (b) { return b && b.callback_data === ACC; })) { rows.splice(i + 1, 0, [{ text: '💬 Чат', callback_data: CB }]); break; }
+                        if (rows[i].some(function (b) { return b && b.callback_data === ANC; })) { rows[i].push({ text: '💬 Чат', callback_data: CB }); break; }
                     }
                     payload.reply_markup = typeof backup === 'string' ? JSON.stringify(o) : o;
                 } catch (e) { payload.reply_markup = backup; }
