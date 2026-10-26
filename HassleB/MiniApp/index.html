@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Игроки рядом</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f1f1f4);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8a8a8e);
+    --link: var(--tg-theme-link-color, #2481cc);
+    --btn: var(--tg-theme-button-color, #2481cc);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --ok: #2ea043;
+    --warn: #d29922;
+    --bad: #cf4b4b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--bg2); color: var(--text);
+    font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { padding: 12px 12px calc(16px + env(safe-area-inset-bottom, 0px)); }
+
+  .head { background: var(--bg); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+  .head h1 { margin: 0 0 4px; font-size: 18px; }
+  .head .sub { color: var(--hint); font-size: 13px; }
+  .stats { display: flex; gap: 8px; margin-top: 12px; }
+  .stat { flex: 1; background: var(--bg2); border-radius: 10px; padding: 8px 10px; text-align: center; }
+  .stat b { display: block; font-size: 20px; }
+  .stat span { color: var(--hint); font-size: 12px; }
+
+  .age { margin-top: 10px; font-size: 12px; color: var(--hint); }
+  .age.old { color: var(--warn); }
+
+  .list { background: var(--bg); border-radius: 14px; overflow: hidden; }
+  .row { position: relative; display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+    border-bottom: 1px solid var(--bg2); cursor: pointer; }
+  .row:last-child { border-bottom: 0; }
+  .row:active { background: var(--bg2); }
+  .bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--btn); opacity: .55; border-radius: 0 3px 0 0; }
+  .row.reach .bar { background: var(--ok); opacity: .9; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--hint); flex: none; opacity: .5; }
+  .row.reach .dot { background: var(--ok); opacity: 1; box-shadow: 0 0 0 4px rgba(46,160,67,.18); }
+  .who { flex: 1; min-width: 0; }
+  .nick { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pid { color: var(--hint); font-size: 12px; }
+  .dist { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .row.reach .dist { color: var(--ok); }
+
+  .empty { background: var(--bg); border-radius: 14px; padding: 28px 14px; text-align: center; color: var(--hint); }
+  .note { margin: 12px 4px 0; color: var(--hint); font-size: 12px; text-align: center; }
+  .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px);
+    background: rgba(0,0,0,.82); color: #fff; padding: 9px 16px; border-radius: 20px; font-size: 14px;
+    opacity: 0; transition: .2s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .demo { display: inline-block; background: var(--warn); color: #000; font-size: 11px; padding: 1px 7px; border-radius: 8px; margin-left: 6px; vertical-align: 2px; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>📍 Игроки рядом <span id="demo" class="demo" hidden>демо</span></h1>
+    <div class="sub" id="acc">—</div>
+    <div class="stats">
+      <div class="stat"><b id="sCount">0</b><span>рядом</span></div>
+      <div class="stat"><b id="sReach">0</b><span id="sReachLbl">в радиусе</span></div>
+      <div class="stat"><b id="sMin">—</b><span>ближайший</span></div>
+    </div>
+    <div class="age" id="age"></div>
+  </div>
+
+  <div id="out"></div>
+  <div class="note">Нажмите на игрока — ID скопируется.<br>Список — снимок на момент нажатия кнопки в Telegram.</div>
+  <div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+
+  var $ = function (id) { return document.getElementById(id); };
+  function haptic(kind) { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(kind || 'light'); } catch (e) {} }
+
+  // ── разбор снимка из ?d=<base64url(JSON)> ──
+  // JSON: { t: время снимка (мс), a: аккаунт/ник, r: радиус /givelic (м), p: [[id, ник, дистанция], ...] }
+  function decode(s) {
+    s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+  }
+
+  var data = null, demo = false;
+  try {
+    var q = new URLSearchParams(location.search).get('d');
+    if (q) data = decode(q);
+  } catch (e) { data = null; }
+
+  if (!data) {   // открыли без данных (например, прямо в браузере) — показываем демо, чтобы можно было проверить вид
+    demo = true;
+    data = { t: Date.now(), a: 'Демо-аккаунт', r: 6, p: [
+      [12, 'Ivan_Petrov', 2.4], [87, 'Alex_Smirnov', 5.1], [301, 'Dima_Kozlov', 9.8],
+      [45, 'Oleg_Voronin', 14.3], [150, 'Max_Belov', 22.7], [9, 'Sergey_Orlov', 28.9]
+    ] };
+  }
+  $('demo').hidden = !demo;
+
+  var reachR = Number(data.r) || 6;
+  var players = (data.p || []).map(function (a) {
+    return { id: a[0], nick: String(a[1] == null ? '?' : a[1]).replace(/_/g, ' '), d: a[2] == null ? null : Number(a[2]) };
+  }).sort(function (x, y) { return (x.d == null ? 1e9 : x.d) - (y.d == null ? 1e9 : y.d); });
+
+  function fmt(d) { return d == null ? '?' : (d < 10 ? d.toFixed(1) : String(Math.round(d))) + ' м'; }
+
+  // ── отрисовка ──
+  $('acc').textContent = data.a ? ('Аккаунт: ' + data.a) : '';
+  $('sReachLbl').textContent = 'до ' + reachR + ' м';
+  var reach = players.filter(function (p) { return p.d != null && p.d <= reachR; });
+  $('sCount').textContent = players.length;
+  $('sReach').textContent = reach.length;
+  $('sMin').textContent = players.length ? fmt(players[0].d) : '—';
+
+  var out = $('out');
+  if (!players.length) {
+    out.innerHTML = '<div class="empty">Рядом никого нет</div>';
+  } else {
+    var list = document.createElement('div'); list.className = 'list';
+    var MAXD = 30;   // шкала полоски: радиус чата сервера
+    players.forEach(function (p) {
+      var row = document.createElement('div');
+      row.className = 'row' + ((p.d != null && p.d <= reachR) ? ' reach' : '');
+      var w = p.d == null ? 0 : Math.max(3, Math.min(100, 100 - (p.d / MAXD) * 100));
+      row.innerHTML = '<span class="dot"></span>' +
+        '<div class="who"><div class="nick"></div><div class="pid"></div></div>' +
+        '<div class="dist"></div><div class="bar" style="width:' + w + '%"></div>';
+      row.querySelector('.nick').textContent = p.nick;
+      row.querySelector('.pid').textContent = 'ID ' + p.id;
+      row.querySelector('.dist').textContent = fmt(p.d);
+      row.addEventListener('click', function () { copyId(p); });
+      list.appendChild(row);
+    });
+    out.appendChild(list);
+  }
+
+  // ── «возраст» снимка ──
+  function renderAge() {
+    var s = Math.max(0, Math.round((Date.now() - Number(data.t || Date.now())) / 1000));
+    var el = $('age');
+    el.textContent = 'Снимок: ' + (s < 60 ? s + ' с' : Math.floor(s / 60) + ' мин ' + (s % 60) + ' с') + ' назад';
+    el.className = 'age' + (s > 60 ? ' old' : '');
+  }
+  renderAge(); setInterval(renderAge, 1000);
+
+  // ── копирование ID ──
+  var toastT = null;
+  function toast(t) { var el = $('toast'); el.textContent = t; el.className = 'toast show'; clearTimeout(toastT); toastT = setTimeout(function () { el.className = 'toast'; }, 1400); }
+  function copyId(p) {
+    var s = String(p.id);
+    haptic('light');
+    function done() { toast('ID ' + s + ' скопирован'); }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(s).then(done, fallback); return; }
+    } catch (e) {}
+    fallback();
+    function fallback() {
+      try {
+        var ta = document.createElement('textarea'); ta.value = s; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done();
+      } catch (e) { toast('ID ' + s); }
+    }
+  }
+})();
+</script>
+</body>
+</html>
