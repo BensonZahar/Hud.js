@@ -26,6 +26,8 @@ try { (function () {
     const MSG_MAX = 260;          // обрезка одной строки
     const EVERY = 1500;           // как часто проверяем, есть ли новое, мс
     const HEARTBEAT = 20000;      // новых нет — всё равно обновляем метку времени, мс
+    const URL_MAX = 1900;         // лимит ссылки-кнопки Telegram (как в Stats.js)
+    const SNAP_TXT = 150;         // обрезка строки в снимке-ссылке
 
     function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
     function stale() { try { return typeof __hassleStale === 'function' && !!__hassleStale(); } catch (e) { return false; } }
@@ -48,7 +50,43 @@ try { (function () {
         window.__hassleChatKey = k;
         return k;
     }
-    function appUrl() { return APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + 'k=' + chatKey() + '&n=' + encodeURIComponent(who()); }
+    function b64url(str) {   // вручную: TextEncoder/btoa в движке игры могут отсутствовать (как в Stats.js)
+        const bytes = [];
+        for (let i = 0; i < str.length; i++) {
+            let c = str.charCodeAt(i);
+            if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.length) {
+                const c2 = str.charCodeAt(i + 1);
+                if (c2 >= 0xDC00 && c2 <= 0xDFFF) { c = 0x10000 + ((c - 0xD800) << 10) + (c2 - 0xDC00); i++; }
+            }
+            if (c < 0x80) bytes.push(c);
+            else if (c < 0x800) bytes.push(0xC0 | (c >> 6), 0x80 | (c & 63));
+            else if (c < 0x10000) bytes.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+            else bytes.push(0xF0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+        }
+        const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+        let out = '';
+        for (let i = 0; i < bytes.length; i += 3) {
+            const b0 = bytes[i], b1 = bytes[i + 1], b2 = bytes[i + 2];
+            out += A[b0 >> 2] + A[((b0 & 3) << 4) | ((b1 || 0) >> 4)];
+            if (b1 !== undefined) out += A[((b1 & 15) << 2) | ((b2 || 0) >> 6)];
+            if (b2 !== undefined) out += A[b2 & 63];
+        }
+        return out;
+    }
+
+    // Ссылка: ключ k (по нему мини-апп сам берёт свежий чат из Firebase) + снимок d последних сообщений как запасной
+    // вариант (Firebase недоступен — апп покажет снимок на момент отправки кнопки). Не влезает в лимит — режем старые.
+    function appUrl() {
+        const base = APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + 'k=' + chatKey() + '&n=' + encodeURIComponent(who()) + '&d=';
+        const now = Date.now();
+        const m = buf.map(function (r) { return [Math.max(0, Math.round((now - r[0]) / 1000)), r[1], String(r[2]).slice(0, SNAP_TXT)]; });
+        let url = base + b64url(JSON.stringify({ t: now, m: m }));
+        while (url.length > URL_MAX && m.length > 1) {
+            m.shift();
+            url = base + b64url(JSON.stringify({ t: now, m: m }));
+        }
+        return url;
+    }
 
     // ── Буфер сообщений (на window — переживает /reload) ──
     const buf = window.__hassleChatBuf = window.__hassleChatBuf || [];

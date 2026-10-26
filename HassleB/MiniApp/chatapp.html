@@ -40,6 +40,11 @@ $('#who').textContent=Q.get('n')||'';
 const NEAR=['EEEEEE','CECECE','999999','6B6B6B'],RADIO=['33CC66'];
 const TABS=[['Все','💬',()=>true],['Рядом','🗣',m=>NEAR.includes(m[1])],['Рация','📻',m=>RADIO.includes(m[1])],['Остальное','📢',m=>!NEAR.includes(m[1])&&!RADIO.includes(m[1])]];
 let cur=0,all=[],seen=new Set(),got=false,fails=0,busy=false,lastT=null,seenAt=0,stick=true;
+let snapT=null,usingSnap=false;
+// Снимок последних сообщений из ссылки (?d=…): [секунд назад, цвет, текст] — запасной вариант, если Firebase недоступен
+function dec(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s),c=>c.charCodeAt(0))))}
+try{const dq=Q.get('d');if(dq){const sn=dec(dq);if(sn&&Array.isArray(sn.m)){snapT=sn.t||Date.now();
+ sn.m.forEach(r=>{const m=[snapT-(r[0]||0)*1000,r[1],r[2]];seen.add(m[0]+'|'+m[2]);all.push(m)});usingSnap=all.length>0}}}catch(e){}
 
 const pad=n=>String(n).padStart(2,'0'),
 hhmm=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())};
@@ -56,14 +61,15 @@ function render(){
  L.innerHTML=list.length?list.map(m=>'<div class="m"><time>'+hhmm(m[0])+'</time>'+paint(m[2],m[1])+'</div>').join(''):'<div class="empty">'+emptyMsg()+'</div>';
  if(stick)L.scrollTop=L.scrollHeight;
  $('#dn').style.display=stick?'none':'block'}
-function emptyMsg(){return !K?'Нет ключа.<br>Откройте мини-апп кнопкой «💬 Чат» из бота.':got?(all.length?'В этой вкладке пока пусто.':'Сообщений пока нет.'):fails>=3?'Нет связи с сервером.':'Загружаю…'}
+function emptyMsg(){return !K&&!snapT?'Нет данных.<br>Откройте мини-апп кнопкой «💬 Чат» из бота.':got?(all.length?'В этой вкладке пока пусто.':'Сообщений пока нет.'):fails>=3?'Нет связи с сервером.':'Загружаю…'}
 function show(i){cur=i;const T=document.querySelectorAll('.tab');T.forEach((t,k)=>t.classList.toggle('on',k==i));
  const t=T[i];$('#ln').style.width=t.offsetWidth+'px';$('#ln').style.transform='translateX('+t.offsetLeft+'px)';stick=true;render()}
 const ago=s=>s<60?s+' с':Math.floor(s/60)+' мин';
-function tick(){const f=$('#ft');if(!K){f.textContent='';return}
+function tick(){const f=$('#ft');if(!K){f.textContent=snapT?'Снимок на '+hhmm(snapT):'';return}
+ const sn=usingSnap&&snapT?' · показан снимок от '+hhmm(snapT):'';
  const a=Math.max(0,Math.round((Date.now()-seenAt)/1000));
- f.innerHTML=fails>=3?'<span class="warn">⚠️ нет связи с сервером</span>'+(got?' · данные '+ago(a)+' назад':'')
-  :!got?'<span class="mut">подключаюсь…</span>'
+ f.innerHTML=fails>=3?'<span class="warn">⚠️ нет связи с сервером</span>'+(got?' · данные '+ago(a)+' назад':sn)
+  :!got?'<span class="mut">подключаюсь…</span>'+sn
   :a<45?'<span class="ok">● live</span> · обновлено '+ago(a)+' назад'
   :'<span class="bad">● игра не отвечает</span> · данные '+ago(a)+' назад'}
 // Склеиваем свежий кусок с накопленной историей (в базе ~35 последних, здесь копится дольше)
@@ -80,6 +86,7 @@ async function poll(){
   const s=await r.json(),first=!got;got=true;fails=0;
   if(typeof s==='string'){
    const o=JSON.parse(s);
+   if(usingSnap){all=[];seen.clear();usingSnap=false}
    if(o.t!==lastT){lastT=o.t;seenAt=Date.now()-(first?Math.min(Math.max(0,Date.now()-o.t),36e5):0)}
    if(merge(o.m||[])||first)render()
   }else if(first)render();
