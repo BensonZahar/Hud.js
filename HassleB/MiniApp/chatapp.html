@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Чат</title>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wdth,wght@0,75..100,400..800;1,75..100,700&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--a:#ffb110;--bg:#010106;--tx:#eeeee6;--card:#ffffff0d;--g:#1aae39;--r:#e8433f;--y:#ffb110}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;display:flex;flex-direction:column;background:radial-gradient(120% 60% at 50% 0,#14110a 0,var(--bg) 60%) var(--bg);color:var(--tx);font:600 14px/1.35 "Open Sans",Arial,sans-serif}
+.hd{flex:none;position:relative;background:#010106f5;padding:env(safe-area-inset-top) 14px 0;display:flex;align-items:center;justify-content:space-between}
+.hd::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:#ffffff26}
+.tabs{display:flex;position:relative;height:50px;overflow-x:auto;scrollbar-width:none}
+.tab{display:flex;align-items:center;gap:6px;margin-right:18px;padding:0 2px;font:italic 700 15px "Open Sans",Arial;font-stretch:75%;text-transform:uppercase;color:#fff9;cursor:pointer;white-space:nowrap;transition:.25s}
+.tab.on{color:#fff}
+#ln{position:absolute;bottom:0;left:0;height:3px;width:0;background:var(--a);border-radius:4px 4px 0 0;box-shadow:0 -3px 18px #f9b701;transition:.25s}
+.who{font:italic 700 13px "Open Sans";font-stretch:75%;text-transform:uppercase;color:#fff9;text-align:right;white-space:nowrap;padding-left:10px;overflow:hidden;text-overflow:ellipsis}
+#log{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:10px 14px;max-width:640px;width:100%;margin:0 auto}
+.m{padding:3px 0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.35}
+.m time{color:#fff5;font-size:11px;font-weight:600;margin-right:6px;font-variant-numeric:tabular-nums}
+.empty{text-align:center;color:#fff6;padding:40px 0}
+.ft{flex:none;text-align:center;color:#fff5;font-size:11px;padding:6px 0 calc(6px + env(safe-area-inset-bottom));border-top:1px solid #ffffff14}
+.ok{color:var(--g)}.bad{color:var(--r)}.warn{color:var(--y)}.mut{color:#fff9}
+#dn{position:fixed;right:14px;bottom:calc(40px + env(safe-area-inset-bottom));display:none;padding:7px 14px;border-radius:20px;background:var(--a);color:#000;font:italic 800 12px "Open Sans";font-stretch:75%;text-transform:uppercase;box-shadow:0 4px 16px #0008;cursor:pointer}
+</style></head><body>
+<div class="hd"><div class="tabs" id="tabs"><i id="ln"></i></div><div class="who" id="who"></div></div>
+<div id="log"></div>
+<div id="dn">↓ новые</div>
+<div class="ft" id="ft"></div>
+<script>
+const $=s=>document.querySelector(s),
+E=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const Q=new URLSearchParams(location.search),K=Q.get('k'),DB='https://haeb-41fcc-default-rtdb.firebaseio.com';
+const tg=window.Telegram&&Telegram.WebApp;
+if(tg){try{tg.ready();tg.expand();tg.setHeaderColor('#010106');tg.setBackgroundColor('#010106')}catch(e){}}
+$('#who').textContent=Q.get('n')||'';
+
+// Радиус по цвету строки — как getChatRadius в Code.js
+const NEAR=['EEEEEE','CECECE','999999','6B6B6B'],RADIO=['33CC66'];
+const TABS=[['Все','💬',()=>true],['Рядом','🗣',m=>NEAR.includes(m[1])],['Рация','📻',m=>RADIO.includes(m[1])],['Остальное','📢',m=>!NEAR.includes(m[1])&&!RADIO.includes(m[1])]];
+let cur=0,all=[],seen=new Set(),got=false,fails=0,busy=false,lastT=null,seenAt=0,stick=true;
+
+const pad=n=>String(n).padStart(2,'0'),
+hhmm=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())};
+// «{RRGGBB}» / «{RRGGBBAA}» в тексте меняет цвет дальше (как colors.js в игре); до первого кода — цвет строки.
+// Токен вида {xxxxxx} игра съедает всегда, но красит только если это настоящий hex-цвет.
+function paint(text,base){
+ const b=/^[0-9A-F]{6}$/i.test(base)&&base!=='000000'?'#'+base:'var(--tx)';
+ let out='',last=0,col=b,m;const rx=/\{([a-zA-Z0-9]{6}|[a-zA-Z0-9]{8})\}/g;
+ while((m=rx.exec(text))){if(m.index>last)out+='<span style="color:'+col+'">'+E(text.slice(last,m.index))+'</span>';if(/^[0-9A-Fa-f]+$/.test(m[1]))col='#'+m[1];last=rx.lastIndex}
+ if(last<text.length)out+='<span style="color:'+col+'">'+E(text.slice(last))+'</span>';
+ return out}
+function render(){
+ const L=$('#log'),f=TABS[cur][2],list=all.filter(f);
+ L.innerHTML=list.length?list.map(m=>'<div class="m"><time>'+hhmm(m[0])+'</time>'+paint(m[2],m[1])+'</div>').join(''):'<div class="empty">'+emptyMsg()+'</div>';
+ if(stick)L.scrollTop=L.scrollHeight;
+ $('#dn').style.display=stick?'none':'block'}
+function emptyMsg(){return !K?'Нет ключа.<br>Откройте мини-апп кнопкой «💬 Чат» из бота.':got?(all.length?'В этой вкладке пока пусто.':'Сообщений пока нет.'):fails>=3?'Нет связи с сервером.':'Загружаю…'}
+function show(i){cur=i;const T=document.querySelectorAll('.tab');T.forEach((t,k)=>t.classList.toggle('on',k==i));
+ const t=T[i];$('#ln').style.width=t.offsetWidth+'px';$('#ln').style.transform='translateX('+t.offsetLeft+'px)';stick=true;render()}
+const ago=s=>s<60?s+' с':Math.floor(s/60)+' мин';
+function tick(){const f=$('#ft');if(!K){f.textContent='';return}
+ const a=Math.max(0,Math.round((Date.now()-seenAt)/1000));
+ f.innerHTML=fails>=3?'<span class="warn">⚠️ нет связи с сервером</span>'+(got?' · данные '+ago(a)+' назад':'')
+  :!got?'<span class="mut">подключаюсь…</span>'
+  :a<45?'<span class="ok">● live</span> · обновлено '+ago(a)+' назад'
+  :'<span class="bad">● игра не отвечает</span> · данные '+ago(a)+' назад'}
+// Склеиваем свежий кусок с накопленной историей (в базе ~35 последних, здесь копится дольше)
+function merge(msgs){let add=0;
+ for(const m of msgs){const id=(m[3]!=null?m[3]+'|':'')+m[0]+'|'+m[2];if(seen.has(id))continue;seen.add(id);all.push(m);add++}
+ if(add){all.sort((a,b)=>a[0]-b[0]);if(all.length>400){all=all.slice(-400)}}
+ return add}
+async function poll(){
+ if(!K||busy||document.hidden)return;busy=true;
+ const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),8000);
+ try{
+  const r=await fetch(DB+'/chat/'+encodeURIComponent(K)+'.json',{cache:'no-store',signal:ac.signal});
+  if(!r.ok)throw 0;
+  const s=await r.json(),first=!got;got=true;fails=0;
+  if(typeof s==='string'){
+   const o=JSON.parse(s);
+   if(o.t!==lastT){lastT=o.t;seenAt=Date.now()-(first?Math.min(Math.max(0,Date.now()-o.t),36e5):0)}
+   if(merge(o.m||[])||first)render()
+  }else if(first)render();
+  tick()
+ }catch(e){fails++;tick();if(!all.length)render()}
+ clearTimeout(tm);busy=false}
+const L=$('#log');
+L.addEventListener('scroll',()=>{stick=L.scrollHeight-L.scrollTop-L.clientHeight<40;$('#dn').style.display=stick?'none':'block'});
+$('#dn').onclick=()=>{stick=true;L.scrollTop=L.scrollHeight;$('#dn').style.display='none'};
+TABS.forEach((t,i)=>{const e=document.createElement('div');e.className='tab';e.innerHTML=t[1]+'<span>'+t[0]+'</span>';e.onclick=()=>show(i);$('#tabs').appendChild(e)});
+show(0);document.fonts&&document.fonts.ready.then(()=>show(cur));
+setInterval(tick,1000);
+if(K){poll();setInterval(poll,2000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});try{tg&&tg.onEvent('activated',poll)}catch(e){}}
+</script></body></html>
