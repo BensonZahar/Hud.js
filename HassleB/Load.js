@@ -438,18 +438,19 @@ async function initializeScripts() {
         console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
 
         // ── ЭТАП 1: скачиваем всё, старая копия пока работает ──
-        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, Near.js (параллельно)...');
+        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, Near.js, MiniApp/MiniApp.js (параллельно)...');
         const optional = (name, retries) => fetchRawText(name, retries).catch(e => {
             console.warn(`⚠️ ${name} не загружен (работаем без него):`, e && e.message);
             return null;
         });
-        const [listText, code2Text, codeText, code3Raw, ozvText, nearRaw] = await Promise.all([
+        const [listText, code2Text, codeText, code3Raw, ozvText, nearRaw, miniRaw] = await Promise.all([
             fetchRawText('List.js'),
             fetchRawText('Code2.js'),
             fetchRawText('Code.js'),
             optional('Code3.js', 3),   // помощник лицензёра — необязательный
             optional('Ozv.js', 1),     // озвучка — необязательная; 404 не повторяется
-            optional('Near.js', 2)     // игроки рядом (нужен APK с модом Near) — необязательный
+            optional('Near.js', 2),    // игроки рядом (нужен APK с модом Near) — необязательный
+            optional('MiniApp/MiniApp.js', 2)   // общий загрузчик мини-аппов (HassleB/MiniApp/MiniApp.js): сам качает мини-аппы из своего списка — необязательный
         ]);
 
         // ── Проверка синтаксиса до замены копий ──
@@ -474,6 +475,16 @@ async function initializeScripts() {
                 console.warn('⚠️ Near.js с синтаксической ошибкой — пропущен:', errN.message);
                 loaderNotify(`⚠️ <b>Near.js</b> с синтаксической ошибкой — пропущен (бот работает без него)\n<code>${String(errN.message).replace(/</g, '&lt;')}</code>`);
                 nearText = null;
+            }
+        }
+
+        let miniText = miniRaw;
+        if (miniText) {
+            const errM = syntaxError(miniText);
+            if (errM) {
+                console.warn('⚠️ MiniApp/MiniApp.js с синтаксической ошибкой — пропущен:', errM.message);
+                loaderNotify(`⚠️ <b>MiniApp/MiniApp.js</b> с синтаксической ошибкой — пропущен (мини-аппы не загружены)\n<code>${String(errM.message).replace(/</g, '&lt;')}</code>`);
+                miniText = null;
             }
         }
 
@@ -512,6 +523,14 @@ async function initializeScripts() {
         // ему нужен sendToTelegram из области видимости Code.js. Вложенный eval в try: сломанный Near.js остальное не ломает.
         if (nearText) {
             window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(nearText) + '); } catch (eNear) { console.warn("[NEAR] не запущен:", eNear && eNear.message); }\n';
+        }
+
+        // MiniApp/MiniApp.js — общий загрузчик мини-аппов (Stats.js и любые будущие из его списка FILES). Подклеиваем самым последним,
+        // поверх Near: сам MiniApp.js докачивает файлы мини-аппов и выполняет их в области видимости Code.js (config, processUpdates, tgApi…).
+        // Новые мини-аппы добавляются строкой в FILES на GitHub — этот файл (Load.js) менять не нужно.
+        // Вложенный eval в try: сломанный MiniApp.js остальное не ломает.
+        if (miniText) {
+            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(miniText) + '); } catch (eMini) { console.warn("[MINIAPP] не запущен:", eMini && eMini.message); }\n';
         }
 
         // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
