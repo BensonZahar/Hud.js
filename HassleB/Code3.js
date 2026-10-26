@@ -2948,6 +2948,7 @@ try { (function () {
             });
             if (!arr.length) rows.push([btn('Рядом никого нет', PFX + 'near|' + uid)]);
             else if (arr.length > shown.length) rows.push([btn('… и ещё ' + (arr.length - shown.length) + ' (дальше)', PFX + 'near|' + uid)]);
+            if (arr.length && typeof window.__nearAppBtn === 'function') { try { rows.push([window.__nearAppBtn(uid)]); } catch (e) {} }   // 📱 Мини-апп (тестовый блок NEAR MINI APP внизу файла)
             rows.push(nearBackRow(uid, chatId, messageId));
             put({ inline_keyboard: rows });
         }, auto);
@@ -3955,3 +3956,196 @@ try { (function () {
     c3Dbg('[LIC] Вкладка «Лицензёр» загружена. Все сообщения игроков: ' + (config.licAllMessages ? 'ВКЛ' : 'ВЫКЛ'));
 })(); } catch (e) { try { console.error('[CODE3] ошибка Telegram-вкладки «Лицензёр»:', e); } catch (e2) {} }
 // END LICENSOR TG MODULE //
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  NEAR MINI APP (ТЕСТ) — «Игроки рядом» в Telegram Mini App           ║
+// ║  Это отдельный блок: удалить всё от этой рамки до END NEAR MINI APP  ║
+// ║  (и одну строку с window.__nearAppBtn в showNear) — остальное        ║
+// ║  работает как раньше.                                                ║
+// ║                                                                      ║
+// ║  Как работает: снимок от Near.js (window.NearPlayers.refresh) кладём ║
+// ║  в ссылку мини-аппа (?d=…), Telegram открывает страницу APP_URL      ║
+// ║  (index.html из near_app, хостинг — GitHub Pages) и она рисует       ║
+// ║  список. Бэкенд не нужен.                                            ║
+// ║                                                                      ║
+// ║  /nearapp         — прислать в Telegram кнопку «📱 Открыть мини-апп» ║
+// ║  /nearapp auto    — вкл/выкл: сама присылать, когда рядом появились  ║
+// ║                     игроки (пока никого не было), не чаще 1 раза/мин ║
+// ║  Кнопка «📱 Мини-апп» есть и в Telegram-списке «Игроки рядом».       ║
+// ║  Только наш клиент (KONSTT-CLIENT) + загруженный Near.js.            ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+try { (function () {
+    function dbg(m) { try { console.log('[CODE3][NEARAPP] ' + m); } catch (e) {} }
+    if (typeof config === 'undefined' || typeof processUpdates !== 'function' || typeof tgApi !== 'function' || typeof createButton !== 'function') {
+        try { console.warn('[CODE3][NEARAPP] мини-апп не установлен: нет доступа к Code.js'); } catch (e) {}
+        return;
+    }
+
+    // ▼▼▼ ВПИШИТЕ адрес страницы мини-аппа (https, GitHub Pages: https://<логин>.github.io/<репозиторий>/) ▼▼▼
+    const APP_URL = 'https://ВАШ_ЛОГИН.github.io/hassle-near/';
+    // ▲▲▲
+    const URL_MAX = 1900;          // у Telegram лимит на длину ссылки кнопки — лишних дальних игроков из ссылки убираем
+    const PLAYERS_MAX = 30;        // не больше игроков в мини-аппе
+    const REACH_R = 6;             // радиус /givelic (м) — те, кто в нём, подсвечиваются зелёным
+    const SNAP_WAIT = 3000;        // ждать мод не дольше (мс)
+    const AUTO_EVERY_MS = 5000, AUTO_COOLDOWN_MS = 60000;
+
+    function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function stale() { try { return typeof __hassleStale === 'function' && !!__hassleStale(); } catch (e) { return false; } }
+    function isOurs() { try { return !!(window.KONSTT_CLIENT && window.KONSTT_CLIENT.ours === true); } catch (e) { return false; } }
+    function nearApi() { try { return (window.NearPlayers && typeof window.NearPlayers.refresh === 'function') ? window.NearPlayers : null; } catch (e) { return null; } }
+    function tgText(msg) { try { sendToTelegram(msg, true, null); } catch (e) { dbg('send error: ' + e.message); } }
+    function who() { return (typeof displayName !== 'undefined' && displayName) ? String(displayName) : (window.CURRENT_USER || '?'); }
+
+    function b64url(str) {
+        const bytes = new TextEncoder().encode(str);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function distOf(na, p) {
+        let d = null;
+        try { const m = na.measure && na.measure(p); if (m && m.dp != null) d = m.dp; } catch (e) {}
+        if (d == null) d = (p.d != null ? p.d : (p.d2 != null ? p.d2 : null));
+        return d;
+    }
+
+    // Свежий снимок от мода → cb({ players: [{id, nick, d}…] (ближайшие первыми) } | { err })
+    function snapshot(cb) {
+        let done = false;
+        const fin = function (r) { if (done) return; done = true; clearTimeout(t); try { cb(r); } catch (e) { dbg('cb error: ' + e.message); } };
+        const t = setTimeout(function () { fin({ err: 'Мод Near не отвечает' }); }, SNAP_WAIT);
+        if (!isOurs()) { fin({ err: 'Клиент не наш (нет KONSTT-CLIENT)' }); return; }
+        const na = nearApi();
+        if (!na) { fin({ err: 'Near.js не загружен' }); return; }
+        try {
+            na.refresh(function (j) {
+                if (!j) { fin({ err: 'Мод Near не отвечает' }); return; }
+                if (!j.ok) { fin({ err: 'Мод не готов: ' + (j.stage || 'нет данных') }); return; }
+                const arr = (j.n || []).map(function (p) {
+                    return { id: p.id, nick: String(p.nick || p.label || '?'), d: distOf(na, p) };
+                }).sort(function (a, b) { return (a.d == null ? 1e9 : a.d) - (b.d == null ? 1e9 : b.d); });
+                fin({ players: arr });
+            });
+        } catch (e) { fin({ err: 'Ошибка Near: ' + e.message }); }
+    }
+
+    // Ссылка мини-аппа со снимком; если не влезает в лимит — убираем самых дальних
+    function buildUrl(players) {
+        let n = Math.min(players.length, PLAYERS_MAX), url = '';
+        while (n >= 0) {
+            const snap = {
+                t: Date.now(), a: who(), r: REACH_R,
+                p: players.slice(0, n).map(function (p) { return [p.id, p.nick, p.d == null ? null : Math.round(p.d * 10) / 10]; })
+            };
+            url = APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + 'd=' + b64url(JSON.stringify(snap));
+            if (url.length <= URL_MAX || n === 0) break;
+            n--;
+        }
+        return url;
+    }
+
+    function fmt(d) { return d == null ? '?' : (d < 10 ? d.toFixed(1) : String(Math.round(d))) + ' м'; }
+
+    // Отправка карточки с кнопкой мини-аппа. web_app-кнопка работает только в личке с ботом;
+    // если Telegram её не принял (группа) — повторяем обычной кнопкой-ссылкой.
+    function sendCard(players, silent) {
+        const reach = players.filter(function (p) { return p.d != null && p.d <= REACH_R; }).length;
+        const text = '📍 <b>Игроки рядом (' + esc(who()) + ')</b>\nРядом: <b>' + players.length + '</b> · ближайший: ' + fmt(players[0].d) +
+            ' · в радиусе ' + REACH_R + ' м: ' + reach;
+        const url = buildUrl(players);
+        const ids = (config.chatIds || []).slice();
+        ids.forEach(function (chatId) {
+            const base = { chat_id: chatId, text: text, parse_mode: 'HTML', disable_notification: !!silent };
+            const kb = function (b) { return JSON.stringify({ inline_keyboard: [[b]] }); };
+            tgApi('sendMessage', Object.assign({}, base, { reply_markup: kb({ text: '📱 Открыть мини-апп', web_app: { url: url } }) }), null, function (status) {
+                dbg('web_app-кнопка не принята (' + status + ') — шлю обычной ссылкой');
+                tgApi('sendMessage', Object.assign({}, base, { text: text + '\n<i>(web_app-кнопка работает только в личке с ботом — открыто ссылкой)</i>', reply_markup: kb({ text: '🌐 Открыть список', url: url }) }), null, function (s2) {
+                    console.warn('[CODE3][NEARAPP] не доставлено в ' + chatId + ': ' + s2);
+                });
+            });
+        });
+    }
+
+    let _busy = false;
+    function sendApp() {
+        if (_busy) return;
+        if (APP_URL.indexOf('ВАШ_') !== -1) {
+            tgText('⚙️ <b>Мини-апп не настроен (' + esc(who()) + ')</b>\nВ блоке NEAR MINI APP внизу Code3.js впишите адрес страницы в APP_URL.');
+            return;
+        }
+        _busy = true;
+        snapshot(function (r) {
+            _busy = false;
+            if (r.err) { tgText('❌ <b>Мини-апп: ' + esc(r.err) + '</b> (' + esc(who()) + ')'); return; }
+            if (!r.players.length) { tgText('📍 Рядом никого нет (' + esc(who()) + ')'); return; }
+            sendCard(r.players, false);
+        });
+    }
+
+    // ── Автоуведомление: появились игроки рядом (было 0 → стало >0) ──
+    config.nearAppAuto = !!config.nearAppAuto;
+    let _prev = 0, _lastAuto = 0, _autoBusy = false;
+    window.setInterval(function () {
+        if (stale() || !config.nearAppAuto || _autoBusy || APP_URL.indexOf('ВАШ_') !== -1) return;
+        if (!isOurs() || !nearApi()) return;
+        _autoBusy = true;
+        snapshot(function (r) {
+            _autoBusy = false;
+            if (r.err) return;
+            const n = r.players.length;
+            if (n > 0 && _prev === 0 && Date.now() - _lastAuto >= AUTO_COOLDOWN_MS) { _lastAuto = Date.now(); sendCard(r.players, true); }
+            _prev = n;
+        });
+    }, AUTO_EVERY_MS);
+
+    // ── Кнопка в Telegram-списке «Игроки рядом» ──
+    window.__nearAppBtn = function (uid) { return createButton('📱 Мини-апп', 'napp|open|' + uid, 'primary'); };
+
+    // ── Нажатие кнопки (callback_data napp|open|<uid>) ──
+    const origProc = processUpdates;
+    processUpdates = function (updates) {
+        if (stale()) return origProc.apply(this, arguments);
+        const rest = [];
+        for (const u of updates) {
+            const cq = u.callback_query;
+            if (cq && typeof cq.data === 'string' && cq.data.indexOf('napp|') === 0 && cq.message && config.chatIds.includes(String(cq.message.chat.id))) {
+                config.lastUpdateId = u.update_id;
+                try { setSharedLastUpdateId(config.lastUpdateId); } catch (e) {}
+                const parts = cq.data.split('|');
+                if (parts[parts.length - 1] === uniqueId) {
+                    try { answerCallbackQuery(cq.id); } catch (e) {}
+                    sendApp();
+                }
+                continue;
+            }
+            rest.push(u);
+        }
+        if (rest.length) return origProc.call(this, rest);
+    };
+
+    // ── Команда в игровом чате: /nearapp · /nearapp auto ──
+    const prevWin = window.sendChatInputCustom;
+    let prevVar = null;
+    try { if (typeof sendChatInput === 'function') prevVar = sendChatInput; } catch (e) {}
+    const prevChat = prevWin || prevVar;
+    const myChat = function (e) {
+        if (!stale() && typeof e === 'string') {
+            const a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
+            if (cmd === '/nearapp') {
+                if ((a[1] || '').toLowerCase() === 'auto') {
+                    config.nearAppAuto = !config.nearAppAuto; _prev = 0;
+                    dbg('авто-уведомления: ' + (config.nearAppAuto ? 'ВКЛ' : 'ВЫКЛ'));
+                    tgText((config.nearAppAuto ? '🟢' : '🔴') + ' <b>Мини-апп: авто-уведомления ' + (config.nearAppAuto ? 'включены' : 'выключены') + '</b> (' + esc(who()) + ')');
+                } else sendApp();
+                return;
+            }
+        }
+        if (typeof prevChat === 'function') return prevChat.apply(this, arguments);
+    };
+    window.sendChatInputCustom = myChat;
+    try { sendChatInput = myChat; } catch (e) {}
+
+    dbg('Мини-апп «Игроки рядом» загружен (/nearapp, /nearapp auto). APP_URL ' + (APP_URL.indexOf('ВАШ_') !== -1 ? 'НЕ задан' : 'задан'));
+})(); } catch (e) { try { console.error('[CODE3] ошибка блока NEAR MINI APP:', e); } catch (e2) {} }
+// END NEAR MINI APP //
