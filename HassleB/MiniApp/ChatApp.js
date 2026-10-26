@@ -11,6 +11,7 @@
 // ║    в личке — web_app, в беседе — ссылка. Не приняли — callback-кнопка║
 // ║    (local_chat_app_<id>) шлёт карточку с кнопкой.                    ║
 // ║  • /chatapp в игровом чате — прислать карточку с кнопкой.            ║
+// ║  • /chatsnap — то же, но без Firebase: только снимок из ссылки.      ║
 // ║  Страница лежит рядом: HassleB/MiniApp/chatapp.html                  ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 try { (function () {
@@ -52,19 +53,28 @@ try { (function () {
         window.__hassleChatKey = k;
         return k;
     }
-    function b64url(str) {   // вручную: TextEncoder/btoa в движке игры могут отсутствовать (как в Stats.js)
-        const bytes = [];
+    // Компактная упаковка снимка (вмещает вдвое больше сообщений, чем JSON): кириллица — 1 байт (как cp1251),
+    // «{RRGGBB}» — 4 байта (0x01 R G B), прочее вне ASCII — 0x02 + код символа. Обратно разбирает chatapp.html.
+    function packStr(str) {
+        const out = [];
+        str = String(str);
         for (let i = 0; i < str.length; i++) {
-            let c = str.charCodeAt(i);
-            if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.length) {
-                const c2 = str.charCodeAt(i + 1);
-                if (c2 >= 0xDC00 && c2 <= 0xDFFF) { c = 0x10000 + ((c - 0xD800) << 10) + (c2 - 0xDC00); i++; }
+            const c = str.charCodeAt(i);
+            if (c === 0x7B) {
+                const m = /^\{([0-9A-Fa-f]{6})\}/.exec(str.slice(i, i + 8));
+                if (m) { out.push(1, parseInt(m[1].slice(0, 2), 16), parseInt(m[1].slice(2, 4), 16), parseInt(m[1].slice(4, 6), 16)); i += 7; continue; }
             }
-            if (c < 0x80) bytes.push(c);
-            else if (c < 0x800) bytes.push(0xC0 | (c >> 6), 0x80 | (c & 63));
-            else if (c < 0x10000) bytes.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
-            else bytes.push(0xF0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+            if (c >= 0x20 && c <= 0x7E) out.push(c);
+            else if (c === 0x0A) out.push(0x0A);
+            else if (c >= 0x410 && c <= 0x44F) out.push(0xC0 + c - 0x410);
+            else if (c === 0x401) out.push(0xA8);
+            else if (c === 0x451) out.push(0xB8);
+            else if (c < 0x20) out.push(0x20);
+            else out.push(2, c >> 8, c & 255);
         }
+        return out;
+    }
+    function b64urlBytes(bytes) {
         const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
         let out = '';
         for (let i = 0; i < bytes.length; i += 3) {
@@ -76,18 +86,25 @@ try { (function () {
         return out;
     }
 
-    // Ссылка: ключ k (по нему мини-апп сам берёт свежий чат из Firebase) + снимок d последних сообщений как запасной
-    // вариант (Firebase недоступен — апп покажет снимок на момент отправки кнопки). Не влезает в лимит — режем старые.
-    function appUrl() {
-        const base = APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + 'k=' + chatKey() + '&n=' + encodeURIComponent(who()) + '&d=';
-        const now = Date.now();
-        const m = buf.map(function (r) { return [Math.max(0, Math.round((now - r[0]) / 1000)), r[1], String(r[2]).slice(0, SNAP_TXT)]; });
-        let url = base + b64url(JSON.stringify({ t: now, z: TZ(), m: m }));
-        while (url.length > URL_MAX && m.length > 1) {
-            m.shift();
-            url = base + b64url(JSON.stringify({ t: now, z: TZ(), m: m }));
+    // Ссылка: ключ k (по нему мини-апп сам берёт свежий чат из Firebase) + снимок s последних сообщений как запасной
+    // вариант (Firebase недоступен — апп покажет снимок на момент отправки кнопки). Берём сколько влезает в лимит ссылки.
+    // Формат до упаковки: первая строка «время(с)|пояс», дальше «секунд назад|цвет|текст» (цвет пуст — как у предыдущей).
+    function appUrl(snapOnly) {   // snapOnly — без ключа k: страница не ходит в Firebase, показывает только снимок из ссылки
+        const base = APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + (snapOnly ? '' : 'k=' + chatKey() + '&') + 'n=' + encodeURIComponent(who()) + '&s=';
+        const now = Date.now(), room = URL_MAX - base.length, head = Math.round(now / 1000) + '|' + TZ() + '\n';
+        let used = packStr(head).length;
+        const pick = [];
+        for (let i = buf.length - 1; i >= 0; i--) {   // с самых свежих
+            const r = buf[i], text = String(r[2]).slice(0, SNAP_TXT).replace(/[\r\n\t]+/g, ' ');
+            const ago = Math.max(0, Math.round((now - r[0]) / 1000));
+            const len = packStr(ago + '|' + r[1] + '|' + text + '\n').length;   // с запасом: цвет считаем всегда
+            if (Math.ceil((used + len) * 4 / 3) > room) break;
+            used += len;
+            pick.unshift({ ago: ago, col: r[1], text: text });
         }
-        return url;
+        let prev = '', body = head;
+        pick.forEach(function (r) { body += r.ago + '|' + (r.col === prev ? '' : r.col) + '|' + r.text + '\n'; prev = r.col; });
+        return base + b64urlBytes(packStr(body));
     }
 
     // ── Буфер сообщений (на window — переживает /reload) ──
@@ -161,10 +178,13 @@ try { (function () {
     }, EVERY);
     window.__hassleChatTimer = timer;
 
-    // ── Карточка с кнопкой (запасной путь и команда /chatapp) ──
-    function sendCard() {
-        try { push(true); } catch (e) {}
-        const url = appUrl(), text = '💬 <b>Чат (' + esc(who()) + ')</b>';
+    // ── Карточка с кнопкой (запасной путь и команды /chatapp, /chatsnap) ──
+    // snapOnly (/chatsnap): ссылка без ключа — страница НЕ ходит в Firebase и показывает только снимок последних сообщений из самой ссылки
+    function sendCard(snapOnly) {
+        if (!snapOnly) { try { push(true); } catch (e) {} }
+        const url = appUrl(snapOnly), text = snapOnly
+            ? '💬 <b>Чат — снимок (' + esc(who()) + ')</b>\n<i>Без Firebase: только то, что вошло в ссылку, не обновляется.</i>'
+            : '💬 <b>Чат (' + esc(who()) + ')</b>';
         (config.chatIds || []).forEach(function (chatId) {
             const base = { chat_id: chatId, text: text, parse_mode: 'HTML' };
             const kb = function (b) { return JSON.stringify({ inline_keyboard: [[b]] }); };
@@ -203,7 +223,11 @@ try { (function () {
     try { if (typeof sendChatInput === 'function') prevVar = sendChatInput; } catch (e) {}
     const prevChat = prevWin || prevVar;
     const myChat = function (e) {
-        if (!stale() && typeof e === 'string' && e.trim().toLowerCase() === '/chatapp') { sendCard(); return; }
+        if (!stale() && typeof e === 'string') {
+            const c = e.trim().toLowerCase();
+            if (c === '/chatapp') { sendCard(false); return; }
+            if (c === '/chatsnap') { sendCard(true); return; }   // только Telegram, без Firebase — посмотреть, как выглядит снимок
+        }
         if (typeof prevChat === 'function') return prevChat.apply(this, arguments);
     };
     window.sendChatInputCustom = myChat;

@@ -55,10 +55,25 @@ const NEAR=['EEEEEE','CECECE','999999','6B6B6B'],RADIO=['33CC66'];
 const TABS=[['Все','💬',()=>true],['Рядом','🗣',m=>NEAR.includes(m[1])],['Рация','📻',m=>RADIO.includes(m[1])],['Остальное','📢',m=>!NEAR.includes(m[1])&&!RADIO.includes(m[1])]];
 let cur=0,all=[],seen=new Set(),got=false,fails=0,busy=false,lastT=null,seenAt=0,stick=true,words=[],Z=null;
 let snapT=null,usingSnap=false;
-// Снимок последних сообщений из ссылки (?d=…): [секунд назад, цвет, текст] — запасной вариант, если Firebase недоступен
+// Снимок последних сообщений из ссылки — запасной вариант, если Firebase недоступен.
+// ?s= — компактный формат ChatApp.js (кириллица 1 байт, {RRGGBB} 4 байта); ?d= — старый JSON, на случай уже висящих в Telegram кнопок.
 function dec(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s),c=>c.charCodeAt(0))))}
-try{const dq=Q.get('d');if(dq){const sn=dec(dq);if(sn&&Array.isArray(sn.m)){snapT=sn.t||Date.now();if(typeof sn.z==='number')Z=sn.z;
- sn.m.forEach(r=>{const m=[snapT-(r[0]||0)*1000,r[1],r[2]];seen.add(m[0]+'|'+m[2]);all.push(m)});usingSnap=all.length>0}}}catch(e){}
+function unpack(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';const r=atob(s),b=[];for(let i=0;i<r.length;i++)b.push(r.charCodeAt(i));
+ let o='';for(let i=0;i<b.length;i++){const c=b[i];
+  if(c===1){o+='{'+[b[i+1],b[i+2],b[i+3]].map(x=>('0'+x.toString(16)).slice(-2).toUpperCase()).join('')+'}';i+=3}
+  else if(c===2){o+=String.fromCharCode(b[i+1]<<8|b[i+2]);i+=2}
+  else if(c>=0xC0)o+=String.fromCharCode(0x410+c-0xC0);
+  else if(c===0xA8)o+='\u0401';else if(c===0xB8)o+='\u0451';
+  else o+=String.fromCharCode(c)}
+ return o}
+try{const sq=Q.get('s'),dq=Q.get('d');
+ if(sq){const ln=unpack(sq).split('\n'),hd=ln[0].split('|');snapT=(+hd[0]||0)*1000||Date.now();if(isFinite(+hd[1]))Z=+hd[1];let pc='';
+  for(let i=1;i<ln.length;i++){const l=ln[i];if(!l)continue;const p1=l.indexOf('|'),p2=l.indexOf('|',p1+1);if(p1<0||p2<0)continue;
+   const col=l.slice(p1+1,p2)||pc;pc=col;const m=[snapT-(+l.slice(0,p1)||0)*1000,col,l.slice(p2+1)];seen.add(m[0]+'|'+m[2]);all.push(m)}
+  usingSnap=all.length>0}
+ else if(dq){const sn=dec(dq);if(sn&&Array.isArray(sn.m)){snapT=sn.t||Date.now();if(typeof sn.z==='number')Z=sn.z;
+  sn.m.forEach(r=>{const m=[snapT-(r[0]||0)*1000,r[1],r[2]];seen.add(m[0]+'|'+m[2]);all.push(m)});usingSnap=all.length>0}}
+}catch(e){}
 
 const pad=n=>String(n).padStart(2,'0');
 // Время как в игре: игра форматирует Date.now() по СВОЕМУ часовому поясу (Hud.js formatTime) — Z пришёл из игры (getTimezoneOffset)
@@ -98,7 +113,7 @@ function render(){
  $('#sc').textContent=words.length?html.length+' / '+base.length:'';
  if(stick)L.scrollTop=L.scrollHeight;else L.scrollTop=st;
  $('#dn').style.display=stick?'none':'block'}
-function emptyMsg(){return words.length?'Ничего не найдено.':!K&&!snapT?'Нет данных.<br>Откройте мини-апп кнопкой «💬 Чат» из бота.':got?(all.length?'В этой вкладке пока пусто.':'Сообщений пока нет.'):fails>=3?'Нет связи с сервером.':'Загружаю…'}
+function emptyMsg(){return words.length?'Ничего не найдено.':!K&&!snapT?'Нет данных.<br>Откройте мини-апп кнопкой «💬 Чат» из бота.':!K?(all.length?'В этой вкладке пока пусто.':'В снимке нет сообщений.'):got?(all.length?'В этой вкладке пока пусто.':'Сообщений пока нет.'):fails>=3?'Нет связи с сервером.':'Загружаю…'}
 function show(i){cur=i;const T=document.querySelectorAll('.tab');T.forEach((t,k)=>t.classList.toggle('on',k==i));
  const t=T[i];$('#ln').style.width=t.offsetWidth+'px';$('#ln').style.transform='translateX('+t.offsetLeft+'px)';stick=true;render()}
 const ago=s=>s<60?s+' с':Math.floor(s/60)+' мин';
