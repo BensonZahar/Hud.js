@@ -11,8 +11,13 @@
 // ║  вкладки «Персонаж» (config.accountInfo.profile) + живые деньги.     ║
 // ║  Профиль ещё не загружен / APP_URL не задан — работает старый текст. ║
 // ║                                                                      ║
-// ║  Кнопка «💰 Инфо об аккаунте» в Telegram → карточка с мини-аппом.    ║
-// ║  /statapp — то же самое командой из игрового чата.                   ║
+// ║  Кнопка «💰 Инфо об аккаунте» в Telegram открывает мини-апп СРАЗУ    ║
+// ║  (web_app в личке, обычная ссылка в беседе) — без промежуточной      ║
+// ║  карточки. Снимок данных кладётся в ссылку в момент отправки/правки  ║
+// ║  сообщения (welcome обновляется, «Управление» открывается).          ║
+// ║  Блок «Информация об аккаунте» из welcome-текста убран — вся         ║
+// ║  статистика теперь в мини-аппе.                                      ║
+// ║  /statapp — карточка со свежим снимком командой из игрового чата.    ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 try { (function () {
     function dbg(m) { try { console.log('[CODE3][STATAPP] ' + m); } catch (e) {} }
@@ -155,7 +160,7 @@ try { (function () {
     // web_app-кнопка работает только в личке с ботом; в группе — запасная кнопка-ссылка
     function sendCard() {
         const d = collect(), url = buildUrl(d);
-        const text = '📊 <b>Статистика (' + esc(who()) + ')</b>\nУр. <b>' + (d.l[0] != null ? d.l[0] : '—') + '</b> · нал ' + (d.m[0] != null ? fm(d.m[0]) : '—') + ' ₽ · банк ' + (d.m[1] != null ? fm(d.m[1]) : '—') + ' ₽' + ((d.w && d.w[2] === 0 && d.w[0] > 0) ? '\n⚠️ Выговоры: <b>' + d.w[0] + '/' + d.w[1] + '</b>' : '');
+        const text = '📊 <b>Статистика (' + esc(who()) + ')</b>';
         (config.chatIds || []).forEach(function (chatId) {
             const base = { chat_id: chatId, text: text, parse_mode: 'HTML' };
             const kb = function (b) { return JSON.stringify({ inline_keyboard: [[b]] }); };
@@ -202,6 +207,76 @@ try { (function () {
     window.sendChatInputCustom = myChat;
     try { sendChatInput = myChat; } catch (e) {}
 
-    dbg('Мини-апп статистики загружен (кнопка «Инфо об аккаунте», /statapp)');
+    // ── Welcome-сообщение без блока «Информация об аккаунте» ──
+    // Профиль загружен → вся статистика в мини-аппе, из текста блок убираем.
+    // Пока профиль грузится — остаётся оригинальный текст («данные загружаются…»).
+    try {
+        if (typeof buildWelcomeText === 'function' && typeof buildWelcomeAccountInfo === 'function') {
+            const origWelcomeText = buildWelcomeText;
+            buildWelcomeText = function () {
+                if (stale() || !ready()) return origWelcomeText.apply(this, arguments);
+                const savedInfo = buildWelcomeAccountInfo;
+                buildWelcomeAccountInfo = function () { return ''; };   // синхронно, сразу возвращаем как было
+                try { return origWelcomeText.apply(this, arguments); }
+                finally { buildWelcomeAccountInfo = savedInfo; }
+            };
+        } else dbg('buildWelcomeText/buildWelcomeAccountInfo не найдены — текст welcome не меняю');
+    } catch (e) { dbg('патч welcome-текста не установлен: ' + e.message); }
+
+    // ── Кнопка «Инфо об аккаунте» → сразу открывает мини-апп ──
+    // callback-кнопка не умеет открывать ссылку, поэтому при отправке/правке сообщения подменяем её
+    // на web_app (личка с ботом) или url (беседа/группа). Подмена — на лету в tgApi, код меню в Code.js не трогаем.
+    // Профиль не загружен / Telegram отклонил кнопку — остаётся обычная callback-кнопка (старое поведение).
+    const BTN_ERR = /BUTTON_|WEB_APP|wrong HTTP URL|URL_INVALID/i;
+
+    function swapAccountButton(payload) {
+        const mk = payload.reply_markup;
+        const isStr = typeof mk === 'string';
+        const cb = 'local_account_info_' + uniqueId;
+        if (isStr && mk.indexOf(cb) === -1) return false;
+        let obj;
+        try { obj = JSON.parse(isStr ? mk : JSON.stringify(mk)); } catch (e) { return false; }
+        if (!obj || !obj.inline_keyboard) return false;
+        const priv = Number(payload.chat_id) > 0;     // web_app-кнопки Telegram принимает только в личке
+        let url = null, changed = false;
+        obj.inline_keyboard.forEach(function (row) {
+            row.forEach(function (b, i) {
+                if (!b || b.callback_data !== cb) return;
+                if (!url) url = buildUrl(collect());
+                const nb = { text: b.text };
+                if (b.style) nb.style = b.style;
+                if (priv) nb.web_app = { url: url }; else nb.url = url;
+                row[i] = nb;
+                changed = true;
+            });
+        });
+        if (changed) payload.reply_markup = isStr ? JSON.stringify(obj) : obj;
+        return changed;
+    }
+
+    const origTgApi = tgApi;
+    tgApi = function (method, payload, onSuccess, onError, retryCount) {
+        let backup = null;
+        try {
+            if ((method === 'sendMessage' || method === 'editMessageText' || method === 'editMessageReplyMarkup') &&
+                payload && payload.reply_markup && !stale() && ready()) {
+                const before = payload.reply_markup;
+                if (swapAccountButton(payload)) backup = before;
+            }
+        } catch (e) { dbg('подмена кнопки не удалась: ' + e.message); backup = null; }
+        if (backup === null) return origTgApi.apply(this, arguments);
+        const self = this;
+        const failBack = function (status, body) {
+            if (status === 400 && BTN_ERR.test(String(body || ''))) {   // Telegram не принял кнопку — шлём как было
+                dbg('кнопка-ссылка не принята — возвращаю callback-кнопку');
+                payload.reply_markup = backup;
+                return origTgApi.call(self, method, payload, onSuccess, onError, retryCount);
+            }
+            if (onError) return onError.apply(self, arguments);
+        };
+        return origTgApi.call(this, method, payload, onSuccess, failBack, retryCount);
+    };
+
+    dbg('Мини-апп статистики загружен (кнопка «Инфо об аккаунте» открывает его сразу, /statapp)');
 })(); } catch (e) { try { console.error('[STATAPP] ошибка Stats.js:', e); } catch (e2) {} }
 // END Stats.js //
