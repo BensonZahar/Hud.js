@@ -1,7 +1,8 @@
 // Near.js — игроки рядом через нативный мод Near (отдельный файл, Code3.js не тронут).
 // Мод Near (libHassleExtended в APK) отдаёт по HTTP на 127.0.0.1:17771..17780:
 //   /ping -> 'hassle-near'   /near -> JSON игроков рядом   /diag -> журнал мода   /rec?t=N -> реконнект (его делает rec.js)
-// JSON /near: {ok, stage, ago, me:{id,x,y,z,vx,vy,vz,age,ping}, n:[{id,nick,label,x,y,z,vx,vy,vz,age,d,d2,hp,ar,ping,score,veh}]};
+// JSON /near: {ok, stage, strm, all, rx, ago, me:{id,x,y,z,vx,vy,vz,age,ping}, n:[{id,nick,label,x,y,z,vx,vy,vz,age,d,d2,hp,ar,ping,score,veh}]};
+//   strm — игроков в PlayersInStream клиента, all — всего в пуле, rx — найдено обходом пула (ins:0, в списке помечены *); ins — 1 в стриме / 0 по sync-пакетам.
 //   d — дистанция 3D, d2 — по горизонтали (м); список, сортировка и радиус считаются по d (3D); vx,vy,vz — скорость м/с; age — мс с последней смены позиции; ago — мс от тика мода до ответа.
 //
 // АКТУАЛЬНОСТЬ ПОЗИЦИИ (v2). Позиции берутся из sync-пакетов, поэтому отстают: мод (JSON v2) читает их ~50 раз/с и отдаёт у каждого игрока скорость
@@ -283,7 +284,9 @@ function fmtDist(p) {
     if (d == null) return '?';
     return (d < 10 ? d.toFixed(1) : String(Math.round(d))) + ' м';
 }
-function pName(p) { return p.nick || p.label || '?'; }
+function pName(p) { return (p.nick || p.label || '?') + (p.ins === 0 ? '*' : ''); }   // * — нет в стриме клиента, но sync-пакеты игрока идут (запасной обход пула в моде)
+// «в стриме / в пуле» из JSON v2.1 (strm, all, rx); пусто, если мод старый
+function poolInfo(j) { return (j && typeof j.all === 'number') ? ('в стриме ' + (j.strm || 0) + ', в пуле ' + j.all + (j.rx ? ', по sync ' + j.rx : '')) : ''; }
 function parseRadius(s) {
     var r = parseFloat(String(s === undefined ? '' : s).replace(',', '.'));
     if (isNaN(r) || r <= 0) return 0;
@@ -306,6 +309,7 @@ function showNear(radius, toTg) {
         var arr = sorted(j.n || []);
         if (radius) arr = arr.filter(function (p) { var d = dist(p); return d != null && d <= radius; });
         var head = 'Рядом: ' + arr.length + (radius ? ' (до ' + radius + ' м)' : '');
+        if (!arr.length) log(poolInfo(j));
         log(head);
         var k;
         for (k = 0; k < arr.length; k++) {
@@ -319,12 +323,12 @@ function showNear(radius, toTg) {
                 tl.push((k + 1) + '. <b>' + esc(pName(t)) + '</b> [' + esc(t.id) + '] — ' + esc(fmtDist(t)) + ' · HP ' + esc(t.hp) + (t.ar ? ' · бр. ' + esc(t.ar) : '') + (t.veh ? ' · 🚗' : ''));
             }
             if (arr.length > TG_MAX) tl.push('… и ещё ' + (arr.length - TG_MAX));
-            if (!arr.length) tl.push('никого нет');
+            if (!arr.length) tl.push('никого нет' + (poolInfo(j) ? ' (' + esc(poolInfo(j)) + ')' : ''));
             if (tgSend(tl.join('\n'))) gtAdd('~g~Near: список отправлен в Telegram (' + arr.length + ')', 3000, 3);
             else gtAdd('~r~Near: Telegram недоступен', 3500, 3);
             return;
         }
-        if (!arr.length) { gtAdd('~y~Рядом никого нет' + (radius ? '~n~~w~в радиусе ' + radius + ' м' : ''), 3500, 3); return; }
+        if (!arr.length) { var pi = poolInfo(j); gtAdd('~y~Рядом никого нет' + (radius ? '~n~~w~в радиусе ' + radius + ' м' : '') + (pi ? '~n~~w~' + pi : ''), 4500, 3); log('/near: пусто;', pi || 'мод без счётчиков'); return; }
         var MAX = 8, lines = [];
         for (k = 0; k < arr.length && k < MAX; k++) lines.push(gtSafe(pName(arr[k])) + ' [' + arr[k].id + '] ' + fmtDist(arr[k]));
         if (arr.length > MAX) lines.push('~y~… и ещё ' + (arr.length - MAX));
