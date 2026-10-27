@@ -875,7 +875,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
         // После /reload — сразу отдаём данные из кэша, свежие подтянутся ниже
         if (!force && !config.accountInfo.profile.loaded && _applyProfileCache()) {
             try { applyFactionFromProfile('cache'); } catch(e) {}
-            if (typeof sendWelcomeMessage === 'function') { try { sendWelcomeMessage(); } catch(e) {} }
+            if (typeof sendWelcomeMessage === 'function') { try { sendWelcomeMessage(false, true); } catch(e) {} }
             if (callback) { try { callback(config.accountInfo.profile); } catch(e) {} callback = null; }
         }
 
@@ -890,7 +890,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 applyFactionFromProfile('profile'); // фракция по orgTitle — до приветственного сообщения
                 debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
                 // Обновляем приветственное сообщение с полными данными профиля
-                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
+                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(false, true);
             } else {
                 debugLog('[Profile] ⚠️ Профиль не получен (меню открыто игроком / нет ответа сервера / неполный ответ)');
                 if (globalState.profileRetry < _RETRY_DELAYS.length) {
@@ -898,14 +898,14 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                     globalState.profileRetry++;
                     debugLog('[Profile] 🔄 Повтор через ' + retryDelaySec + 'с (попытка ' + globalState.profileRetry + '/' + _RETRY_DELAYS.length + ')');
                     // Обновляем сообщение — покажем частичные данные (фракция/скин уже известны)
-                    if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
+                    if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(false, true);
                     setTimeout(function() { loadPlayerProfile(callback, true); }, retryDelaySec * 1000);
                     return;
                 }
                 globalState.profileRetry = 0;
                 debugLog('[Profile] ❌ Все попытки загрузки профиля исчерпаны');
                 // Всё равно обновляем сообщение — хотя бы скин/фракция отобразятся
-                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
+                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(false, true);
             }
             if (callback) callback(config.accountInfo.profile.loaded ? config.accountInfo.profile : null);
         });
@@ -3172,7 +3172,7 @@ function trackNicknameAndServer() {
             debugLog(`[NICK] Изменение: ${nicknameStr} [S${serverStr}]`);
             updateDisplayName();
             uniqueId = `${nicknameStr}_${serverStr}`;
-            sendWelcomeMessage(true); // редактирует уже отправленное сообщение
+            sendWelcomeMessage(true, true); // редактирует уже отправленное сообщение (меню не закрываем)
         }
     }
 
@@ -3281,7 +3281,8 @@ function deleteMessage(chatId, messageId) {
 // (текст меню перезаписывает сообщение), «Назад» восстанавливает исходный текст и исходную клавиатуру.
 // Хранилище на window — переживает /reload.
 var _ctl = window.__hassleCtl = window.__hassleCtl || { snap: {}, dirty: {}, onMenuText: {} };
-_ctl.onMenuText = _ctl.onMenuText || {};   // true — на уведомлении сейчас текст меню (его заменили при открытии «Управления»)
+_ctl.onMenuText = _ctl.onMenuText || {};
+_ctl.kb = _ctl.kb || {};   // последняя клавиатура, которую мы поставили на сообщение (JSON) — чтобы фоновое обновление welcome не закрывало открытое меню   // true — на уведомлении сейчас текст меню (его заменили при открытии «Управления»)
 _ctl.restoring = false;
 _ctl.cur = null;   // {chatId, messageId} — сообщение, с которого пришла текущая кнопка (на время синхронной обработки)
 function _ctlKey(chatId, messageId) { return chatId + ':' + messageId; }
@@ -3392,10 +3393,19 @@ function _ctlBackToBase(chatId, messageId) {
     if (s) { editMessageReplyMarkup(chatId, messageId, _ctlBaseMarkup(s)); return; }
     editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
 }
+function _ctlRememberKb(chatId, messageId, replyMarkup) {
+    try {
+        _ctl.kb[_ctlKey(chatId, messageId)] = replyMarkup ? JSON.stringify(replyMarkup) : null;
+        const ks = Object.keys(_ctl.kb);
+        if (ks.length > 300) ks.slice(0, 100).forEach(function (k) { delete _ctl.kb[k]; });
+    } catch (e) {}
+}
 function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
+    _ctlRememberKb(chatId, messageId, replyMarkup);
     tgApi('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined });
 }
 function editMessageText(chatId, messageId, text, replyMarkup = null) {
+    _ctlRememberKb(chatId, messageId, replyMarkup);
     if (!_ctl.restoring) _ctl.dirty[_ctlKey(chatId, messageId)] = true;   // текст сообщения перезаписан меню — «Назад» должен его вернуть
     tgApi('editMessageText', {
         chat_id: chatId,
@@ -4168,7 +4178,10 @@ function buildWelcomeKeyboard() {
     };
 }
 
-function sendWelcomeMessage(editOnly = false) {
+// keepMenu=true — фоновое обновление (профиль, версии, выговоры, смена ника): если на welcome сейчас открыто меню
+// («Управление», «Функции»…), обновляем только текст и оставляем клавиатуру; если текст перекрыт подменю — не трогаем вообще.
+// Без keepMenu (переключили настройку и т.п.) welcome по-прежнему возвращается к базовой клавиатуре.
+function sendWelcomeMessage(editOnly = false, keepMenu = false) {
     if (!config.accountInfo.nickname) {
         debugLog('Ник не определен, откладываем отправку приветственного сообщения');
         return;
@@ -4183,7 +4196,25 @@ function sendWelcomeMessage(editOnly = false) {
 
     config.chatIds.forEach(chatId => {
         const existingId = globalState.welcomeMessageIds[chatId];
-        if (existingId) {
+        if (existingId && keepMenu && (function () {
+            // меню открыто = последняя клавиатура не базовая (у базовой первая кнопка — «Управление» / show_controls_)
+            let menuKb = null;
+            try {
+                const kbStr = _ctl.kb[_ctlKey(chatId, existingId)];
+                const k = kbStr ? JSON.parse(kbStr) : null;
+                const first = k && k.inline_keyboard && k.inline_keyboard[0] && k.inline_keyboard[0][0];
+                if (k && !(first && typeof first.callback_data === 'string' && first.callback_data.indexOf('show_controls_') === 0)) menuKb = k;
+            } catch (e) {}
+            if (!menuKb) return false;
+            const key = _ctlKey(chatId, existingId);
+            if (_ctl.dirty[key]) { debugLog('[WELCOME] Открыто подменю с чужим текстом — фоновое обновление пропущено'); return true; }
+            debugLog('[WELCOME] Открыто меню — обновляю только текст, клавиатуру не трогаю');
+            _ctl.restoring = true;
+            try { editMessageText(chatId, existingId, message, menuKb); } finally { _ctl.restoring = false; }
+            return true;
+        })()) {
+            // handled
+        } else if (existingId) {
             // Редактируем уже отправленное сообщение — не шлём новое
             _ctl.restoring = true;
             try { editMessageText(chatId, existingId, message, replyMarkup); } finally { _ctl.restoring = false; }
@@ -8804,7 +8835,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         _log('[WARN] Выговоры: ' + current + '/' + max + ' — сохранено в профиль');
 
         setTimeout(function () {
-            if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(true);
+            if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(true, true);
         }, 400);
         // Прогрев списка сотрудников (звания в сообщениях сотрудников) — чуть позже, чтобы не частить командой /find
         setTimeout(function () { if (!_stale()) startRosterScan('прогрев после проверки выговоров'); }, 6000);
@@ -8839,7 +8870,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             if (p) p.warningsFailed = true;
             _log('[WARN] Проверка выговоров не удалась ' + warnCheck.failCount + ' раз подряд — статус «не удалось проверить»');
             setTimeout(function () {
-                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(true);
+                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(true, true);
             }, 400);
         }
     }

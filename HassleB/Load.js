@@ -580,7 +580,7 @@ async function initializeScripts() {
             }
             // Редактируем уже отправленное велком-сообщение с версиями
             if (typeof window.sendWelcomeMessage === 'function') {
-                window.sendWelcomeMessage();
+                window.sendWelcomeMessage(false, true);
             }
         }).catch(() => {
             console.warn('⚠️ Не удалось получить инфо о коммитах');
