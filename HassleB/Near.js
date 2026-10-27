@@ -4,7 +4,8 @@
 // JSON /near: {ok, stage, ago, me:{id,x,y,z,vx,vy,vz,age,ping}, n:[{id,nick,label,x,y,z,vx,vy,vz,age,d,d2,hp,ar,ping,score,veh}]};
 //   d — дистанция 3D, d2 — по горизонтали (м); список, сортировка и радиус считаются по d (3D); vx,vy,vz — скорость м/с; age — мс с последней смены позиции; ago — мс от тика мода до ответа.
 //
-// АКТУАЛЬНОСТЬ ПОЗИЦИИ (v2). Позиции берутся из sync-пакетов, поэтому отстают: мод читает их 10 раз/с, а Near.js знает возраст снимка
+// АКТУАЛЬНОСТЬ ПОЗИЦИИ (v2). Позиции берутся из sync-пакетов, поэтому отстают: мод (JSON v2) читает их ~50 раз/с и отдаёт у каждого игрока скорость
+// (vx,vy,vz) и age (мс с прихода нового пакета), а Near.js знает возраст снимка
 // (ago + пол-RTT запроса + время с получения) и скорости. Сервер проверяет дальность (/givelic: IsPlayerInRangeOfPoint 6.0, 3D) по СВОИМ
 // позициям в момент прихода команды — они новее наших примерно на (ваш пинг + возраст данных). Поэтому цель сдвигается по скорости на
 // этот горизонт, а к дистанции добавляется неопределённость err = 0.3 + 0.2·(скорость цели + ваша) м. Итог — вердикт для радиуса R:
@@ -27,6 +28,9 @@
 //   .check(кто, R, cb) — СВЕЖИЙ запрос + вердикт: кто = ID или точный ник; cb({ok, found, p, d, dp, err, age, verdict, why})
 //   .reach(R)        — те, кого сервер, скорее всего, посчитает в радиусе R (вердикт yes/maybe), по текущему снимку, с полями dp/err/verdict
 //   .refresh(cb)     — один свежий запрос: cb(снимок | null)
+//   .chatDist(кто, t0, cb) — расстояние до автора сообщения чата на момент, когда сервер его рассылал (по нему сервер красит строку: <7,5 м / <15 м / дальше):
+//                      кто = ID или точный ник, t0 = Date.now() в момент прихода сообщения (или null); свежий запрос, цель сдвигается по скорости на возраст пакета,
+//                      ваша позиция — назад на ваш RTT (сервер знал её по вашему последнему ДОШЕДШЕМУ пакету). cb({ok, found, d (сырая), est (оценка), age, vt, vm})
 //   .diag(cb)        — cb(текст журнала мода)
 //   .start() / .stop() — постоянный опрос раз в 0,5 с (по умолчанию опрос включается сам при вызове list/within/… и гаснет через 15 с без вызовов)
 // Первый вызов list() после паузы вернёт [] (опрос только стартует) — через ~0,5 с данные уже есть; если нужен ответ сразу — refresh(cb).
@@ -160,11 +164,12 @@ function measure(p, me, age) {
     var st = spd(pvx, pvy, pvz), sm = spd(mvx, mvy, mvz);
     var k = st > V_CAP ? V_CAP / st : 1;                                // телепорт/скачок не считаем скоростью
     var rtt = me.ping > 0 ? me.ping : (p.ping || 0);                     // сервер видит цель новее нас на ≈ ваш RTT + возраст данных
-    var h = Math.min(H_CAP, (age || 0) + rtt);
+    var pa = p.age > 0 ? Math.min(p.age, 500) : 0;                       // v2: сколько мс до снимка позиция цели уже была старой (с прихода её пакета)
+    var h = Math.min(H_CAP, (age || 0) + pa + rtt);
     var tx = p.x + pvx * k * h / 1000, ty = p.y + pvy * k * h / 1000, tz = p.z + pvz * k * h / 1000;
     var d = Math.sqrt(Math.pow(p.x - me.x, 2) + Math.pow(p.y - me.y, 2) + Math.pow(p.z - me.z, 2));
     var dp = Math.sqrt(Math.pow(tx - me.x, 2) + Math.pow(ty - me.y, 2) + Math.pow(tz - me.z, 2));   // вашу позицию не двигаем: сервер знает то, что вы отправили
-    return { d: d, dp: dp, err: ERR_BASE + ERR_K * (st + sm), h: h, age: age == null ? null : Math.round(age), vt: st, vm: sm };
+    return { d: d, dp: dp, err: ERR_BASE + ERR_K * (st + sm), h: h, age: age == null ? null : Math.round(age + pa), vt: st, vm: sm };
 }
 function verdictFor(m, r) {
     if (!m) return 'unknown';
@@ -221,6 +226,31 @@ var API = {
             var m = measure(p, j.me, dataAge());
             if (!m) return cb({ ok: true, found: true, p: p, id: p.id, nick: p.nick, verdict: 'unknown', why: 'нет позиции (своей или игрока)' });
             cb({ ok: true, found: true, p: p, id: p.id, nick: p.nick, d: m.d, dp: m.dp, err: m.err, age: m.age, vt: m.vt, vm: m.vm, verdict: verdictFor(m, r), radius: r });
+        });
+    },
+    // Расстояние на момент рассылки чат-сообщения (его по этому расстоянию красит сервер). Хронология: сообщение ушло с сервера в T, к нам пришло в t0 = T + задержка.
+    // Позиция цели в нашем снимке — из пакета, пришедшего pa мс до тика: на момент T она старее ещё на (pa + возраст тика − прошло с t0) → сдвигаем по скорости.
+    // Ваша позиция в снимке — из пакета, ОТПРАВЛЕННОГО вами; сервер на момент T знал ваш пакет на ≈ RTT старше → сдвигаем назад.
+    chatDist: function (who, t0, cb) {
+        if (typeof t0 === 'function') { cb = t0; t0 = null; }
+        refresh(function (j) {
+            if (!j) return cb({ ok: false, why: 'мод Near не отвечает' });
+            if (!j.ok) return cb({ ok: false, why: 'мод ещё не готов: ' + (j.stage || 'нет данных') });
+            var p = findWho(j.n || [], who), me = j.me;
+            if (!p || p === 'many') return cb({ ok: true, found: false, ambiguous: p === 'many' });
+            if (!hasPos(p) || !hasPos(me)) return cb({ ok: true, found: true, p: p, d: null, est: null });
+            var a = dataAge() || 0, lag = t0 ? Math.max(0, Date.now() - t0) : a;      // lag — сколько прошло от прихода сообщения до сейчас
+            var pa = p.age > 0 ? Math.min(p.age, 500) : 0;
+            var ht = Math.max(0, Math.min(H_CAP, pa + a - lag)) / 1000;                // цель: вперёд
+            var rtt = me.ping > 0 ? me.ping : (p.ping || 0);
+            var hm = Math.max(0, Math.min(800, rtt + (lag - a))) / 1000;               // вы: назад
+            var st = spd(p.vx || 0, p.vy || 0, p.vz || 0), sm = spd(me.vx || 0, me.vy || 0, me.vz || 0);
+            var kt = st > V_CAP ? V_CAP / st : 1, km = sm > V_CAP ? V_CAP / sm : 1;
+            var tx = p.x + (p.vx || 0) * kt * ht, ty = p.y + (p.vy || 0) * kt * ht, tz = p.z + (p.vz || 0) * kt * ht;
+            var mx = me.x - (me.vx || 0) * km * hm, my = me.y - (me.vy || 0) * km * hm, mz = me.z - (me.vz || 0) * km * hm;
+            var d = Math.sqrt(Math.pow(p.x - me.x, 2) + Math.pow(p.y - me.y, 2) + Math.pow(p.z - me.z, 2));
+            var est = Math.sqrt(Math.pow(tx - mx, 2) + Math.pow(ty - my, 2) + Math.pow(tz - mz, 2));
+            cb({ ok: true, found: true, p: p, id: p.id, nick: p.nick, d: d, est: est, age: Math.round(a + pa), vt: st, vm: sm });
         });
     },
     within: function (m) { return this.list().filter(function (p) { var d = dist(p); return d != null && d <= m; }); },
