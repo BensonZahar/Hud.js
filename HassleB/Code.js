@@ -42,6 +42,9 @@ const setInterval = function (fn, ms) {
 // ║  Пока ТОЛЬКО сообщаем: функционал не отключается. Если   ║
 // ║  константы нет — строка в консоль и одно сообщение в     ║
 // ║  Telegram за запуск игры.                                ║
+// ║  Для отдельного пользователя можно включить срок:        ║
+// ║  USER_CONFIGS[ник].KONSTT_DEADLINE (List.js) — до даты   ║
+// ║  предупреждение, после — остановка скриптов.             ║
 // ║  Результат для других скриптов (Code2, Code3, Near…):    ║
 // ║    window.KONSTT_CLIENT = { ours: null|true|false,       ║
 // ║                             build, port, checked, ms }   ║
@@ -69,10 +72,140 @@ async function konsttProbePort(port) {
     const id = await konsttGet(port, '/konstt');
     return (id && id.indexOf('KONSTT-CLIENT') === 0) ? { build: id.slice(13).trim() || '?' } : null;
 }
+// ── Политика «только наш клиент» — включается на конкретного пользователя в List.js ──
+//   USER_CONFIGS[ник].KONSTT_DEADLINE = '2026-10-28T00:00:00+03:00'
+//   • до этого момента на чужом клиенте — предупреждение «Клиент перестанет работать <дата>» в игре и в Telegram;
+//   • с этого момента — скрипты полностью останавливаются (таймеры, опрос Telegram, сообщения, Code2/Code3 — всё замолкает).
+//   Нет ключа у пользователя — всё как раньше (только сообщаем, ничего не отключаем).
+function konsttFmtDate(ms) {
+    const d = new Date(ms + 3 * 3600 * 1000);   // дата по Москве (как в игре: UTC+3)
+    const p = n => String(n).padStart(2, '0');
+    return p(d.getUTCDate()) + '.' + p(d.getUTCMonth() + 1) + '.' + d.getUTCFullYear();
+}
+function konsttPolicy() {
+    try {
+        const u = window.USER_CONFIGS && window.USER_CONFIGS[window.CURRENT_USER];
+        if (!u || !u.KONSTT_DEADLINE) return null;
+        const ms = Date.parse(u.KONSTT_DEADLINE);
+        if (!isFinite(ms)) { console.warn('[KONSTT] KONSTT_DEADLINE не распознан:', u.KONSTT_DEADLINE); return null; }
+        return { deadline: ms, label: konsttFmtDate(ms) };
+    } catch (e) { return null; }
+}
+// Текущее время «не по часам телефона»: сначала заголовок Date ответа Telegram (часы их сервера), если он недоступен —
+// часы устройства, но не раньше последнего времени, подтверждённого сервером (перевод часов назад не помогает).
+// localStorage в CEF недоступен — «последнее время сервера» хранится на window (живёт до перезапуска игры, /reload его не сбрасывает).
+function konsttTrustedNow() {
+    return new Promise(resolve => {
+        const seen = window.__konsttSrvSeen || 0;
+        let finished = false;
+        const fin = r => { if (!finished) { finished = true; resolve(r); } };
+        const fallback = () => fin({ ms: Math.max(Date.now(), seen), src: seen > Date.now() ? 'device+seen' : 'device' });
+        const token = window.ACCOUNT_TOKEN || window.DEFAULT_TOKEN;
+        if (!token) { fallback(); return; }
+        try {
+            const x = new XMLHttpRequest();
+            x.open('GET', 'https://api.telegram.org/bot' + token + '/getMe?t=' + Date.now(), true);
+            x.timeout = 8000;
+            x.onload = () => {
+                let h = null;
+                try { h = x.getResponseHeader('Date'); } catch (e) {}
+                const ms = h ? Date.parse(h) : NaN;
+                if (isFinite(ms) && ms > 0) {
+                    window.__konsttSrvSeen = Math.max(ms, seen);
+                    fin({ ms: window.__konsttSrvSeen, src: 'telegram' });
+                } else fallback();
+            };
+            x.onerror = fallback; x.ontimeout = fallback;
+            x.send();
+        } catch (e) { fallback(); }
+    });
+}
+// Сообщение в игре: экранное уведомление + локальный чат (с повторами, пока чат не появится). Promise — когда чат показан или попытки кончились.
+function konsttShowInGame(color, text) {
+    return new Promise(resolve => {
+        try { showScreenNotification('Hassle', String(text).replace(/["\\]/g, ''), color, 15000); } catch (e) {}
+        let tries = 0;
+        const go = () => {
+            tries++;
+            let ok = false;
+            try { ok = addLocalChatMessage(text, color) === true; } catch (e) {}
+            if (ok || tries >= 10) { resolve(ok); return; }
+            window.setTimeout(go, 3000);   // «сырой» таймер: не зависит от смены копии скрипта
+        };
+        go();
+    });
+}
+// Полная остановка: следующий номер поколения делает эту копию «устаревшей» (как после /reload) —
+// плюс снимаем Near/Ozv/Code3 и обрываем long-poll Telegram, чтобы бот не принимал команды.
+function konsttStopScripts() {
+    window.__hassleGen = (window.__hassleGen || 0) + 1;
+    ['__nearCleanup', '__ozvCleanup', '__code3Cleanup'].forEach(n => {
+        if (typeof window[n] === 'function') { try { window[n](); } catch (e) {} }
+    });
+    if (window._hassleCurrentPollXhr) { try { window._hassleCurrentPollXhr.abort(); } catch (e) {} window._hassleCurrentPollXhr = null; }
+    console.warn('[KONSTT] клиент не наш, срок вышел — скрипты остановлены');
+}
+async function konsttEnforce(st, pol) {
+    if (st.__enfRunning && st.__enfGen === __HASSLE_GEN) return;
+    st.__enfRunning = true; st.__enfGen = __HASSLE_GEN;
+    st.deadline = pol.deadline; st.blocked = false;
+    let tick = 0;
+    const acc = `аккаунт #${window.ACCOUNT_NUMBER || '?'} (${window.CURRENT_USER || '—'})`;
+    const block = async () => {
+        st.blocked = true;
+        window.__konsttExpired = true;            // переживает /reload: новая копия блокируется сразу, без ожидания
+        await konsttShowInGame('FF3030', `Клиент перестал работать ${pol.label}: вы используете не наш клиент.`);
+        if (!window.__konsttStopNotified) {
+            window.__konsttStopNotified = true;
+            try {
+                if (typeof sendToTelegram === 'function') {
+                    sendToTelegram(`⛔ <b>Клиент остановлен</b> — ${acc}\nКлиент не наш, срок работы вышел (${pol.label}).`, false);
+                }
+            } catch (e) {}
+        }
+        window.setTimeout(konsttStopScripts, 3000);   // даём уйти сообщению в Telegram, потом тушим копию
+    };
+    const run = async () => {
+        if (__hassleStale() || st.blocked) return;
+        if (window.__konsttExpired) { await block(); return; }   // срок уже выходил в этом запуске игры
+        const t = await konsttTrustedNow();
+        if (__hassleStale() || st.blocked) return;
+        st.timeSrc = t.src;
+        const left = pol.deadline - t.ms;
+        if (left > 0) {
+            const days = Math.ceil(left / 86400000);
+            console.warn(`⚠️ [KONSTT] клиент не наш — перестанет работать ${pol.label} (осталось дней: ${days}, время: ${t.src})`);
+            if (tick % 3 === 0) {   // сразу и затем раз в 30 минут (проверка даты идёт раз в 10)
+                konsttShowInGame('FFAA00', `Клиент перестанет работать ${pol.label}. Вы используете не наш клиент.`);
+            }
+            if (!window.__konsttWarned) {
+                window.__konsttWarned = true;
+                try {
+                    if (typeof sendToTelegram === 'function') {
+                        sendToTelegram(`⚠️ <b>Клиент не наш</b> — ${acc}\nКлиент перестанет работать <b>${pol.label}</b> (осталось дней: ${days})`, true);
+                    }
+                } catch (e) { console.warn('[KONSTT] не удалось отправить в Telegram:', e && e.message); }
+            }
+            return;
+        }
+        await block();
+    };
+    await run();
+    if (!st.blocked) {
+        setInterval(() => { tick++; run(); }, 10 * 60 * 1000);   // обёрнутый setInterval: умрёт вместе с копией
+    }
+}
 function konsttDetectClient() {
     const st = window.KONSTT_CLIENT;
     if (st.checked && st.ours) return Promise.resolve(st);                         // наш клиент в рамках запуска игры не меняется
     if (st.__running && st.__gen === __HASSLE_GEN && window.__konsttWait) return window.__konsttWait;   // эта копия уже проверяет
+    const _polEarly = window.__konsttExpired ? konsttPolicy() : null;
+    if (_polEarly) {                                                               // срок уже вышел в этом запуске игры — ждать 90 с поиска мода незачем
+        st.ours = false; st.port = 0; st.build = ''; st.checked = true; st.ms = 0; st.__running = false;
+        konsttEnforce(st, _polEarly);
+        window.__konsttWait = Promise.resolve(st);
+        return window.__konsttWait;
+    }
     st.__running = true; st.__gen = __HASSLE_GEN;                                  // /reload: прошлая копия остановилась — начинаем заново
     st.ours = null; st.port = 0; st.build = ''; st.checked = false;
     const t0 = Date.now();
@@ -94,7 +227,10 @@ function konsttDetectClient() {
             }
             st.checked = true; st.ms = Date.now() - t0; st.__running = false;
             console.log(st.ours ? `🧩 Клиент: НАШ (сборка ${st.build}, порт ${st.port}, ${st.ms} мс)` : `🧩 Клиент: обычный/чужой (мод не найден за ${st.ms} мс)`);
-            if (!st.ours && !window.__konsttWarned) {
+            const pol = !st.ours ? konsttPolicy() : null;
+            if (pol) {
+                konsttEnforce(st, pol);   // предупреждение до даты / остановка после неё (пишет в игру и в Telegram само)
+            } else if (!st.ours && !window.__konsttWarned) {
                 window.__konsttWarned = true;
                 console.warn('⚠️ Клиент не наш: константа KONSTT-CLIENT не получена — функционал, завязанный на наш клиент, работать не будет');
                 try {
