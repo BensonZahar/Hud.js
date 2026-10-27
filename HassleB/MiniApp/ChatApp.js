@@ -198,14 +198,18 @@ try { (function () {
     }
 
     // ── Callback-кнопка «💬 Чат» (если Telegram не принял web_app/url) ──
-    const CB = 'local_chat_app_' + uniqueId;
+    // uniqueId в Code.js — let и меняется, когда игра определит ник/сервер. Раньше id запоминался один раз при загрузке
+    // (const), и если ChatApp.js успевал загрузиться раньше ника — кнопка не находила «Написать в чат» и не появлялась.
+    const CB_PREFIX = 'local_chat_app_';
+    const ANC_PREFIX = 'request_chat_message_';
+    function curCb() { return CB_PREFIX + uniqueId; }
     const origProc = processUpdates;
     processUpdates = function (updates) {
         if (stale()) return origProc.apply(this, arguments);
         const rest = [];
         for (const u of updates) {
             const cq = u.callback_query;
-            if (cq && cq.data === CB && cq.message && config.chatIds.includes(String(cq.message.chat.id))) {
+            if (cq && cq.data === curCb() && cq.message && config.chatIds.includes(String(cq.message.chat.id))) {
                 config.lastUpdateId = u.update_id;
                 try { setSharedLastUpdateId(config.lastUpdateId); } catch (e) {}
                 try { answerCallbackQuery(cq.id); } catch (e) {}
@@ -237,11 +241,13 @@ try { (function () {
     // Меню «Функции» есть и в Code.js, и в Code2.js (там своя копия showFunctionsMenu) — обе содержат кнопку request_chat_message_.
     // Вставляем на лету в tgApi, код меню не трогаем.
     const BTN_ERR = /BUTTON_|WEB_APP|wrong HTTP URL|URL_INVALID/i;
-    const ANC = 'request_chat_message_' + uniqueId;   // «📝 Написать в чат» — рядом с ней встаёт «💬 Чат»
+    // «📝 Написать в чат» (request_chat_message_<id>) — рядом с ней встаёт «💬 Чат»; ищем по префиксу, id берём из самой кнопки
+    function isAnc(b) { return !!(b && typeof b.callback_data === 'string' && b.callback_data.indexOf(ANC_PREFIX) === 0); }
+    function isCb(b)  { return !!(b && typeof b.callback_data === 'string' && b.callback_data.indexOf(CB_PREFIX) === 0); }
 
     function addChatButton(payload) {
         const mk = payload.reply_markup, isStr = typeof mk === 'string';
-        if (isStr && mk.indexOf(ANC) === -1 && mk.indexOf(CB) === -1) return false;
+        if (isStr && mk.indexOf(ANC_PREFIX) === -1 && mk.indexOf(CB_PREFIX) === -1) return false;
         let obj;
         try { obj = JSON.parse(isStr ? mk : JSON.stringify(mk)); } catch (e) { return false; }
         if (!obj || !obj.inline_keyboard) return false;
@@ -250,8 +256,8 @@ try { (function () {
         rows.forEach(function (row, i) {
             row.forEach(function (b) {
                 if (!b) return;
-                if (b.callback_data === ANC && idx < 0) idx = i;
-                if (b.callback_data === CB || (b.text && b.text.indexOf('💬 Чат') === 0)) has = true;
+                if (isAnc(b) && idx < 0) idx = i;
+                if (isCb(b) || (b.text && b.text.indexOf('💬 Чат') === 0)) has = true;
             });
         });
         if (idx < 0 && !has) return false;
@@ -262,7 +268,7 @@ try { (function () {
             return priv ? { text: '💬 Чат', web_app: { url: url } } : { text: '💬 Чат', url: url };
         };
         if (has) {   // кнопка уже есть (например, от старой копии) — только подменяем callback на ссылку
-            rows.forEach(function (row) { row.forEach(function (b, i) { if (b && b.callback_data === CB) row[i] = mkBtn(); }); });
+            rows.forEach(function (row) { row.forEach(function (b, i) { if (isCb(b)) row[i] = mkBtn(); }); });
         } else {
             rows[idx].push(mkBtn());
         }
@@ -290,7 +296,8 @@ try { (function () {
                     const o = JSON.parse(typeof backup === 'string' ? backup : JSON.stringify(backup));
                     const rows = o.inline_keyboard;
                     for (let i = 0; i < rows.length; i++) {
-                        if (rows[i].some(function (b) { return b && b.callback_data === ANC; })) { rows[i].push({ text: '💬 Чат', callback_data: CB }); break; }
+                        const a = rows[i].filter(isAnc)[0];
+                        if (a) { rows[i].push({ text: '💬 Чат', callback_data: CB_PREFIX + a.callback_data.slice(ANC_PREFIX.length) }); break; }
                     }
                     payload.reply_markup = typeof backup === 'string' ? JSON.stringify(o) : o;
                 } catch (e) { payload.reply_markup = backup; }
