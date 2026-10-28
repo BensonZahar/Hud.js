@@ -1,12 +1,19 @@
 // ╔══════════════════════════════════════════════════════════╗
-// ║  Screen.js — кнопка «📸 Скрин» (Telegram → Управление)    ║
+// ║  Screen.js — «📸 Скрин» в Telegram: ВСЁ в одном файле    ║
 // ║  Снимок кадра игры уходит в Telegram.                    ║
 // ║                                                          ║
-// ║  Подключается Load.js так же, как Near.js: текст скрипта ║
-// ║  дописывается к Code2 и выполняется в области видимости  ║
-// ║  Code.js (видны config, displayName, debugLog, tgApi,    ║
-// ║  sendChatInput, __hassleStale). Сломанный Screen.js      ║
-// ║  остальное не ломает.                                    ║
+// ║  Code.js править НЕ нужно (годится версия без скрина).   ║
+// ║  Load.js подклеивает этот файл как Near.js: он           ║
+// ║  выполняется в области видимости Code.js и сам ставит    ║
+// ║  два перехвата:                                          ║
+// ║   • editMessageText — добавляет кнопку «📸 Скрин» в меню ║
+// ║     «Управление», но ТОЛЬКО если клиент наш              ║
+// ║     (KONSTT_CLIENT.ours === true; на стоке мода нет);    ║
+// ║   • processUpdates — ловит нажатие screen_shot_<uid>,    ║
+// ║     проверяет чат и аккаунт и запускает скрин.           ║
+// ║  Нужны из Code.js: config, uniqueId, displayName,        ║
+// ║  debugLog, tgApi, sendChatInput, answerCallbackQuery,    ║
+// ║  __hassleStale, editMessageText, processUpdates.         ║
 // ║                                                          ║
 // ║  Кто что делает                                          ║
 // ║   • Кадр снимает МОД (hassle_screen.c): Unity-кадр с 3D, ║
@@ -16,9 +23,8 @@
 // ║     FormData, ни Blob, ни ArrayBuffer; игра сама делает  ║
 // ║     только GET-XHR. Строка в XHR уходит как UTF-8, а в   ║
 // ║     PNG байты ≥0x80 — картинка ломается.                 ║
-// ║   • Этот файл — только оркестрация: заявка → ожидание    ║
-// ║     готового снимка → команда «отправь» → ожидание       ║
-// ║     результата → сообщение об ошибке в Telegram.         ║
+// ║   • Здесь: кнопка, перехваты и оркестрация (заявка →     ║
+// ║     снимок → команда «отправь» → результат → ошибка).    ║
 // ║                                                          ║
 // ║  Экспорт: window.__screenTake(chatId)                    ║
 // ║           window.takeScreenshotToTelegram(chatId)        ║
@@ -78,7 +84,7 @@
         } else probe(0);
     }
 
-    function take(chatId) {
+    function run(chatId) {
         if (stale()) return;
         if (S.busy && Date.now() - S.busyAt < 120000) {
             tgApi('sendMessage', { chat_id: chatId, text: '⏳ <b>' + displayName + '</b>: скрин уже делается', parse_mode: 'HTML', disable_notification: true });
@@ -161,12 +167,109 @@
         });
     }
 
+    // ── Вход: скрин делает мод нашего клиента; на обычном клиенте — отказ (например, по кнопке из старого сообщения) ──
+    function oursNow() { return !!(window.KONSTT_CLIENT && window.KONSTT_CLIENT.ours === true); }
+    function say(chatId, why) {
+        tgApi('sendMessage', { chat_id: chatId, text: '❌ <b>Скрин ' + displayName + '</b>\n' + why, parse_mode: 'HTML' });
+    }
+    function take(chatId) {
+        if (stale()) return;
+        const go = function () {
+            if (stale()) return;
+            if (!oursNow()) return say(chatId, 'Клиент не наш — мода скрина нет.');
+            run(chatId);
+        };
+        // определение клиента ещё идёт (до 90 с после старта игры) — дожидаемся результата
+        if (window.KONSTT_CLIENT && window.KONSTT_CLIENT.ours === null && typeof window.konsttWhenChecked === 'function') window.konsttWhenChecked().then(go, go);
+        else go();
+    }
+
+    // ── Перехват 1: кнопка в меню «Управление» ──
+    // Меню узнаём по набору кнопок (скрин, как и раньше, стоит после «Инфо об аккаунте»).
+    function cbOf(b) { return b && typeof b.callback_data === 'string' ? b.callback_data : ''; }
+    function isControlsMenu(kb) {
+        if (!kb || !Array.isArray(kb.inline_keyboard)) return false;
+        let hide = false, reload = false, info = false;
+        kb.inline_keyboard.forEach(function (row) {
+            (row || []).forEach(function (b) {
+                const d = cbOf(b);
+                if (d.indexOf('hide_controls_') === 0) hide = true;
+                else if (d.indexOf('global_reload_script_') === 0) reload = true;
+                else if (d.indexOf('local_account_info_') === 0) info = true;
+            });
+        });
+        return hide && reload && info;
+    }
+    function withScreenButton(kb) {
+        try {
+            if (!oursNow() || !isControlsMenu(kb)) return kb;
+            const rows = kb.inline_keyboard.slice();
+            if (rows.some(function (row) { return (row || []).some(function (b) { return cbOf(b).indexOf('screen_shot_') === 0; }); })) return kb;
+            const btn = { text: '📸 Скрин', callback_data: 'screen_shot_' + uniqueId };
+            let at = -1;
+            rows.forEach(function (row, i) { if ((row || []).some(function (b) { return cbOf(b).indexOf('local_account_info_') === 0; })) at = i; });
+            rows.splice(at >= 0 ? at + 1 : rows.length - 1, 0, [btn]);
+            const out = {}; for (const k in kb) out[k] = kb[k];
+            out.inline_keyboard = rows;
+            return out;
+        } catch (e) { debugLog('[SCREEN] кнопка не добавлена: ' + (e && e.message)); return kb; }
+    }
+
+    // ── Перехват 2: нажатие кнопки ──
+    // Свой чат и свой аккаунт проверяем сами (в обход processUpdates), остальное отдаём Code.js как есть.
+    function isMine(u) {
+        const cq = u && u.callback_query;
+        if (!cq || typeof cq.data !== 'string' || cq.data.indexOf('screen_shot_') !== 0) return false;
+        if (cq.data.slice('screen_shot_'.length) !== uniqueId) return false;
+        return !!(cq.message && cq.message.chat && config.chatIds.includes(String(cq.message.chat.id)));
+    }
+
+    const hooks = [];   // [{name, orig, wrapped}] — для cleanup
+    function hook(name, getter, setter, make) {
+        try {
+            const orig = getter();
+            if (typeof orig !== 'function') { debugLog('[SCREEN] не найдена функция ' + name + ' — перехват не поставлен'); return; }
+            if (orig.__screenWrapped) return;
+            const wrapped = make(orig);
+            wrapped.__screenWrapped = true;
+            setter(wrapped);
+            hooks.push({ orig: orig, wrapped: wrapped, getter: getter, setter: setter });
+        } catch (e) { console.warn('[SCREEN] перехват ' + name + ' не поставлен:', e && e.message); }
+    }
+    hook('editMessageText', function () { return editMessageText; }, function (f) { editMessageText = f; }, function (orig) {
+        return function (chatId, messageId, text, replyMarkup) {
+            if (replyMarkup) replyMarkup = withScreenButton(replyMarkup);
+            return orig.apply(this, [chatId, messageId, text, replyMarkup].concat(Array.prototype.slice.call(arguments, 4)));
+        };
+    });
+    hook('processUpdates', function () { return processUpdates; }, function (f) { processUpdates = f; }, function (orig) {
+        return function (updates) {
+            if (stale()) return;
+            try {
+                if (Array.isArray(updates) && updates.some(isMine)) {
+                    const rest = [];
+                    updates.forEach(function (u) {
+                        if (!isMine(u)) { rest.push(u); return; }
+                        try { answerCallbackQuery(u.callback_query.id); } catch (e) {}
+                        take(u.callback_query.message.chat.id);
+                    });
+                    // lastUpdateId двигает вызывающий (checkTelegramCommands) — пустой список отдавать дальше незачем
+                    if (!rest.length) return;
+                    updates = rest;
+                }
+            } catch (e) { debugLog('[SCREEN] processUpdates: ' + (e && e.message)); }
+            return orig.apply(this, [updates].concat(Array.prototype.slice.call(arguments, 1)));
+        };
+    });
+
     window.__screenTake = take;
     window.takeScreenshotToTelegram = take;
     window.__screenCleanup = function () {
         S.dead = true; S.busy = false;
         S.timers.forEach(function (id) { try { clearTimeout(id); } catch (e) {} });
         S.timers.length = 0;
+        hooks.forEach(function (h) { try { if (h.getter() === h.wrapped) h.setter(h.orig); } catch (e) {} });
+        hooks.length = 0;
         if (window.__screenTake === take) window.__screenTake = null;
         if (window.takeScreenshotToTelegram === take) window.takeScreenshotToTelegram = null;
         window.__screenCleanup = null;
