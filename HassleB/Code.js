@@ -4744,12 +4744,13 @@ function otygrovkaResetAfterPayday() {
 // ║  Зависимости: config, displayName, debugLog, tgApi,      ║
 // ║               sendChatInput, __hassleStale               ║
 // ║  Нужен клиент с модом hassle_screen.c (HTTP-сервер на    ║
-// ║  127.0.0.1:17781..17790). Кадр снимает мод, скрипт       ║
-// ║  забирает PNG и шлёт его через sendPhoto.                ║
+// ║  127.0.0.1:17781..17790). Кадр снимает мод и сам же      ║
+// ║  шлёт его в Telegram (WebView игры не умеет бинарный     ║
+// ║  POST); скрипт даёт заявки и ждёт результат.             ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SCREENSHOT MODULE //
 const _SCR_PORTS = (function () { const a = []; for (let i = 0; i < 10; i++) a.push(17781 + i); return a; })();
-const _scr = { base: null, busy: false, busyAt: 0, mode: null };
+const _scr = { base: null, busy: false, busyAt: 0 };
 
 // GET к моду; cb(ошибка|null, ответ). type: '' — текст, 'arraybuffer' — PNG.
 function _scrGet(url, type, timeoutMs, cb) {
@@ -4785,101 +4786,9 @@ function _scrFindBase(cb) {
     } else probe(0);
 }
 
-function _scrUtf8(str) {
-    const u = unescape(encodeURIComponent(str)), a = new Uint8Array(u.length);
-    for (let i = 0; i < u.length; i++) a[i] = u.charCodeAt(i);
-    return a;
-}
-
-// multipart/form-data вручную (без FormData/Blob — в WebView игры их может не быть)
-function _scrMultipart(boundary, fields, fileField, fileName, mime, bytes) {
-    const chunks = [];
-    Object.keys(fields).forEach(function (k) {
-        chunks.push(_scrUtf8('--' + boundary + '\r\nContent-Disposition: form-data; name="' + k + '"\r\n\r\n' + fields[k] + '\r\n'));
-    });
-    chunks.push(_scrUtf8('--' + boundary + '\r\nContent-Disposition: form-data; name="' + fileField + '"; filename="' + fileName + '"\r\nContent-Type: ' + mime + '\r\n\r\n'));
-    chunks.push(bytes);
-    chunks.push(_scrUtf8('\r\n--' + boundary + '--\r\n'));
-    let total = 0; chunks.forEach(function (c) { total += c.length; });
-    const out = new Uint8Array(total); let off = 0;
-    chunks.forEach(function (c) { out.set(c, off); off += c.length; });
-    return out;
-}
-
-// Способы отправки (Telegram на этой машине отвечает 400 с пустым телом — перебираем, пока не примет):
-//  'view'   — multipart вручную, Uint8Array (ArrayBufferView, по стандарту)
-//  'form'   — FormData + Blob (границу и заголовок ставит сам движок — самый «обычный» способ)
-//  'blob'   — multipart вручную, обёрнутый в Blob
-//  'buffer' — multipart вручную, голый ArrayBuffer
-//  'fetch'  — fetch() + FormData (запасной, если XHR в этом WebView урезан)
-const _SCR_MODES = ['form', 'view', 'blob', 'buffer', 'fetch'];
-function _scrTgUpload(method, fileField, fields, bytes, mode, cb) {
-    let done = false;
-    const fin = function (e, r) { if (done) return; done = true; cb(e, r); };
-    const url = 'https://api.telegram.org/bot' + config.botToken + '/' + method;
-    try {
-        if (mode === 'fetch') {
-            if (typeof fetch === 'undefined' || typeof FormData === 'undefined' || typeof Blob === 'undefined') return fin('exception: нет fetch/FormData/Blob');
-            const fd = new FormData();
-            Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
-            fd.append(fileField, new Blob([bytes], { type: 'image/png' }), 'screen.png');
-            fetch(url, { method: 'POST', body: fd }).then(function (resp) {
-                return resp.text().then(function (t) {
-                    if (!resp.ok) debugLog('[SCREEN] ' + method + '/fetch → status ' + resp.status + ' ' + (resp.statusText || '') + ', тело ' + t.length + ' симв.: ' + t.slice(0, 200));
-                    fin(resp.ok ? null : (resp.status || 0), t);
-                });
-            }).catch(function (err) { fin('network'); debugLog('[SCREEN] fetch ошибка: ' + (err && err.message ? err.message : err)); });
-            return;
-        }
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', url, true);
-        xhr.timeout = 60000;
-        xhr.onload = function () {
-            const t = xhr.responseText || '';
-            if (xhr.status !== 200) {
-                let ct = ''; try { ct = xhr.getResponseHeader('content-type') || ''; } catch (x) {}
-                debugLog('[SCREEN] ' + method + '/' + mode + ' → status ' + xhr.status + ' ' + (xhr.statusText || '') + ', тип «' + ct + '», тело ' + t.length + ' симв.: ' + t.slice(0, 200));
-            }
-            fin(xhr.status === 200 ? null : (xhr.status || 0), t);
-        };
-        xhr.onerror = function () { fin('network'); };
-        xhr.ontimeout = function () { fin('timeout'); };
-        if (mode === 'form') {
-            if (typeof FormData === 'undefined' || typeof Blob === 'undefined') return fin('exception: нет FormData/Blob');
-            const fd = new FormData();
-            Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
-            fd.append(fileField, new Blob([bytes], { type: 'image/png' }), 'screen.png');
-            xhr.send(fd);
-            return;
-        }
-        const boundary = '----hassle' + Date.now().toString(16) + Math.floor(Math.random() * 1e9).toString(16);
-        const body = _scrMultipart(boundary, fields, fileField, 'screen.png', 'image/png', bytes);
-        xhr.setRequestHeader('Content-Type', 'multipart/form-data; boundary=' + boundary);
-        if (mode === 'view') xhr.send(body);
-        else if (mode === 'blob') {
-            if (typeof Blob === 'undefined') return fin('exception: нет Blob');
-            xhr.send(new Blob([body]));
-        } else xhr.send(body.buffer);
-    } catch (e) { fin('exception: ' + (e && e.message ? e.message : e)); }
-}
-
-// Перебираем способы по очереди, пока Telegram не примет; удачный запоминаем (_scr.mode) и пробуем первым.
-function _scrTgSend(method, fileField, fields, bytes, cb) {
-    const modes = _scr.mode ? [_scr.mode].concat(_SCR_MODES.filter(function (m) { return m !== _scr.mode; })) : _SCR_MODES.slice();
-    const next = function (i, lastE, lastR) {
-        if (i >= modes.length) return cb(lastE, lastR);
-        _scrTgUpload(method, fileField, fields, bytes, modes[i], function (e, r) {
-            if (!e) { _scr.mode = modes[i]; debugLog('[SCREEN] ' + method + ' принят, способ: ' + modes[i]); return cb(null, r); }
-            const retry = e === 400 || e === 0 || (typeof e === 'string' && e.indexOf('exception') === 0);
-            if (retry) next(i + 1, e, r); else cb(e, r);
-        });
-    };
-    next(0);
-}
-
 function takeScreenshotToTelegram(chatId) {
     if (__hassleStale()) return;
-    if (_scr.busy && Date.now() - _scr.busyAt < 45000) {
+    if (_scr.busy && Date.now() - _scr.busyAt < 120000) {
         tgApi('sendMessage', { chat_id: chatId, text: '⏳ <b>' + displayName + '</b>: скрин уже делается', parse_mode: 'HTML', disable_notification: true });
         return;
     }
@@ -4890,7 +4799,6 @@ function takeScreenshotToTelegram(chatId) {
         debugLog('[SCREEN] ' + why);
         tgApi('sendMessage', { chat_id: chatId, text: '❌ <b>Скрин ' + displayName + '</b>\n' + why, parse_mode: 'HTML' });
     };
-    if (typeof Uint8Array === 'undefined') return fail('В WebView игры нет Uint8Array — отправить картинку не получится');
     tgApi('sendChatAction', { chat_id: chatId, action: 'upload_photo' });
 
     _scrFindBase(function (e, base) {
@@ -4899,30 +4807,30 @@ function takeScreenshotToTelegram(chatId) {
             let st0 = null; try { st0 = JSON.parse(t1); } catch (x) {}
             if (e1 || !st0) return fail('Не удалось получить статус мода скрина (' + (e1 || 'ответ не JSON') + ')');
 
+            // Отправку в Telegram делает сам мод (JNI → HttpURLConnection): /screen/tg запускает, /screen/tgstatus — результат.
+            const esc = function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+            const pollTg = function (id, since) {
+                _scrGet(base + '/screen/tgstatus', '', 2500, function (e6, t6) {
+                    if (__hassleStale()) { finish(); return; }
+                    let s6 = null; try { s6 = JSON.parse(t6); } catch (x) {}
+                    if (s6 && s6.id === id && s6.state === 2) { finish(); debugLog('[SCREEN] отправлено модом в Telegram'); return; }
+                    if (s6 && s6.id === id && s6.state === 3) return fail('Telegram не принял картинку' + (s6.code ? ' (' + s6.code + ')' : '') + '\n' + esc(s6.msg || 'причина — в konstt.log, строки «скрин:»'));
+                    if (Date.now() - since > 90000) return fail('Отправка в Telegram не завершилась за 90 с');
+                    setTimeout(function () { pollTg(id, since); }, 400);
+                });
+            };
             const upload = function () {
-                _scrGet(base + '/screen/last', 'arraybuffer', 20000, function (e4, buf) {
-                    if (e4 || !buf || !buf.byteLength) return fail('Не удалось забрать PNG у мода (' + (e4 || 'пусто') + ')');
-                    const bytes = new Uint8Array(buf);
-                    const d = new Date(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
-                    const caption = '📸 <b>' + displayName + '</b> · ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds());
-                    const fields = { chat_id: String(chatId), caption: caption, parse_mode: 'HTML' };
-                    const sigOk = bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
-                    const tgDesc = function (r) { try { return JSON.parse(r).description || ''; } catch (x) { return String(r || '').slice(0, 120); } };
-                    const info = bytes.length + ' байт, PNG-заголовок ' + (sigOk ? 'ок' : 'НЕВЕРНЫЙ');
-                    _scrTgSend('sendPhoto', 'photo', fields, bytes, function (e5, r5) {
-                        if (!e5) { finish(); debugLog('[SCREEN] отправлено, ' + info); return; }
-                        const d1 = tgDesc(r5);
-                        debugLog('[SCREEN] sendPhoto не прошёл: ' + e5 + ' ' + d1);
-                        if (e5 !== 400) return fail('Не удалось отправить в Telegram (' + e5 + ')');
-                        // не взял как фото (вес/размеры) — шлём файлом, затем без подписи
-                        _scrTgSend('sendDocument', 'document', fields, bytes, function (e6, r6) {
-                            if (!e6) { finish(); debugLog('[SCREEN] отправлено документом, ' + info); return; }
-                            _scrTgSend('sendDocument', 'document', { chat_id: String(chatId) }, bytes, function (e7, r7) {
-                                if (!e7) { finish(); debugLog('[SCREEN] отправлено документом без подписи, ' + info); return; }
-                                fail('Telegram не принял картинку (' + e7 + ')\n' + (tgDesc(r7) || tgDesc(r6) || d1 || 'пустой ответ') + '\n' + info);
-                            });
-                        });
-                    });
+                const d = new Date(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+                const caption = '📸 <b>' + displayName + '</b> · ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds());
+                // токен в лог не пишем: URL не логируем
+                const url = base + '/screen/tg?k=' + encodeURIComponent(config.botToken) + '&c=' + encodeURIComponent(String(chatId)) + '&doc=0&cap=' + encodeURIComponent(caption);
+                _scrGet(url, '', 5000, function (e4, t4) {
+                    let r4 = null; try { r4 = JSON.parse(t4); } catch (x) {}
+                    if (e4 || !r4) return fail('Мод не принял отправку в Telegram (' + (e4 || 'ответ не JSON') + '). Нужна свежая сборка клиента с обновлённым hassle_screen.c.');
+                    if (!r4.ok) return fail(r4.err === 'busy' ? 'Мод ещё отправляет предыдущий снимок, попробуйте через пару секунд'
+                        : r4.err === 'no_snapshot' ? 'У мода нет готового снимка'
+                        : 'Мод отказал в отправке: ' + (r4.err || '?'));
+                    pollTg(r4.id, Date.now());
                 });
             };
             const poll = function (since, maxMs) {
