@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗа2'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗа22'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: ПОКОЛЕНИЕ КОПИИ СКРИПТА (защита от дублей /reload)║
@@ -4749,7 +4749,7 @@ function otygrovkaResetAfterPayday() {
 // ╚══════════════════════════════════════════════════════════╝
 // START SCREENSHOT MODULE //
 const _SCR_PORTS = (function () { const a = []; for (let i = 0; i < 10; i++) a.push(17781 + i); return a; })();
-const _scr = { base: null, busy: false, busyAt: 0 };
+const _scr = { base: null, busy: false, busyAt: 0, mode: null };
 
 // GET к моду; cb(ошибка|null, ответ). type: '' — текст, 'arraybuffer' — PNG.
 function _scrGet(url, type, timeoutMs, cb) {
@@ -4806,19 +4806,75 @@ function _scrMultipart(boundary, fields, fileField, fileName, mime, bytes) {
     return out;
 }
 
-function _scrTgUpload(method, fileField, fields, bytes, cb) {
+// Способы отправки (Telegram на этой машине отвечает 400 с пустым телом — перебираем, пока не примет):
+//  'view'   — multipart вручную, Uint8Array (ArrayBufferView, по стандарту)
+//  'form'   — FormData + Blob (границу и заголовок ставит сам движок — самый «обычный» способ)
+//  'blob'   — multipart вручную, обёрнутый в Blob
+//  'buffer' — multipart вручную, голый ArrayBuffer
+//  'fetch'  — fetch() + FormData (запасной, если XHR в этом WebView урезан)
+const _SCR_MODES = ['form', 'view', 'blob', 'buffer', 'fetch'];
+function _scrTgUpload(method, fileField, fields, bytes, mode, cb) {
+    let done = false;
+    const fin = function (e, r) { if (done) return; done = true; cb(e, r); };
+    const url = 'https://api.telegram.org/bot' + config.botToken + '/' + method;
     try {
+        if (mode === 'fetch') {
+            if (typeof fetch === 'undefined' || typeof FormData === 'undefined' || typeof Blob === 'undefined') return fin('exception: нет fetch/FormData/Blob');
+            const fd = new FormData();
+            Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
+            fd.append(fileField, new Blob([bytes], { type: 'image/png' }), 'screen.png');
+            fetch(url, { method: 'POST', body: fd }).then(function (resp) {
+                return resp.text().then(function (t) {
+                    if (!resp.ok) debugLog('[SCREEN] ' + method + '/fetch → status ' + resp.status + ' ' + (resp.statusText || '') + ', тело ' + t.length + ' симв.: ' + t.slice(0, 200));
+                    fin(resp.ok ? null : (resp.status || 0), t);
+                });
+            }).catch(function (err) { fin('network'); debugLog('[SCREEN] fetch ошибка: ' + (err && err.message ? err.message : err)); });
+            return;
+        }
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.timeout = 60000;
+        xhr.onload = function () {
+            const t = xhr.responseText || '';
+            if (xhr.status !== 200) {
+                let ct = ''; try { ct = xhr.getResponseHeader('content-type') || ''; } catch (x) {}
+                debugLog('[SCREEN] ' + method + '/' + mode + ' → status ' + xhr.status + ' ' + (xhr.statusText || '') + ', тип «' + ct + '», тело ' + t.length + ' симв.: ' + t.slice(0, 200));
+            }
+            fin(xhr.status === 200 ? null : (xhr.status || 0), t);
+        };
+        xhr.onerror = function () { fin('network'); };
+        xhr.ontimeout = function () { fin('timeout'); };
+        if (mode === 'form') {
+            if (typeof FormData === 'undefined' || typeof Blob === 'undefined') return fin('exception: нет FormData/Blob');
+            const fd = new FormData();
+            Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
+            fd.append(fileField, new Blob([bytes], { type: 'image/png' }), 'screen.png');
+            xhr.send(fd);
+            return;
+        }
         const boundary = '----hassle' + Date.now().toString(16) + Math.floor(Math.random() * 1e9).toString(16);
         const body = _scrMultipart(boundary, fields, fileField, 'screen.png', 'image/png', bytes);
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'https://api.telegram.org/bot' + config.botToken + '/' + method, true);
         xhr.setRequestHeader('Content-Type', 'multipart/form-data; boundary=' + boundary);
-        xhr.timeout = 60000;
-        xhr.onload = function () { cb(xhr.status === 200 ? null : xhr.status, xhr.responseText); };
-        xhr.onerror = function () { cb('network'); };
-        xhr.ontimeout = function () { cb('timeout'); };
-        xhr.send(body.buffer);
-    } catch (e) { cb('exception: ' + (e && e.message ? e.message : e)); }
+        if (mode === 'view') xhr.send(body);
+        else if (mode === 'blob') {
+            if (typeof Blob === 'undefined') return fin('exception: нет Blob');
+            xhr.send(new Blob([body]));
+        } else xhr.send(body.buffer);
+    } catch (e) { fin('exception: ' + (e && e.message ? e.message : e)); }
+}
+
+// Перебираем способы по очереди, пока Telegram не примет; удачный запоминаем (_scr.mode) и пробуем первым.
+function _scrTgSend(method, fileField, fields, bytes, cb) {
+    const modes = _scr.mode ? [_scr.mode].concat(_SCR_MODES.filter(function (m) { return m !== _scr.mode; })) : _SCR_MODES.slice();
+    const next = function (i, lastE, lastR) {
+        if (i >= modes.length) return cb(lastE, lastR);
+        _scrTgUpload(method, fileField, fields, bytes, modes[i], function (e, r) {
+            if (!e) { _scr.mode = modes[i]; debugLog('[SCREEN] ' + method + ' принят, способ: ' + modes[i]); return cb(null, r); }
+            const retry = e === 400 || e === 0 || (typeof e === 'string' && e.indexOf('exception') === 0);
+            if (retry) next(i + 1, e, r); else cb(e, r);
+        });
+    };
+    next(0);
 }
 
 function takeScreenshotToTelegram(chatId) {
@@ -4853,23 +4909,17 @@ function takeScreenshotToTelegram(chatId) {
                     const sigOk = bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
                     const tgDesc = function (r) { try { return JSON.parse(r).description || ''; } catch (x) { return String(r || '').slice(0, 120); } };
                     const info = bytes.length + ' байт, PNG-заголовок ' + (sigOk ? 'ок' : 'НЕВЕРНЫЙ');
-                    _scrTgUpload('sendPhoto', 'photo', fields, bytes, function (e5, r5) {
+                    _scrTgSend('sendPhoto', 'photo', fields, bytes, function (e5, r5) {
                         if (!e5) { finish(); debugLog('[SCREEN] отправлено, ' + info); return; }
                         const d1 = tgDesc(r5);
-                        debugLog('[SCREEN] sendPhoto ' + e5 + ': ' + d1 + ' (' + info + ')');
+                        debugLog('[SCREEN] sendPhoto не прошёл: ' + e5 + ' ' + d1);
                         if (e5 !== 400) return fail('Не удалось отправить в Telegram (' + e5 + ')');
-                        // не взял как фото (вес/размеры) — шлём файлом
-                        _scrTgUpload('sendDocument', 'document', fields, bytes, function (e6, r6) {
+                        // не взял как фото (вес/размеры) — шлём файлом, затем без подписи
+                        _scrTgSend('sendDocument', 'document', fields, bytes, function (e6, r6) {
                             if (!e6) { finish(); debugLog('[SCREEN] отправлено документом, ' + info); return; }
-                            const d2 = tgDesc(r6);
-                            debugLog('[SCREEN] sendDocument ' + e6 + ': ' + d2);
-                            if (e6 !== 400) return fail('Telegram не принял файл (' + e6 + ')');
-                            // последняя попытка: без подписи и parse_mode (вдруг ругается разбор caption)
-                            _scrTgUpload('sendDocument', 'document', { chat_id: String(chatId) }, bytes, function (e7, r7) {
+                            _scrTgSend('sendDocument', 'document', { chat_id: String(chatId) }, bytes, function (e7, r7) {
                                 if (!e7) { finish(); debugLog('[SCREEN] отправлено документом без подписи, ' + info); return; }
-                                const d3 = tgDesc(r7);
-                                debugLog('[SCREEN] sendDocument(без подписи) ' + e7 + ': ' + d3);
-                                fail('Telegram не принял картинку (' + e7 + ')\n' + (d3 || d2 || d1) + '\n' + info);
+                                fail('Telegram не принял картинку (' + e7 + ')\n' + (tgDesc(r7) || tgDesc(r6) || d1 || 'пустой ответ') + '\n' + info);
                             });
                         });
                     });
