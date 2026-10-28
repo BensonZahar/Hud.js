@@ -1144,9 +1144,23 @@ function broadcastGlobalCommand(cmd, val) {
 // FIX: broadcast только с аккаунта #1 (остальные получат /reload из чата напрямую).
 //      skipBroadcast=true — когда /reload уже пришёл всем из беседы (broadcast не нужен, иначе двойная перезагрузка).
 //      Стаггер N*800ms — аккаунты не стартуют одновременно и не создают rate-limit в канале.
+// Задержка старта перезагрузки: аккаунт #N ждёт (N-1)*100 мс, максимум 400 мс. Раньше было (N-1)*300 без потолка
+// (у #10 — 2,7 с), а получатели broadcast («Все аккаунты» с кнопки) стартовали сразу, без задержки — разные пути давали разное время.
+// Теперь /reload из беседы, кнопки «Все аккаунты» и broadcast используют одну и ту же задержку.
+function _hassleReloadDelay() {
+    const n = parseInt(window.ACCOUNT_NUMBER) || 1;
+    return Math.min(Math.max(n - 1, 0) * 100, 400);
+}
+// Перезагрузка уже идёт: либо ждём стартовый таймер (_hassleReloading), либо Load.js скачивает/меняет копии (__hassleInitRunning).
+// Раньше проверялся только первый флаг: второй /reload во время скачивания слал ещё одно «🔄 Перезагрузка...», а Load.js его молча игнорировал.
+function _hassleReloadBusy() {
+    return !!window._hassleReloading ||
+        (!!window.__hassleInitRunning && Date.now() - (window.__hassleInitStartedAt || 0) < 120000);
+}
 function reloadAllAccounts(skipBroadcast) {
-    if (window._hassleReloading) {
+    if (_hassleReloadBusy()) {
         debugLog(`[RELOAD] Уже выполняется, игнорируем`);
+        if (!skipBroadcast) sendToTelegram(`⏳ <b>Перезагрузка уже идёт (${displayName})</b>`, true, null);
         return;
     }
 
@@ -1162,9 +1176,9 @@ function reloadAllAccounts(skipBroadcast) {
 
     window._hassleReloading = true;
 
-    // Стаггер: аккаунт #N ждёт (N-1)*300ms — не перезагружаются все одновременно, но и не ждут по 7 секунд
-    // (раньше было 800 мс: у аккаунта #10 перезагрузка стартовала только через 7,2 с — «срабатывает не моментально»)
-    const delayMs = (myNum - 1) * 300;
+    // Стаггер: аккаунт #N ждёт (N-1)*100 мс (максимум 400 мс) — не все 7 файлов × N аккаунтов летят в GitHub в одну миллисекунду
+    // (раньше было 800 мс на аккаунт: у #10 перезагрузка стартовала только через 7,2 с — «срабатывает не моментально»)
+    const delayMs = _hassleReloadDelay();
     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
     setTimeout(() => {
         window._hassleReloading = false;
@@ -1183,8 +1197,9 @@ function reloadAllAccounts(skipBroadcast) {
 
 // Перезагрузить ТОЛЬКО текущий аккаунт (без broadcast остальным)
 function reloadCurrentAccount() {
-    if (window._hassleReloading) {
+    if (_hassleReloadBusy()) {
         debugLog(`[RELOAD] Уже выполняется, игнорируем`);
+        sendToTelegram(`⏳ <b>Перезагрузка уже идёт (${displayName})</b>`, true, null);
         return;
     }
     window._hassleReloading = true;
@@ -1284,7 +1299,7 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
         case 'reload':
             // Перезагрузка скрипта — откладываем чтобы offset успел сохраниться
             debugLog(`[GLOBAL] Получена команда перезагрузки для ${displayName}`);
-            if (!window._hassleReloading) {
+            if (!_hassleReloadBusy()) {
                 // FIX: сообщаем что именно этот бот получил broadcast и начинает перезагрузку
                 sendToTelegram(`🔄 <b>Перезагрузка ${displayName} (по broadcast)...</b>`, true, null);
                 window._hassleReloading = true;
@@ -1298,7 +1313,7 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
                         window._hassleReloading = false;
                         debugLog(`[GLOBAL] Ошибка перезагрузки: ${e.message}`);
                     }
-                }, 0);
+                }, _hassleReloadDelay());
             }
             break;
         default:
@@ -5378,7 +5393,11 @@ function _skipOldUpdatesOnFreshStart(callback) {
 
 function checkTelegramCommands() {
     if (__hassleStale()) return; // старая копия — цикл опроса обрываем
-    if (window._hassleReloading) return;
+    // FIX: раньше здесь был просто return — цикл опроса старой копии ОБРЫВАЛСЯ и больше никто его не запускал. У аккаунтов #2+
+    // (стартовая задержка > 0) бот глох на всё время скачивания, а если перезагрузка не удавалась (сеть, 404, синтаксическая
+    // ошибка) — оставался глухим до перезапуска игры, хотя Load.js писал «продолжает работать на прежней версии».
+    // Теперь цикл просто ждёт, пока не снимется флаг; когда стартует новая копия — старая становится stale и этот таймер гаснет сам.
+    if (window._hassleReloading) { setTimeout(checkTelegramCommands, 150); return; }
     _pollRestartScheduled = false;
     config.lastUpdateId = getSharedLastUpdateId();
 
@@ -5556,7 +5575,9 @@ function processUpdates(updates) {
                 }
             }
             // Глобальные команды (работают на все аккаунты)
-            if (message === '/reload') {
+            if (message === '/reload' || /^\/reload@\w+$/i.test(message)) {
+                // /reload@ИмяБота — так команда приходит, когда её выбирают из списка подсказок Telegram в группе: раньше строгое
+                // сравнение с '/reload' её не узнавало, и перезагрузка «не срабатывала». @имя игнорируем — перезагружаются все боты.
                 reloadAllAccounts(true); // /reload видят все боты сами — broadcast не нужен
             } else if (message === '/dbg_on') {
                 startDebugStatTracker(); // сам отправляет стартовое сообщение через _dbg3TgPush

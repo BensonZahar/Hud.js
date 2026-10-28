@@ -151,13 +151,19 @@ setupChatHook();
 //        5 минут отдавал СТАРЫЙ файл — «перезагрузилось, но код прежний» (особенно сразу после коммита).
 // FIX 2: 404 — не временная ошибка, повторять её бессмысленно. Раньше отсутствующий (необязательный) Ozv.js
 //        задерживал каждую перезагрузку на 5 повторов × 2 с = 10 секунд.
-function fetchRawText(filename, retries = 4) {
+// FIX 3: пауза между повторами была фиксированной 1,5 с у ВСЕХ аккаунтов: при перезагрузке нескольких аккаунтов разом (7 файлов × N)
+//        временная ошибка/429 от GitHub повторялась у всех одновременно и снова упиралась в тот же лимит. Теперь первая пауза короткая
+//        (≈0,4 с), дальше ×2 (0,8 → 1,6 → 3,2 с) со случайным разбросом ±30%; если сервер прислал Retry-After — ждём его (не дольше 10 с).
+function fetchRawText(filename, retries = 4, _n = 0) {
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/HassleB/${filename}?t=${Date.now()}`;
     return new Promise((resolve, reject) => {
-        const retry = (why, permanent) => {
+        const retry = (why, permanent, retryAfterSec) => {
             if (!permanent && retries > 0) {
-                console.warn(`⚠️ ${why} для ${filename}, повтор... (${retries} осталось)`);
-                setTimeout(() => fetchRawText(filename, retries - 1).then(resolve).catch(reject), 1500);
+                let wait = 400 * Math.pow(2, _n) * (0.7 + Math.random() * 0.6);
+                if (retryAfterSec > 0) wait = Math.max(wait, Math.min(retryAfterSec, 10) * 1000);
+                wait = Math.round(wait);
+                console.warn(`⚠️ ${why} для ${filename}, повтор через ${wait} мс... (${retries} осталось)`);
+                setTimeout(() => fetchRawText(filename, retries - 1, _n + 1).then(resolve).catch(reject), wait);
             } else {
                 const err = new Error(`Не удалось загрузить ${filename}: ${why}`);
                 err.permanent = !!permanent;
@@ -174,7 +180,9 @@ function fetchRawText(filename, retries = 4) {
             } else if (xhr.status === 404) {
                 retry(`HTTP 404`, true);
             } else {
-                retry(`HTTP ${xhr.status}`, false);
+                let ra = 0;
+                try { ra = parseInt(xhr.getResponseHeader('Retry-After'), 10) || 0; } catch (e) {}
+                retry(`HTTP ${xhr.status}`, false, ra);
             }
         };
         xhr.onerror = function() { retry('Ошибка сети', false); };
@@ -412,6 +420,79 @@ function syntaxError(text) {
     catch (e) { return (e instanceof SyntaxError) ? e : null; } // другая ошибка (например, CSP) — не повод отменять перезагрузку
 }
 
+// ============================================================
+// Замена копий скриптов — одной синхронной функцией, чтобы при сбое можно было вернуть ПРЕДЫДУЩУЮ рабочую версию.
+// t = { listText, codeText, code2Text, code3Text, ozvText, nearText, miniText } (необязательные — null).
+// Возвращает ошибку, если Code.js/Code2/Code3 упали ПОСЛЕ того, как Code.js поставил __botInit (бота можно запустить в базовом режиме),
+// и бросает исключение, если запускать уже нечего.
+// ============================================================
+function applyScriptCopies(t) {
+    // FIX: снимаем старые хуки перед повторным eval скриптов
+    hassleCleanupHooks();
+
+    console.log('📋 Применение List.js...');
+    evalLoadedScript('List.js', t.listText);
+
+    console.log(`⚙️ Применение конфигурации для ${currentUser}...`);
+    if (!applyUserConfig()) {
+        throw new Error('Не удалось применить конфигурацию пользователя');
+    }
+
+    // Code2.js — текст нужен до запуска Code.js (Code.js eval'ит его в СВОЕЙ области видимости).
+    // Code3.js (помощник лицензёра + вкладка «Лицензёр» в Telegram) подклеиваем к тексту Code2: Code3 видит
+    // config/processUpdates и ставит всё через перехваты — Code.js и Code2.js остаются без изменений.
+    window.__CODE2_TEXT__ = t.code2Text;
+    if (t.code3Text) window.__CODE2_TEXT__ += '\n;\n' + t.code3Text;
+    // Ozv.js (озвучка) — тоже подклеиваем к тексту Code2, чтобы он видел sendAdminSpamAlert из Code.js.
+    // Вложенный eval в try: если Ozv.js сломан — Code2/Code3 это не ломает.
+    if (t.ozvText) {
+        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.ozvText) + '); } catch (eOzv) { console.warn("[OZV] не запущен:", eOzv && eOzv.message); }\n';
+    }
+
+    // Near.js (игроки рядом: /near, /neartg, /neardist, /neardiag, window.NearPlayers) — подклеиваем последним, поверх Ozv:
+    // ему нужен sendToTelegram из области видимости Code.js. Вложенный eval в try: сломанный Near.js остальное не ломает.
+    if (t.nearText) {
+        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.nearText) + '); } catch (eNear) { console.warn("[NEAR] не запущен:", eNear && eNear.message); }\n';
+    }
+
+    // MiniApp/MiniApp.js — общий загрузчик мини-аппов (Stats.js и любые будущие из его списка FILES). Подклеиваем самым последним,
+    // поверх Near: сам MiniApp.js докачивает файлы мини-аппов и выполняет их в области видимости Code.js (config, processUpdates, tgApi…).
+    // Новые мини-аппы добавляются строкой в FILES на GitHub — этот файл (Load.js) менять не нужно.
+    // Вложенный eval в try: сломанный MiniApp.js остальное не ломает.
+    if (t.miniText) {
+        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.miniText) + '); } catch (eMini) { console.warn("[MINIAPP] не запущен:", eMini && eMini.message); }\n';
+    }
+
+    // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
+    window.__WAIT_CODE2__ = true;
+
+    console.log('📦 Выполнение Code.js (+ Code2 внутри)...');
+    try {
+        evalLoadedScript('Code.js', t.codeText);
+    } catch (errCode) {
+        // Code2/Code3 упали уже после того, как Code.js поставил __botInit — бота ещё можно запустить (решает вызывающий)
+        if (typeof window.__botInit === 'function') return errCode;
+        throw errCode;
+    }
+    return null;
+}
+
+// Бот запускается после того как Code.js eval'нул Code2 и установил __botInit
+function startBotNow() {
+    console.log('🚀 Запускаем бота...');
+    if (typeof window.__botInit === 'function') {
+        window.__botInit();
+        window.__botInit = null;
+    } else {
+        console.warn('⚠️ __botInit не найден — бот уже запущен или Code.js не установил флаг');
+    }
+}
+
+function hassleSameCopies(a, b) {
+    if (!a || !b) return false;
+    return ['listText', 'codeText', 'code2Text', 'code3Text', 'ozvText', 'nearText', 'miniText'].every(k => (a[k] || null) === (b[k] || null));
+}
+
 // Последовательная загрузка скриптов
 //
 // FIX (перезагрузка «не моментальная» / «иногда не срабатывает»):
@@ -433,6 +514,7 @@ async function initializeScripts() {
     const t0 = Date.now();
     const isReload = !!window.__CODE_READY__;
     let oldCopyReplaced = false;
+    let texts = null;   // что запускаем сейчас — чтобы в catch понять, есть ли смысл откатываться
 
     try {
         console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
@@ -452,6 +534,8 @@ async function initializeScripts() {
             optional('Near.js', 2),    // игроки рядом (нужен APK с модом Near) — необязательный
             optional('MiniApp/MiniApp.js', 2)   // общий загрузчик мини-аппов (HassleB/MiniApp/MiniApp.js): сам качает мини-аппы из своего списка — необязательный
         ]);
+
+        const tDownloaded = Date.now();
 
         // ── Проверка синтаксиса до замены копий ──
         let code3Text = code3Raw;
@@ -488,6 +572,8 @@ async function initializeScripts() {
             }
         }
 
+        const tChecked = Date.now();
+
         // Хук на чат ставится один раз при старте Load.js. Если тогда он не встал (чат-компонент ещё не был создан,
         // игра обновилась) — бот не видит ни одного сообщения чата до перезапуска игры. При перезагрузке пробуем снова.
         if (!window.__hassleChatHooked) {
@@ -496,75 +582,32 @@ async function initializeScripts() {
         }
 
         // ── ЭТАП 2: меняем копии (синхронно, без ожиданий) ──
-        // FIX: снимаем старые хуки перед повторным eval скриптов
-        hassleCleanupHooks();
+        // Что именно запускаем (после отсева Code3/Near/MiniApp с синтаксическими ошибками) — запоминаем для отката
+        texts = { listText, codeText, code2Text, code3Text, ozvText, nearText, miniText };
+        const tApply0 = Date.now();
         oldCopyReplaced = true;
-
-        console.log('📋 Применение List.js...');
-        evalLoadedScript('List.js', listText);
-
-        console.log(`⚙️ Применение конфигурации для ${currentUser}...`);
-        if (!applyUserConfig()) {
-            throw new Error('Не удалось применить конфигурацию пользователя');
+        const partialErr = applyScriptCopies(texts);
+        if (partialErr) {
+            // Code2/Code3 упали на запуске. Есть прошлая рабочая версия — откатываемся на неё (catch ниже),
+            // иначе запускаем базовый бот, чтобы Telegram-управление осталось и причина была видна.
+            if (window.__hassleLastGood && !hassleSameCopies(texts, window.__hassleLastGood)) throw partialErr;
+            console.error('❌ Ошибка в Code.js/Code2.js — аварийный запуск базового бота:', partialErr);
+            loaderNotify(`⚠️ <b>Ошибка при выполнении скриптов</b> — запущен базовый режим\n<code>${String(partialErr && partialErr.message).replace(/</g, '&lt;')}</code>`);
         }
+        startBotNow();
+        if (!partialErr) window.__hassleLastGood = texts;   // эту связку скриптов можно безопасно вернуть, если следующая версия не запустится
+        const tApply = Date.now() - tApply0;
 
-        // Code2.js — текст нужен до запуска Code.js (Code.js eval'ит его в СВОЕЙ области видимости).
-        // Code3.js (помощник лицензёра + вкладка «Лицензёр» в Telegram) подклеиваем к тексту Code2: Code3 видит
-        // config/processUpdates и ставит всё через перехваты — Code.js и Code2.js остаются без изменений.
-        window.__CODE2_TEXT__ = code2Text;
-        if (code3Text) window.__CODE2_TEXT__ += '\n;\n' + code3Text;
-        // Ozv.js (озвучка) — тоже подклеиваем к тексту Code2, чтобы он видел sendAdminSpamAlert из Code.js.
-        // Вложенный eval в try: если Ozv.js сломан — Code2/Code3 это не ломает.
-        if (ozvText) {
-            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(ozvText) + '); } catch (eOzv) { console.warn("[OZV] не запущен:", eOzv && eOzv.message); }\n';
-        }
-
-        // Near.js (игроки рядом: /near, /neartg, /neardist, /neardiag, window.NearPlayers) — подклеиваем последним, поверх Ozv:
-        // ему нужен sendToTelegram из области видимости Code.js. Вложенный eval в try: сломанный Near.js остальное не ломает.
-        if (nearText) {
-            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(nearText) + '); } catch (eNear) { console.warn("[NEAR] не запущен:", eNear && eNear.message); }\n';
-        }
-
-        // MiniApp/MiniApp.js — общий загрузчик мини-аппов (Stats.js и любые будущие из его списка FILES). Подклеиваем самым последним,
-        // поверх Near: сам MiniApp.js докачивает файлы мини-аппов и выполняет их в области видимости Code.js (config, processUpdates, tgApi…).
-        // Новые мини-аппы добавляются строкой в FILES на GitHub — этот файл (Load.js) менять не нужно.
-        // Вложенный eval в try: сломанный MiniApp.js остальное не ломает.
-        if (miniText) {
-            window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(miniText) + '); } catch (eMini) { console.warn("[MINIAPP] не запущен:", eMini && eMini.message); }\n';
-        }
-
-        // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
-        window.__WAIT_CODE2__ = true;
-
-        console.log('📦 Выполнение Code.js (+ Code2 внутри)...');
-        try {
-            evalLoadedScript('Code.js', codeText);
-        } catch (errCode) {
-            // Code2/Code3 упали уже после того, как Code.js поставил __botInit — запускаем хотя бы базового бота,
-            // чтобы Telegram-управление осталось и причина была видна
-            if (typeof window.__botInit === 'function') {
-                console.error('❌ Ошибка в Code.js/Code2.js — аварийный запуск базового бота:', errCode);
-                loaderNotify(`⚠️ <b>Ошибка при выполнении скриптов</b> — запущен базовый режим\n<code>${String(errCode && errCode.message).replace(/</g, '&lt;')}</code>`);
-            } else {
-                throw errCode;
-            }
-        }
-
-        // Бот запускается после того как Code.js eval'нул Code2 и установил __botInit
-        console.log('🚀 Запускаем бота...');
-        if (typeof window.__botInit === 'function') {
-            window.__botInit();
-            window.__botInit = null;
-        } else {
-            console.warn('⚠️ __botInit не найден — бот уже запущен или Code.js не установил флаг');
-        }
-
-        // Раньше после /reload в Telegram была только строка «Перезагрузка...», и не было понятно, дошло ли дело до конца
+        // Раньше после /reload в Telegram была только строка «Перезагрузка...», и не было понятно, дошло ли дело до конца.
+        // Теперь в сообщении ещё и время по этапам — видно, что именно долго: сеть (скачивание), проверка синтаксиса или запуск.
         window.__hassleLoadCount = (window.__hassleLoadCount || 0) + 1;
         if (isReload) {
             const sec = ((Date.now() - t0) / 1000).toFixed(1);
-            loaderNotify(`✅ <b>Скрипты перезагружены</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'}), ${sec} с`);
+            const f = ms => (ms / 1000).toFixed(1);
+            loaderNotify(`✅ <b>Скрипты перезагружены</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'}), ${sec} с\n` +
+                `<i>скачивание ${f(tDownloaded - t0)} с · проверка ${f(tChecked - tDownloaded)} с · запуск ${f(tApply)} с</i>`);
         }
+        console.log(`⏱ Этапы: скачивание ${tDownloaded - t0} мс, проверка ${tChecked - tDownloaded} мс, запуск ${tApply} мс`);
 
         // Инфо о коммитах грузим в фоне — не блокируем старт бота
         Promise.all([
@@ -653,7 +696,25 @@ async function initializeScripts() {
     } catch (error) {
         console.error('❌ Критическая ошибка при инициализации:', error);
         const safe = String(error && error.message).replace(/</g, '&lt;');
-        if (isReload && !oldCopyReplaced) {
+        // FIX: новая версия скачалась и прошла проверку синтаксиса, но упала при запуске (ошибка времени выполнения) — раньше бот оставался
+        // мёртвым до перезапуска игры: старая копия уже снята, новая не поднялась. Теперь возвращаем предыдущую рабочую версию.
+        let rolledBack = false;
+        const good = window.__hassleLastGood;
+        if (oldCopyReplaced && texts && good && !hassleSameCopies(texts, good)) {
+            try {
+                console.warn('↩️ Новая версия не запустилась — возвращаем предыдущую рабочую');
+                const rbErr = applyScriptCopies(good);
+                startBotNow();
+                rolledBack = true;
+                loaderNotify(`↩️ <b>Новая версия не запустилась — возвращена предыдущая рабочая</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'})\n<code>${safe}</code>` +
+                    (rbErr ? `\n⚠️ при возврате тоже ошибка: <code>${String(rbErr && rbErr.message).replace(/</g, '&lt;')}</code>` : ''));
+            } catch (eRb) {
+                console.error('❌ Откат не удался:', eRb);
+            }
+        }
+        if (rolledBack) {
+            // уведомление уже отправлено
+        } else if (isReload && !oldCopyReplaced) {
             // Перезагрузка не удалась ДО замены копий — прежняя копия продолжает работать
             loaderNotify(`❌ <b>Перезагрузка не удалась</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'}) продолжает работать на прежней версии\n<code>${safe}</code>`);
         } else {
