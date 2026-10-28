@@ -26,7 +26,10 @@
 // ║   • Здесь: кнопка, перехваты и оркестрация (заявка →     ║
 // ║     снимок → команда «отправь» → результат → ошибка).    ║
 // ║                                                          ║
-// ║  📺 Live: кнопка рядом со «Скрин» — одно сообщение с     ║
+// ║  📸 Скрин в меню → «Обычное / Live» (отдельный выбор).   ║
+// ║  Под обычным фото: «🔄 Перескринить» (заменяет кадр в    ║
+// ║  этом же сообщении) и «📺 Live» (фото становится Live).  ║
+// ║  📺 Live: одно сообщение с                               ║
 // ║  фото, картинка в нём заменяется (editMessageText-стиль, ║
 // ║  editMessageMedia на стороне мода) примерно раз в 4 с;   ║
 // ║  кнопка «⏹ Стоп» под фото; сам гаснет через 5 минут.     ║
@@ -47,7 +50,7 @@
     const LIVE_EVERY = 4000;           // период кадров Live, мс (Telegram не любит частые правки)
     const LIVE_MAX = 5 * 60 * 1000;    // Live сам выключается через это время
     const STALE = '__stale__';         // «скрипт перезагружен» — молча выходим
-    const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], live: null };
+    const S = { base: null, cap: 0, busy: false, busyAt: 0, dead: false, timers: [], live: null };
 
     // setTimeout, который cleanup умеет отменить
     function later(fn, ms) {
@@ -83,12 +86,12 @@
             const base = 'http://127.0.0.1:' + (PORT_FIRST + i);
             get(base + '/screen/status', 800, function (e, t) {
                 const j = parse(t);
-                if (!e && j && j.v === 1) { S.base = base; cb(null, base); } else probe(i + 1);
+                if (!e && j && j.v === 1) { S.base = base; S.cap = j.cap || 0; cb(null, base); } else probe(i + 1);
             });
         };
         if (S.base) {
-            get(S.base + '/screen/status', 1500, function (e) {
-                if (!e) return cb(null, S.base);
+            get(S.base + '/screen/status', 1500, function (e, t) {
+                if (!e) { const j = parse(t); S.cap = (j && j.cap) || 0; return cb(null, S.base); }
                 S.base = null; probe(0);
             });
         } else probe(0);
@@ -165,7 +168,16 @@
 
     function busyNow() { return S.busy && Date.now() - S.busyAt < 120000; }
 
-    function run(chatId) {
+    // Кнопки под обычным фото: снять заново (в том же сообщении) или превратить фото в Live
+    function shotKb() {
+        return { inline_keyboard: [[
+            { text: '🔄 Перескринить', callback_data: 'screen_re_' + uniqueId },
+            { text: '📺 Live', callback_data: 'screen_live_' + uniqueId }
+        ]] };
+    }
+
+    // mid — номер сообщения с фото, под которым нажали «Перескринить»: новый кадр заменяет картинку в нём (иначе — новое фото)
+    function run(chatId, mid) {
         if (stale()) return;
         if (busyNow()) {
             tgApi('sendMessage', { chat_id: chatId, text: '⏳ <b>' + displayName + '</b>: ' + (S.live ? 'идёт Live — сначала нажмите «⏹ Стоп»' : 'скрин уже делается'), parse_mode: 'HTML', disable_notification: true });
@@ -185,7 +197,16 @@
             if (e) return fail('Мод скрина в клиенте не отвечает. Нужна сборка клиента с hassle_screen.c, а игра должна быть запущена и загружена.');
             capture(base, false, function (ec) {
                 if (ec) return fail(ec);
-                upload(base, chatId, {}, function (eu) {
+                // кнопки и правка сообщения умеет только новый мод (cap >= 2); старый шлёт просто фото
+                const opts = S.cap >= 2 ? { mid: mid || 0, kb: shotKb() } : {};
+                upload(base, chatId, opts, function (eu) {
+                    if (eu && opts.mid && /message to edit not found|MESSAGE_ID_INVALID|message can't be edited/i.test(String(eu))) {
+                        // старое/удалённое сообщение править нельзя — шлём кадр новым фото
+                        return upload(base, chatId, { mid: 0, kb: opts.kb }, function (eu2) {
+                            if (eu2) return fail(eu2);
+                            finish(); debugLog('[SCREEN] сообщение править нельзя — отправлено новым фото');
+                        });
+                    }
                     if (eu) return fail(eu);
                     finish(); debugLog('[SCREEN] отправлено модом в Telegram');
                 });
@@ -206,7 +227,7 @@
         if (stale()) return;
         const text = (isErr ? '❌ ' : '⏹ ') + reason;
         if (L.mid) {
-            tgApi('editMessageCaption', { chat_id: L.chatId, message_id: L.mid, caption: '📺 <b>' + displayName + '</b> · ' + text, parse_mode: 'HTML', reply_markup: { inline_keyboard: [] } });
+            tgApi('editMessageCaption', { chat_id: L.chatId, message_id: L.mid, caption: '📺 <b>' + displayName + '</b> · ' + text, parse_mode: 'HTML', reply_markup: shotKb() });   // кнопки «Перескринить / Live» возвращаются под фото
         } else if (isErr) {
             tgApi('sendMessage', { chat_id: L.chatId, text: '❌ <b>Live ' + displayName + '</b>\n' + esc(reason), parse_mode: 'HTML' });
         }
@@ -245,7 +266,7 @@
         });
     }
 
-    function liveStart(chatId) {
+    function liveStart(chatId, mid) {
         if (stale()) return;
         if (S.live) {
             tgApi('sendMessage', { chat_id: chatId, text: '⏳ <b>' + displayName + '</b>: Live уже идёт — кнопка «⏹ Стоп» под фото', parse_mode: 'HTML', disable_notification: true });
@@ -255,28 +276,44 @@
             tgApi('sendMessage', { chat_id: chatId, text: '⏳ <b>' + displayName + '</b>: скрин уже делается, попробуйте через пару секунд', parse_mode: 'HTML', disable_notification: true });
             return;
         }
-        const L = { chatId: chatId, mid: 0, stop: false, ended: false, errs: 0, frames: 0, until: Date.now() + LIVE_MAX };
+        const L = { chatId: chatId, mid: mid || 0, stop: false, ended: false, errs: 0, frames: 0, until: Date.now() + LIVE_MAX };
         S.live = L; S.busy = true; S.busyAt = Date.now();
         tgApi('sendChatAction', { chat_id: chatId, action: 'upload_photo' });
         findBase(function (e, base) {
             if (stale()) { liveEnd(L, 'скрипт перезагружен', false); return; }
             if (e) return liveEnd(L, 'Мод скрина в клиенте не отвечает. Нужна сборка клиента с hassle_screen.c, а игра должна быть запущена и загружена.', true);
+            if (S.cap < 2) return liveEnd(L, 'В клиенте старая версия мода скрина — Live нужна сборка с новым hassle_screen.c (иначе каждый кадр уходил бы новым фото). Обычный скрин работает.', true);
             liveLoop(L, base);
         });
     }
     function liveStop() { const L = S.live; if (L) { L.stop = true; liveEnd(L, 'Live остановлен', false); } }
+
+    // Нажатие «📸 Скрин» в меню: спрашиваем «Обычное или Live» отдельным сообщением (после выбора оно удаляется)
+    function choose(chatId) {
+        if (stale()) return;
+        const go = function () {
+            if (stale()) return;
+            if (!oursNow()) return say(chatId, 'Клиент не наш — мода скрина нет.');
+            tgApi('sendMessage', {
+                chat_id: chatId, text: '📸 <b>' + displayName + '</b>: что снять?', parse_mode: 'HTML', disable_notification: true,
+                reply_markup: { inline_keyboard: [[{ text: '📸 Обычное', callback_data: 'screen_do_shot_' + uniqueId }, { text: '📺 Live', callback_data: 'screen_do_live_' + uniqueId }]] }
+            });
+        };
+        if (window.KONSTT_CLIENT && window.KONSTT_CLIENT.ours === null && typeof window.konsttWhenChecked === 'function') window.konsttWhenChecked().then(go, go);
+        else go();
+    }
 
     // ── Вход: скрин делает мод нашего клиента; на обычном клиенте — отказ (например, по кнопке из старого сообщения) ──
     function oursNow() { return !!(window.KONSTT_CLIENT && window.KONSTT_CLIENT.ours === true); }
     function say(chatId, why) {
         tgApi('sendMessage', { chat_id: chatId, text: '❌ <b>Скрин ' + displayName + '</b>\n' + why, parse_mode: 'HTML' });
     }
-    function take(chatId, live) {
+    function take(chatId, live, mid) {
         if (stale()) return;
         const go = function () {
             if (stale()) return;
             if (!oursNow()) return say(chatId, 'Клиент не наш — мода скрина нет.');
-            if (live) liveStart(chatId); else run(chatId);
+            if (live) liveStart(chatId, mid); else run(chatId, mid);
         };
         // определение клиента ещё идёт (до 90 с после старта игры) — дожидаемся результата
         if (window.KONSTT_CLIENT && window.KONSTT_CLIENT.ours === null && typeof window.konsttWhenChecked === 'function') window.konsttWhenChecked().then(go, go);
@@ -303,8 +340,8 @@
         try {
             if (!oursNow() || !isControlsMenu(kb)) return kb;
             const rows = kb.inline_keyboard.slice();
-            if (rows.some(function (row) { return (row || []).some(function (b) { return cbOf(b).indexOf('screen_shot_') === 0; }); })) return kb;
-            const btn = [{ text: '📸 Скрин', callback_data: 'screen_shot_' + uniqueId }, { text: '📺 Live', callback_data: 'screen_live_' + uniqueId }];
+            if (rows.some(function (row) { return (row || []).some(function (b) { return !!actOf(cbOf(b)); }); })) return kb;
+            const btn = [{ text: '📸 Скрин', callback_data: 'screen_menu_' + uniqueId }];
             let at = -1;
             rows.forEach(function (row, i) { if ((row || []).some(function (b) { return cbOf(b).indexOf('local_account_info_') === 0; })) at = i; });
             rows.splice(at >= 0 ? at + 1 : rows.length - 1, 0, btn);
@@ -316,7 +353,7 @@
 
     // ── Перехват 2: нажатие кнопки ──
     // Свой чат и свой аккаунт проверяем сами (в обход processUpdates), остальное отдаём Code.js как есть.
-    function actOf(d) { return ['screen_shot_', 'screen_live_', 'screen_stop_'].filter(function (p) { return d.indexOf(p) === 0; })[0] || null; }
+    function actOf(d) { return ['screen_menu_', 'screen_do_shot_', 'screen_do_live_', 'screen_shot_', 'screen_live_', 'screen_stop_', 'screen_re_'].filter(function (p) { return d.indexOf(p) === 0; })[0] || null; }
     function isMine(u) {
         const cq = u && u.callback_query;
         if (!cq || typeof cq.data !== 'string') return false;
@@ -353,14 +390,23 @@
                         if (!isMine(u)) { rest.push(u); return; }
                         try { answerCallbackQuery(u.callback_query.id); } catch (e) {}
                         const act = actOf(u.callback_query.data);
-                        if (act === 'screen_stop_') {
+                        const cm = u.callback_query.message;
+                        if ((act === 'screen_do_shot_' || act === 'screen_do_live_') && cm && cm.message_id) {
+                            tgApi('deleteMessage', { chat_id: cm.chat.id, message_id: cm.message_id });   // вопрос «что снять?» после выбора не нужен
+                        }
+                        if (act === 'screen_menu_') choose(u.callback_query.message.chat.id);
+                        else if (act === 'screen_stop_') {
                             if (S.live) liveStop();
                             else {   // Live уже закончен, а кнопка осталась под старым фото — убираем её
                                 const m = u.callback_query.message;
-                                if (m && m.message_id) tgApi('editMessageReplyMarkup', { chat_id: m.chat.id, message_id: m.message_id, reply_markup: { inline_keyboard: [] } });
+                                if (m && m.message_id) tgApi('editMessageReplyMarkup', { chat_id: m.chat.id, message_id: m.message_id, reply_markup: shotKb() });
                             }
                         }
-                        else take(u.callback_query.message.chat.id, act === 'screen_live_');
+                        else {
+                            // «Live» и «Перескринить» под готовым фото работают в этом же сообщении; из вопроса «что снять?» и из старых кнопок — новое фото
+                            const inPlace = (act === 'screen_live_' || act === 'screen_re_') && cm && cm.message_id && cm.photo ? cm.message_id : 0;
+                            take(u.callback_query.message.chat.id, act === 'screen_live_' || act === 'screen_do_live_', inPlace);
+                        }
                     });
                     // lastUpdateId двигает вызывающий (checkTelegramCommands) — пустой список отдавать дальше незачем
                     if (!rest.length) return;
