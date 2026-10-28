@@ -2494,7 +2494,10 @@ function ensureChatAddHook() {
     var origChatWin = window.sendChatInputCustom;
     var origChatVar = null;
     try { if (typeof sendChatInput === 'function') origChatVar = sendChatInput; } catch (e) {}
-    prevChat = origChatWin || origChatVar;
+    // FIX: цепляемся к ТЕКУЩЕМУ внешнему слою sendChatInput, а не к window.sendChatInputCustom.
+    // Custom — это обёртка Code.js (/hb), снятая ДО хуков Code2 (ZAVOD, Friend Tracker /check,
+    // /uncheck, /checklist). Если брать её, наш myChat обходит все хуки Code2 и команды уходят на сервер.
+    prevChat = origChatVar || origChatWin;
     var myChat = function (e) {
         if (!_dead && typeof e === 'string') {
             var a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
