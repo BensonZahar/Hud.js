@@ -4738,6 +4738,157 @@ function otygrovkaResetAfterPayday() {
 
 
 // ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: SCREENSHOT                                      ║
+// ║  Описание: кнопка «📸 Скрин» (Управление) — снимок кадра ║
+// ║             игры уходит в Telegram                       ║
+// ║  Зависимости: config, displayName, debugLog, tgApi,      ║
+// ║               sendChatInput, __hassleStale               ║
+// ║  Нужен клиент с модом hassle_screen.c (HTTP-сервер на    ║
+// ║  127.0.0.1:17781..17790). Кадр снимает мод, скрипт       ║
+// ║  забирает PNG и шлёт его через sendPhoto.                ║
+// ╚══════════════════════════════════════════════════════════╝
+// START SCREENSHOT MODULE //
+const _SCR_PORTS = (function () { const a = []; for (let i = 0; i < 10; i++) a.push(17781 + i); return a; })();
+const _scr = { base: null, busy: false, busyAt: 0 };
+
+// GET к моду; cb(ошибка|null, ответ). type: '' — текст, 'arraybuffer' — PNG.
+function _scrGet(url, type, timeoutMs, cb) {
+    let done = false;
+    const fin = function (e, r) { if (done) return; done = true; cb(e, r); };
+    try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        if (type) xhr.responseType = type;
+        xhr.timeout = timeoutMs;
+        xhr.onload = function () { if (xhr.status === 200) fin(null, xhr.response); else fin('http ' + xhr.status); };
+        xhr.onerror = function () { fin('network'); };
+        xhr.ontimeout = function () { fin('timeout'); };
+        xhr.send();
+    } catch (e) { fin(e && e.message ? e.message : String(e)); }
+}
+
+// Ищем порт мода (как Near.js): сначала запомненный, затем 17781..17790.
+function _scrFindBase(cb) {
+    const probe = function (i) {
+        if (i >= _SCR_PORTS.length) return cb('nobase');
+        const base = 'http://127.0.0.1:' + _SCR_PORTS[i];
+        _scrGet(base + '/screen/status', '', 800, function (e, t) {
+            let j = null; try { j = JSON.parse(t); } catch (x) {}
+            if (!e && j && j.v === 1) { _scr.base = base; cb(null, base); } else probe(i + 1);
+        });
+    };
+    if (_scr.base) {
+        _scrGet(_scr.base + '/screen/status', '', 1500, function (e) {
+            if (!e) return cb(null, _scr.base);
+            _scr.base = null; probe(0);
+        });
+    } else probe(0);
+}
+
+function _scrUtf8(str) {
+    const u = unescape(encodeURIComponent(str)), a = new Uint8Array(u.length);
+    for (let i = 0; i < u.length; i++) a[i] = u.charCodeAt(i);
+    return a;
+}
+
+// multipart/form-data вручную (без FormData/Blob — в WebView игры их может не быть)
+function _scrMultipart(boundary, fields, fileField, fileName, mime, bytes) {
+    const chunks = [];
+    Object.keys(fields).forEach(function (k) {
+        chunks.push(_scrUtf8('--' + boundary + '\r\nContent-Disposition: form-data; name="' + k + '"\r\n\r\n' + fields[k] + '\r\n'));
+    });
+    chunks.push(_scrUtf8('--' + boundary + '\r\nContent-Disposition: form-data; name="' + fileField + '"; filename="' + fileName + '"\r\nContent-Type: ' + mime + '\r\n\r\n'));
+    chunks.push(bytes);
+    chunks.push(_scrUtf8('\r\n--' + boundary + '--\r\n'));
+    let total = 0; chunks.forEach(function (c) { total += c.length; });
+    const out = new Uint8Array(total); let off = 0;
+    chunks.forEach(function (c) { out.set(c, off); off += c.length; });
+    return out;
+}
+
+function _scrTgUpload(method, fileField, fields, bytes, cb) {
+    try {
+        const boundary = '----hassle' + Date.now().toString(16) + Math.floor(Math.random() * 1e9).toString(16);
+        const body = _scrMultipart(boundary, fields, fileField, 'screen.png', 'image/png', bytes);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'https://api.telegram.org/bot' + config.botToken + '/' + method, true);
+        xhr.setRequestHeader('Content-Type', 'multipart/form-data; boundary=' + boundary);
+        xhr.timeout = 60000;
+        xhr.onload = function () { cb(xhr.status === 200 ? null : xhr.status, xhr.responseText); };
+        xhr.onerror = function () { cb('network'); };
+        xhr.ontimeout = function () { cb('timeout'); };
+        xhr.send(body.buffer);
+    } catch (e) { cb('exception: ' + (e && e.message ? e.message : e)); }
+}
+
+function takeScreenshotToTelegram(chatId) {
+    if (__hassleStale()) return;
+    if (_scr.busy && Date.now() - _scr.busyAt < 45000) {
+        tgApi('sendMessage', { chat_id: chatId, text: '⏳ <b>' + displayName + '</b>: скрин уже делается', parse_mode: 'HTML', disable_notification: true });
+        return;
+    }
+    _scr.busy = true; _scr.busyAt = Date.now();
+    const finish = function () { _scr.busy = false; };
+    const fail = function (why) {
+        finish();
+        debugLog('[SCREEN] ' + why);
+        tgApi('sendMessage', { chat_id: chatId, text: '❌ <b>Скрин ' + displayName + '</b>\n' + why, parse_mode: 'HTML' });
+    };
+    if (typeof Uint8Array === 'undefined') return fail('В WebView игры нет Uint8Array — отправить картинку не получится');
+    tgApi('sendChatAction', { chat_id: chatId, action: 'upload_photo' });
+
+    _scrFindBase(function (e, base) {
+        if (e) return fail('Мод скрина в клиенте не отвечает. Нужна сборка клиента с hassle_screen.c, а игра должна быть запущена и загружена.');
+        _scrGet(base + '/screen/status', '', 3000, function (e1, t1) {
+            let st0 = null; try { st0 = JSON.parse(t1); } catch (x) {}
+            if (e1 || !st0) return fail('Не удалось получить статус мода скрина (' + (e1 || 'ответ не JSON') + ')');
+
+            const upload = function () {
+                _scrGet(base + '/screen/last', 'arraybuffer', 20000, function (e4, buf) {
+                    if (e4 || !buf || !buf.byteLength) return fail('Не удалось забрать PNG у мода (' + (e4 || 'пусто') + ')');
+                    const bytes = new Uint8Array(buf);
+                    const d = new Date(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+                    const caption = '📸 <b>' + displayName + '</b> · ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds());
+                    const fields = { chat_id: String(chatId), caption: caption, parse_mode: 'HTML' };
+                    _scrTgUpload('sendPhoto', 'photo', fields, bytes, function (e5, r5) {
+                        if (!e5) { finish(); debugLog('[SCREEN] отправлено, ' + bytes.length + ' байт'); return; }
+                        if (e5 === 400) {   // Telegram не взял как фото (размеры/вес) — шлём файлом
+                            _scrTgUpload('sendDocument', 'document', fields, bytes, function (e6) {
+                                if (!e6) { finish(); return; }
+                                fail('Telegram не принял картинку (' + e6 + ')');
+                            });
+                        } else fail('Не удалось отправить в Telegram (' + e5 + ')');
+                    });
+                });
+            };
+            const poll = function (since, maxMs) {
+                _scrGet(base + '/screen/status', '', 2500, function (e3, t3) {
+                    if (__hassleStale()) { finish(); return; }
+                    let s = null; try { s = JSON.parse(t3); } catch (x) {}
+                    if (s && s.seq > st0.seq) return upload();
+                    if (s && s.fails > st0.fails) return fail('Снимок не вышел (подробности в чате игры и в konstt.log, строки «скрин:»)');
+                    if (Date.now() - since > maxMs) return fail('Снимок не готов за ' + Math.round(maxMs / 1000) + ' с — кадр не отрисовывался (игра свёрнута или зависла?)');
+                    setTimeout(function () { poll(since, maxMs); }, 250);
+                });
+            };
+            _scrGet(base + '/screen/shot?delay=0', '', 3000, function (e2, t2) {
+                let r = null; try { r = JSON.parse(t2); } catch (x) {}
+                if (e2 || !r) return fail('Мод не принял заявку на снимок (' + (e2 || 'ответ не JSON') + ')');
+                if (!r.ok && r.err === 'busy') return fail('Мод ещё делает предыдущий снимок, попробуйте через пару секунд');
+                if (!r.ok && r.err === 'need_cmd') {
+                    // первый снимок после запуска игры: подписку на кадр делает только команда /screen (главный поток игры)
+                    try { sendChatInput('/screen 0'); } catch (x) { return fail('Не удалось отправить /screen 0 в чат игры: ' + x.message); }
+                    return poll(Date.now(), 12000);
+                }
+                if (!r.ok) return fail('Мод отказал: ' + (r.err || '?'));
+                poll(Date.now(), 10000);
+            });
+        });
+    });
+}
+// END SCREENSHOT MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: MENU                                            ║
 // ║  Описание: Telegram inline-меню управления ботом         ║
 // ║             (настройки, AFK-режимы, функции)             ║
@@ -4755,6 +4906,7 @@ function showControlsMenu(chatId, messageId) {
         inline_keyboard: [
             [createButton("⚙️ Функции", `show_functions_${uniqueId}`)],
             [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
+            [createButton("📸 Скрин", `screen_shot_${uniqueId}`)],
             [createButton("🔔 Настройки уведомлений", `show_notif_menu_${uniqueId}`)],
             [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`)],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
@@ -5709,6 +5861,8 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('show_movement_', '');
             } else if (message.startsWith('hide_controls_')) {
                 callbackUniqueId = message.replace('hide_controls_', '');
+            } else if (message.startsWith('screen_shot_')) {
+                callbackUniqueId = message.replace('screen_shot_', '');
             } else if (message.startsWith('request_chat_message_')) {
                 callbackUniqueId = message.replace('request_chat_message_', '');
             } else if (message.startsWith('local_soob_on_')) {
@@ -5997,6 +6151,8 @@ function processUpdates(updates) {
                 showMovementControlsMenu(chatId, messageId, true);
             } else if (message.startsWith(`hide_controls_`)) {
                 hideControlsMenu(chatId, messageId);
+            } else if (message.startsWith(`screen_shot_`)) {
+                takeScreenshotToTelegram(chatId);
             } else if (message.startsWith(`request_chat_message_`)) {
                 const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
                 // Прерываем текущий long-poll — освобождаем соединение для sendMessage
