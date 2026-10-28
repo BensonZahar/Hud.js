@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗа2'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: ПОКОЛЕНИЕ КОПИИ СКРИПТА (защита от дублей /reload)║
@@ -4850,14 +4850,28 @@ function takeScreenshotToTelegram(chatId) {
                     const d = new Date(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
                     const caption = '📸 <b>' + displayName + '</b> · ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds());
                     const fields = { chat_id: String(chatId), caption: caption, parse_mode: 'HTML' };
+                    const sigOk = bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
+                    const tgDesc = function (r) { try { return JSON.parse(r).description || ''; } catch (x) { return String(r || '').slice(0, 120); } };
+                    const info = bytes.length + ' байт, PNG-заголовок ' + (sigOk ? 'ок' : 'НЕВЕРНЫЙ');
                     _scrTgUpload('sendPhoto', 'photo', fields, bytes, function (e5, r5) {
-                        if (!e5) { finish(); debugLog('[SCREEN] отправлено, ' + bytes.length + ' байт'); return; }
-                        if (e5 === 400) {   // Telegram не взял как фото (размеры/вес) — шлём файлом
-                            _scrTgUpload('sendDocument', 'document', fields, bytes, function (e6) {
-                                if (!e6) { finish(); return; }
-                                fail('Telegram не принял картинку (' + e6 + ')');
+                        if (!e5) { finish(); debugLog('[SCREEN] отправлено, ' + info); return; }
+                        const d1 = tgDesc(r5);
+                        debugLog('[SCREEN] sendPhoto ' + e5 + ': ' + d1 + ' (' + info + ')');
+                        if (e5 !== 400) return fail('Не удалось отправить в Telegram (' + e5 + ')');
+                        // не взял как фото (вес/размеры) — шлём файлом
+                        _scrTgUpload('sendDocument', 'document', fields, bytes, function (e6, r6) {
+                            if (!e6) { finish(); debugLog('[SCREEN] отправлено документом, ' + info); return; }
+                            const d2 = tgDesc(r6);
+                            debugLog('[SCREEN] sendDocument ' + e6 + ': ' + d2);
+                            if (e6 !== 400) return fail('Telegram не принял файл (' + e6 + ')');
+                            // последняя попытка: без подписи и parse_mode (вдруг ругается разбор caption)
+                            _scrTgUpload('sendDocument', 'document', { chat_id: String(chatId) }, bytes, function (e7, r7) {
+                                if (!e7) { finish(); debugLog('[SCREEN] отправлено документом без подписи, ' + info); return; }
+                                const d3 = tgDesc(r7);
+                                debugLog('[SCREEN] sendDocument(без подписи) ' + e7 + ': ' + d3);
+                                fail('Telegram не принял картинку (' + e7 + ')\n' + (d3 || d2 || d1) + '\n' + info);
                             });
-                        } else fail('Не удалось отправить в Telegram (' + e5 + ')');
+                        });
                     });
                 });
             };
