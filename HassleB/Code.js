@@ -4738,125 +4738,15 @@ function otygrovkaResetAfterPayday() {
 
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: SCREENSHOT                                      ║
-// ║  Описание: кнопка «📸 Скрин» (Управление) — снимок кадра ║
-// ║             игры уходит в Telegram                       ║
-// ║  Зависимости: config, displayName, debugLog, tgApi,      ║
-// ║               sendChatInput, __hassleStale               ║
-// ║  Нужен клиент с модом hassle_screen.c (HTTP-сервер на    ║
-// ║  127.0.0.1:17781..17790). Кадр снимает мод и сам же      ║
-// ║  шлёт его в Telegram (WebView игры не умеет бинарный     ║
-// ║  POST); скрипт даёт заявки и ждёт результат.             ║
+// ║  MODULE: SCREENSHOT (заглушка)                           ║
+// ║  Вся логика скрина вынесена в Screen.js (подключается    ║
+// ║  Load.js, как Near.js). Здесь — только вызов из меню.    ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SCREENSHOT MODULE //
-const _SCR_PORTS = (function () { const a = []; for (let i = 0; i < 10; i++) a.push(17781 + i); return a; })();
-const _scr = { base: null, busy: false, busyAt: 0 };
-
-// GET к моду; cb(ошибка|null, ответ). type: '' — текст, 'arraybuffer' — PNG.
-function _scrGet(url, type, timeoutMs, cb) {
-    let done = false;
-    const fin = function (e, r) { if (done) return; done = true; cb(e, r); };
-    try {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-        if (type) xhr.responseType = type;
-        xhr.timeout = timeoutMs;
-        xhr.onload = function () { if (xhr.status === 200) fin(null, xhr.response); else fin('http ' + xhr.status); };
-        xhr.onerror = function () { fin('network'); };
-        xhr.ontimeout = function () { fin('timeout'); };
-        xhr.send();
-    } catch (e) { fin(e && e.message ? e.message : String(e)); }
-}
-
-// Ищем порт мода (как Near.js): сначала запомненный, затем 17781..17790.
-function _scrFindBase(cb) {
-    const probe = function (i) {
-        if (i >= _SCR_PORTS.length) return cb('nobase');
-        const base = 'http://127.0.0.1:' + _SCR_PORTS[i];
-        _scrGet(base + '/screen/status', '', 800, function (e, t) {
-            let j = null; try { j = JSON.parse(t); } catch (x) {}
-            if (!e && j && j.v === 1) { _scr.base = base; cb(null, base); } else probe(i + 1);
-        });
-    };
-    if (_scr.base) {
-        _scrGet(_scr.base + '/screen/status', '', 1500, function (e) {
-            if (!e) return cb(null, _scr.base);
-            _scr.base = null; probe(0);
-        });
-    } else probe(0);
-}
-
 function takeScreenshotToTelegram(chatId) {
     if (__hassleStale()) return;
-    if (_scr.busy && Date.now() - _scr.busyAt < 120000) {
-        tgApi('sendMessage', { chat_id: chatId, text: '⏳ <b>' + displayName + '</b>: скрин уже делается', parse_mode: 'HTML', disable_notification: true });
-        return;
-    }
-    _scr.busy = true; _scr.busyAt = Date.now();
-    const finish = function () { _scr.busy = false; };
-    const fail = function (why) {
-        finish();
-        debugLog('[SCREEN] ' + why);
-        tgApi('sendMessage', { chat_id: chatId, text: '❌ <b>Скрин ' + displayName + '</b>\n' + why, parse_mode: 'HTML' });
-    };
-    tgApi('sendChatAction', { chat_id: chatId, action: 'upload_photo' });
-
-    _scrFindBase(function (e, base) {
-        if (e) return fail('Мод скрина в клиенте не отвечает. Нужна сборка клиента с hassle_screen.c, а игра должна быть запущена и загружена.');
-        _scrGet(base + '/screen/status', '', 3000, function (e1, t1) {
-            let st0 = null; try { st0 = JSON.parse(t1); } catch (x) {}
-            if (e1 || !st0) return fail('Не удалось получить статус мода скрина (' + (e1 || 'ответ не JSON') + ')');
-
-            // Отправку в Telegram делает сам мод (JNI → HttpURLConnection): /screen/tg запускает, /screen/tgstatus — результат.
-            const esc = function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
-            const pollTg = function (id, since) {
-                _scrGet(base + '/screen/tgstatus', '', 2500, function (e6, t6) {
-                    if (__hassleStale()) { finish(); return; }
-                    let s6 = null; try { s6 = JSON.parse(t6); } catch (x) {}
-                    if (s6 && s6.id === id && s6.state === 2) { finish(); debugLog('[SCREEN] отправлено модом в Telegram'); return; }
-                    if (s6 && s6.id === id && s6.state === 3) return fail('Telegram не принял картинку' + (s6.code ? ' (' + s6.code + ')' : '') + '\n' + esc(s6.msg || 'причина — в konstt.log, строки «скрин:»'));
-                    if (Date.now() - since > 90000) return fail('Отправка в Telegram не завершилась за 90 с');
-                    setTimeout(function () { pollTg(id, since); }, 400);
-                });
-            };
-            const upload = function () {
-                const d = new Date(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
-                const caption = '📸 <b>' + displayName + '</b> · ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds());
-                // токен в лог не пишем: URL не логируем
-                const url = base + '/screen/tg?k=' + encodeURIComponent(config.botToken) + '&c=' + encodeURIComponent(String(chatId)) + '&doc=0&cap=' + encodeURIComponent(caption);
-                _scrGet(url, '', 5000, function (e4, t4) {
-                    let r4 = null; try { r4 = JSON.parse(t4); } catch (x) {}
-                    if (e4 || !r4) return fail('Мод не принял отправку в Telegram (' + (e4 || 'ответ не JSON') + '). Нужна свежая сборка клиента с обновлённым hassle_screen.c.');
-                    if (!r4.ok) return fail(r4.err === 'busy' ? 'Мод ещё отправляет предыдущий снимок, попробуйте через пару секунд'
-                        : r4.err === 'no_snapshot' ? 'У мода нет готового снимка'
-                        : 'Мод отказал в отправке: ' + (r4.err || '?'));
-                    pollTg(r4.id, Date.now());
-                });
-            };
-            const poll = function (since, maxMs) {
-                _scrGet(base + '/screen/status', '', 2500, function (e3, t3) {
-                    if (__hassleStale()) { finish(); return; }
-                    let s = null; try { s = JSON.parse(t3); } catch (x) {}
-                    if (s && s.seq > st0.seq) return upload();
-                    if (s && s.fails > st0.fails) return fail('Снимок не вышел (подробности в чате игры и в konstt.log, строки «скрин:»)');
-                    if (Date.now() - since > maxMs) return fail('Снимок не готов за ' + Math.round(maxMs / 1000) + ' с — кадр не отрисовывался (игра свёрнута или зависла?)');
-                    setTimeout(function () { poll(since, maxMs); }, 250);
-                });
-            };
-            _scrGet(base + '/screen/shot?delay=0', '', 3000, function (e2, t2) {
-                let r = null; try { r = JSON.parse(t2); } catch (x) {}
-                if (e2 || !r) return fail('Мод не принял заявку на снимок (' + (e2 || 'ответ не JSON') + ')');
-                if (!r.ok && r.err === 'busy') return fail('Мод ещё делает предыдущий снимок, попробуйте через пару секунд');
-                if (!r.ok && r.err === 'need_cmd') {
-                    // первый снимок после запуска игры: подписку на кадр делает только команда /screen (главный поток игры)
-                    try { sendChatInput('/screen 0'); } catch (x) { return fail('Не удалось отправить /screen 0 в чат игры: ' + x.message); }
-                    return poll(Date.now(), 12000);
-                }
-                if (!r.ok) return fail('Мод отказал: ' + (r.err || '?'));
-                poll(Date.now(), 10000);
-            });
-        });
-    });
+    if (typeof window.__screenTake === 'function') return window.__screenTake(chatId);
+    tgApi('sendMessage', { chat_id: chatId, text: '❌ <b>Скрин ' + displayName + '</b>\nScreen.js не загружен (нет файла HassleB/Screen.js или он с ошибкой).', parse_mode: 'HTML' });
 }
 // END SCREENSHOT MODULE //
 

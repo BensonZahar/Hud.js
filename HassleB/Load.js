@@ -327,6 +327,10 @@ function hassleCleanupHooks() {
     if (typeof window.__hassleProfileUnwrap === 'function') {
         try { window.__hassleProfileUnwrap(); console.log('[Hassle Cleanup] Обёртка чтения профиля снята'); } catch(e) {}
     }
+    // Screen (скрин в Telegram) ничего не оборачивает — только гасим его опросы мода, чтобы старая копия не дописала в Telegram после перезагрузки
+    if (typeof window.__screenCleanup === 'function') {
+        try { window.__screenCleanup(); console.log('[Hassle Cleanup] Screen снят'); } catch(e) {}
+    }
     // Near (игроки рядом) подклеен последним и стоит поверх всех — снимаем его самым первым
     if (typeof window.__nearCleanup === 'function') {
         try { window.__nearCleanup(); console.log('[Hassle Cleanup] Near снят'); } catch(e) {}
@@ -422,7 +426,7 @@ function syntaxError(text) {
 
 // ============================================================
 // Замена копий скриптов — одной синхронной функцией, чтобы при сбое можно было вернуть ПРЕДЫДУЩУЮ рабочую версию.
-// t = { listText, codeText, code2Text, code3Text, ozvText, nearText, miniText } (необязательные — null).
+// t = { listText, codeText, code2Text, code3Text, ozvText, nearText, screenText, miniText } (необязательные — null).
 // Возвращает ошибку, если Code.js/Code2/Code3 упали ПОСЛЕ того, как Code.js поставил __botInit (бота можно запустить в базовом режиме),
 // и бросает исключение, если запускать уже нечего.
 // ============================================================
@@ -453,6 +457,12 @@ function applyScriptCopies(t) {
     // ему нужен sendToTelegram из области видимости Code.js. Вложенный eval в try: сломанный Near.js остальное не ломает.
     if (t.nearText) {
         window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.nearText) + '); } catch (eNear) { console.warn("[NEAR] не запущен:", eNear && eNear.message); }\n';
+    }
+
+    // Screen.js (кнопка «📸 Скрин» в Telegram: заявка моду, ожидание снимка, отправка) — подклеиваем после Near, как и его.
+    // Ему нужны config, displayName, debugLog, tgApi, sendChatInput из области видимости Code.js. Вложенный eval в try: сломанный Screen.js остальное не ломает.
+    if (t.screenText) {
+        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.screenText) + '); } catch (eScreen) { console.warn("[SCREEN] не запущен:", eScreen && eScreen.message); }\n';
     }
 
     // MiniApp/MiniApp.js — общий загрузчик мини-аппов (Stats.js и любые будущие из его списка FILES). Подклеиваем самым последним,
@@ -490,7 +500,7 @@ function startBotNow() {
 
 function hassleSameCopies(a, b) {
     if (!a || !b) return false;
-    return ['listText', 'codeText', 'code2Text', 'code3Text', 'ozvText', 'nearText', 'miniText'].every(k => (a[k] || null) === (b[k] || null));
+    return ['listText', 'codeText', 'code2Text', 'code3Text', 'ozvText', 'nearText', 'screenText', 'miniText'].every(k => (a[k] || null) === (b[k] || null));
 }
 
 // Последовательная загрузка скриптов
@@ -520,18 +530,19 @@ async function initializeScripts() {
         console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
 
         // ── ЭТАП 1: скачиваем всё, старая копия пока работает ──
-        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, Near.js, MiniApp/MiniApp.js (параллельно)...');
+        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, Near.js, Screen.js, MiniApp/MiniApp.js (параллельно)...');
         const optional = (name, retries) => fetchRawText(name, retries).catch(e => {
             console.warn(`⚠️ ${name} не загружен (работаем без него):`, e && e.message);
             return null;
         });
-        const [listText, code2Text, codeText, code3Raw, ozvText, nearRaw, miniRaw] = await Promise.all([
+        const [listText, code2Text, codeText, code3Raw, ozvText, nearRaw, screenRaw, miniRaw] = await Promise.all([
             fetchRawText('List.js'),
             fetchRawText('Code2.js'),
             fetchRawText('Code.js'),
             optional('Code3.js', 3),   // помощник лицензёра — необязательный
             optional('Ozv.js', 1),     // озвучка — необязательная; 404 не повторяется
             optional('Near.js', 2),    // игроки рядом (нужен APK с модом Near) — необязательный
+            optional('Screen.js', 2),  // скрин в Telegram (нужен клиент с модом hassle_screen.c) — необязательный
             optional('MiniApp/MiniApp.js', 2)   // общий загрузчик мини-аппов (HassleB/MiniApp/MiniApp.js): сам качает мини-аппы из своего списка — необязательный
         ]);
 
@@ -562,6 +573,16 @@ async function initializeScripts() {
             }
         }
 
+        let screenText = screenRaw;
+        if (screenText) {
+            const errS = syntaxError(screenText);
+            if (errS) {
+                console.warn('⚠️ Screen.js с синтаксической ошибкой — пропущен:', errS.message);
+                loaderNotify(`⚠️ <b>Screen.js</b> с синтаксической ошибкой — пропущен (кнопка «Скрин» не работает)\n<code>${String(errS.message).replace(/</g, '&lt;')}</code>`);
+                screenText = null;
+            }
+        }
+
         let miniText = miniRaw;
         if (miniText) {
             const errM = syntaxError(miniText);
@@ -582,8 +603,8 @@ async function initializeScripts() {
         }
 
         // ── ЭТАП 2: меняем копии (синхронно, без ожиданий) ──
-        // Что именно запускаем (после отсева Code3/Near/MiniApp с синтаксическими ошибками) — запоминаем для отката
-        texts = { listText, codeText, code2Text, code3Text, ozvText, nearText, miniText };
+        // Что именно запускаем (после отсева Code3/Near/Screen/MiniApp с синтаксическими ошибками) — запоминаем для отката
+        texts = { listText, codeText, code2Text, code3Text, ozvText, nearText, screenText, miniText };
         const tApply0 = Date.now();
         oldCopyReplaced = true;
         const partialErr = applyScriptCopies(texts);
