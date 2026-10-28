@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗа22'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: ПОКОЛЕНИЕ КОПИИ СКРИПТА (защита от дублей /reload)║
@@ -4738,19 +4738,6 @@ function otygrovkaResetAfterPayday() {
 
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: SCREENSHOT (заглушка)                           ║
-// ║  Вся логика скрина вынесена в Screen.js (подключается    ║
-// ║  Load.js, как Near.js). Здесь — только вызов из меню.    ║
-// ╚══════════════════════════════════════════════════════════╝
-// START SCREENSHOT MODULE //
-function takeScreenshotToTelegram(chatId) {
-    if (__hassleStale()) return;
-    if (typeof window.__screenTake === 'function') return window.__screenTake(chatId);
-    tgApi('sendMessage', { chat_id: chatId, text: '❌ <b>Скрин ' + displayName + '</b>\nScreen.js не загружен (нет файла HassleB/Screen.js или он с ошибкой).', parse_mode: 'HTML' });
-}
-// END SCREENSHOT MODULE //
-
-// ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: MENU                                            ║
 // ║  Описание: Telegram inline-меню управления ботом         ║
 // ║             (настройки, AFK-режимы, функции)             ║
@@ -4768,7 +4755,6 @@ function showControlsMenu(chatId, messageId) {
         inline_keyboard: [
             [createButton("⚙️ Функции", `show_functions_${uniqueId}`)],
             [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
-            [createButton("📸 Скрин", `screen_shot_${uniqueId}`)],
             [createButton("🔔 Настройки уведомлений", `show_notif_menu_${uniqueId}`)],
             [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`)],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
@@ -5723,8 +5709,6 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('show_movement_', '');
             } else if (message.startsWith('hide_controls_')) {
                 callbackUniqueId = message.replace('hide_controls_', '');
-            } else if (message.startsWith('screen_shot_')) {
-                callbackUniqueId = message.replace('screen_shot_', '');
             } else if (message.startsWith('request_chat_message_')) {
                 callbackUniqueId = message.replace('request_chat_message_', '');
             } else if (message.startsWith('local_soob_on_')) {
@@ -6013,8 +5997,6 @@ function processUpdates(updates) {
                 showMovementControlsMenu(chatId, messageId, true);
             } else if (message.startsWith(`hide_controls_`)) {
                 hideControlsMenu(chatId, messageId);
-            } else if (message.startsWith(`screen_shot_`)) {
-                takeScreenshotToTelegram(chatId);
             } else if (message.startsWith(`request_chat_message_`)) {
                 const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
                 // Прерываем текущий long-poll — освобождаем соединение для sendMessage
