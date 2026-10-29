@@ -3044,6 +3044,8 @@ try { (function () {
     // Верх — те же кнопки, что под сообщением сотрудника фракции (Ответить / Движения / Пауза / Авторизация / Управление),
     // низ — «Выдача лицензии». По нажатию кнопки заменяются на: [Перевыдать, если этому игроку уже выдавали] + типы лицензий + «Назад».
     function licOpenRow(id) { return [btn('🪪 Выдача лицензии', PFX + 'open|' + id + '|' + uniqueId, 'primary')]; }
+    // Для Voice.js: строка «Выдача лицензии» под голосовым. Вместо ID — метка %P, мод подставляет ID говорящего. Нет прав лицензёра — null.
+    window.__licVoiceRow = function () { try { return ready() ? licOpenRow('%P') : null; } catch (e) { return null; } };
 
     // Какую лицензию просит игрок — по словам в его сообщении (регистр и «ё» не важны)
     const LIC_WORD = {
@@ -3531,6 +3533,10 @@ try { (function () {
                 if (cq && cq.message && typeof cq.message.text === 'string') {
                     const pm = cq.message.text.match(PLAYER_TG_RE);
                     if (pm) _playerMsgs[cq.message.chat.id + ':' + cq.message.message_id] = { id: pm[2], text: pm[1] };
+                } else if (cq && cq.message && (cq.message.voice || cq.message.audio || cq.message.document) && typeof cq.message.caption === 'string') {
+                    // голосовое игрока (от Voice.js / мода): подпись «🎙 Ник[ID] · …» — запоминаем, чтобы «Выдача лицензии» не пропадала после «Пауза» / «Движения»
+                    const vm = cq.message.caption.match(/🎙 [^\n]*\[(\d+)\] · /);
+                    if (vm) _playerMsgs[cq.message.chat.id + ':' + cq.message.message_id] = { id: vm[1], text: '' };
                 }
             } catch (e) {}
             if (cq && typeof cq.data === 'string' && cq.data.indexOf(PFX) === 0 && config.chatIds.includes(String(cq.message.chat.id))) {
