@@ -125,19 +125,26 @@
         const chat = (config.chatIds && config.chatIds[0]) ? String(config.chatIds[0]) : '';
         if (!config.botToken || !chat) return null;
         let q = 'k=' + encodeURIComponent(config.botToken) + '&c=' + encodeURIComponent(chat) + '&who=' + encodeURIComponent(String(displayName));
-        const kb = voiceKbJson();
-        S.kbSig = kb;
-        if (kb) q += '&kb=' + encodeURIComponent(kb);   // reply_markup для sendVoice: кнопки как под сообщением сотрудника
+        const kb = voiceKbJson(), kp = voiceKbPlayerJson();
+        S.kbSig = kb + '|' + kp;
+        q += '&kb=' + encodeURIComponent(kb) + '&kbp=' + encodeURIComponent(kp);   // reply_markup для sendVoice: кнопки как под сообщением сотрудника (+ «Выдача лицензии» у голоса игрока)
         return q;
     }
     // Кнопки под голосовым — те же, что под сообщением сотрудника фракции (подписи паузы/авторизации — по живому состоянию)
-    function voiceKbJson() {
-        // в моде кнопки идут обычным текстом (как kb= у Screen): не-ASCII в JSON записываем как \uXXXX
+    function asciiJson(o) {   // в моде кнопки идут обычным текстом (как kb= у Screen): не-ASCII в JSON записываем как \uXXXX
+        return JSON.stringify(o).replace(/[\u0080-\uffff]/g, function (c) { return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4); });
+    }
+    // Кнопки под голосом ИГРОКА: те же + «🪪 Выдача лицензии» (если нет прав лицензёра — null). «%P» мод заменяет на ID говорящего
+    function voiceKbPlayerJson() {
         try {
-            return typeof getNotificationReplyMarkup === 'function'
-                ? JSON.stringify(getNotificationReplyMarkup()).replace(/[\u0080-\uffff]/g, function (c) { return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4); })
-                : '';
+            const row = typeof window.__licVoiceRow === 'function' ? window.__licVoiceRow() : null;
+            const base = typeof getNotificationReplyMarkup === 'function' ? getNotificationReplyMarkup() : null;
+            if (!row || !base) return '';
+            return asciiJson({ inline_keyboard: (base.inline_keyboard || []).map(function (r) { return r.slice(); }).concat([row]) });
         } catch (e) { return ''; }
+    }
+    function voiceKbJson() {
+        try { return typeof getNotificationReplyMarkup === 'function' ? asciiJson(getNotificationReplyMarkup()) : ''; } catch (e) { return ''; }
     }
     // токен в лог не пишем: URL не логируем
     function cfg(base, query, cb) {
@@ -179,7 +186,7 @@
             t += 'Отправка: ' + (c === 'off' ? '<b>выкл</b>' : '<b>ВКЛ ✅</b>') + '\n';
             if (c !== 'off') t += 'Слышно: <b>' + modeRu(st.mode) + '</b>\n';
         }
-        if (st && !S.down && st.kb !== 1) t += '\n⚠️ <i>Сборка клиента без кнопок под голосовыми — нужен обновлённый hassle_voice.c.</i>\n';
+        if (st && !S.down && !(st.kb >= 2)) t += '\n⚠️ <i>Сборка клиента без кнопок под голосовыми — нужен обновлённый hassle_voice.c.</i>\n';
         if (note) t += '\n' + note + '\n';
         t += '\n<i>Свои слова не пишутся — голос с вашего микрофона обратно не приходит.</i>';
         return t;
@@ -205,11 +212,23 @@
             return !raw || raw.indexOf('voice_set_') >= 0;
         } catch (e) { return true; }
     }
+    // Две правки одного сообщения, отправленные почти одновременно, Telegram может принять НЕ по порядку —
+    // тогда «⏳ применяю…» перетирает итог и висит вечно. Поэтому: между правками одного сообщения минимум EDIT_GAP_MS.
+    const EDIT_GAP_MS = 700;
+    S.lastEdit = {}; S.pendingEdit = {};
     function render(chatId, messageId, note, force) {
+        const k = key(chatId, messageId);
+        const wait = (S.lastEdit[k] || 0) + EDIT_GAP_MS - Date.now();
+        if (wait > 0) {                                   // слишком рано — откладываем и всегда рисуем САМОЕ СВЕЖЕЕ состояние
+            if (S.pendingEdit[k]) { S.pendingEdit[k].note = note; S.pendingEdit[k].force = force; return; }
+            S.pendingEdit[k] = { note: note, force: force };
+            later(function () { const p = S.pendingEdit[k]; delete S.pendingEdit[k]; if (p) render(chatId, messageId, p.note, p.force); }, wait);
+            return;
+        }
         const text = menuText(note), kb = menuKb();
-        const k = key(chatId, messageId), sig = text + JSON.stringify(kb);
+        const sig = text + JSON.stringify(kb);
         if (!force && S.shown[k] === sig) return;   // ничего не поменялось — Telegram не дёргаем
-        S.shown[k] = sig;
+        S.shown[k] = sig; S.lastEdit[k] = Date.now();
         const ks = Object.keys(S.shown);
         if (ks.length > 100) ks.slice(0, 50).forEach(function (x) { delete S.shown[x]; });
         editMessageText(chatId, messageId, text, kb);
@@ -252,13 +271,15 @@
     function choose(chatId, messageId, choice) {
         whenOurs(chatId, messageId, function () {
             if (!guard(chatId, messageId)) return;
-            if (messageId) render(chatId, messageId, '⏳ применяю…', true);
+            let finished = false;
+            if (messageId) later(function () { if (!finished && S.busy) render(chatId, messageId, '⏳ применяю…', true); }, 600);
             else tgApi('sendChatAction', { chat_id: chatId, action: 'typing' });
-            const done = function (note) { S.busy = false; report(chatId, messageId, note); };
-            const bad = function (why) { debugLog('[VOICE] ' + why); S.busy = false; report(chatId, messageId, '❌ ' + why); };
+            const done = function (note) { finished = true; S.busy = false; report(chatId, messageId, note); };
+            const bad = function (why) { finished = true; debugLog('[VOICE] ' + why); S.busy = false; report(chatId, messageId, '❌ ' + why); };
             // любая ошибка внутри цепочки снимает «занято» и показывается в подменю — кнопки не залипают
             const sf = function (fn) { return function () { try { fn.apply(null, arguments); } catch (e) { bad('Внутренняя ошибка: ' + esc(e && e.message ? e.message : e)); } }; };
 
+            later(function () { if (!finished) bad('Мод не ответил за 15 с — нажмите «🔄 Обновить»'); }, 15000);
             status(sf(function (e) {
                 if (stale()) { S.busy = false; return; }
                 if (e) return bad(NO_MOD);
@@ -339,7 +360,7 @@
             });
         };
         // мод перезапустили без нас (или он ещё не получил токен) — отдаём настройки заново
-        if (!S.synced || S.down || (S.st && S.st.cfg !== 1) || voiceKbJson() !== S.kbSig) syncOnce(function () { done(); }); else done();
+        if (!S.synced || S.down || (S.st && S.st.cfg !== 1) || (voiceKbJson() + '|' + voiceKbPlayerJson()) !== S.kbSig) syncOnce(function () { done(); }); else done();
     }
 
     // Первый запуск: мод поднимает HTTP после готовности игры — пробуем каждые 5 с до 2 минут
@@ -468,7 +489,7 @@
         updates.forEach(function (u) {
             const cq = u && u.callback_query, m = cq && cq.message;
             if (!m || !m.chat) return;
-            if (m.voice || m.audio) {
+            if (m.voice || m.audio || (m.document && /🎙/.test(m.caption || ''))) {
                 S.voiceKeys[key(m.chat.id, m.message_id)] = 1;
                 const ks = Object.keys(S.voiceKeys);
                 if (ks.length > 300) ks.slice(0, 100).forEach(function (x) { delete S.voiceKeys[x]; });
