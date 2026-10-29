@@ -82,10 +82,12 @@
 
     // GET к моду; cb(ошибка|null, ответ)
     function get(url, timeoutMs, cb) {
-        let done = false;
-        const fin = function (e, r) { if (done) return; done = true; cb(e, r); };
+        let done = false, wd = 0, xhr = null;
+        const fin = function (e, r) { if (done) return; done = true; if (wd) clearTimeout(wd); cb(e, r); };
+        // свой сторож: если XHR завис молча (ни onload, ни onerror, ни ontimeout), цепочка всё равно продолжится
+        wd = setTimeout(function () { try { if (xhr) xhr.abort(); } catch (e) {} fin('timeout'); }, timeoutMs + 700);
         try {
-            const xhr = new XMLHttpRequest();
+            xhr = new XMLHttpRequest();
             xhr.open('GET', url, true);
             xhr.timeout = timeoutMs;
             xhr.onload = function () { if (xhr.status === 200) fin(null, xhr.responseText); else fin('http ' + xhr.status); };
@@ -124,12 +126,25 @@
     function cfgQuery() {
         const chat = (config.chatIds && config.chatIds[0]) ? String(config.chatIds[0]) : '';
         if (!config.botToken || !chat) return null;
-        let q = 'k=' + encodeURIComponent(config.botToken) + '&c=' + encodeURIComponent(chat) + '&who=' + encodeURIComponent(String(displayName));
-        const kb = voiceKbJson(), kbp = voiceKbpJson();
-        S.kbSig = voiceKbSig();
-        if (kb) q += '&kb=' + encodeURIComponent(kb);   // reply_markup для sendVoice: кнопки как под сообщением сотрудника
-        q += '&kbp=' + encodeURIComponent(kbp);         // то же для голоса игрока + «Выдача лицензии» (пусто — мод сбрасывает и шлёт обычные кнопки)
-        return q;
+        // Только токен, чат и метка: запрос короткий. Клавиатуры — отдельными запросами (pushKb): длинный URL игровой XHR мог «проглотить» без ответа.
+        return 'k=' + encodeURIComponent(config.botToken) + '&c=' + encodeURIComponent(chat) + '&who=' + encodeURIComponent(String(displayName));
+    }
+    // Значение параметра покороче: «:» и «,» в запросе допустимы как есть (мод декодирует только %XX)
+    function encKb(js) { return encodeURIComponent(js).replace(/%3A/g, ':').replace(/%2C/g, ','); }
+    // Кнопки под голосовыми — двумя короткими запросами: kb (всем) и kbp (игроку, с «Выдача лицензии»). Пустое значение сбрасывает.
+    // Ошибка не фатальна: голосовые уйдут с прежними кнопками, а watch() через 20 с повторит (подпись S.kbSig не обновляется).
+    function pushKb(base, cb) {
+        const kb = voiceKbJson(), kbp = voiceKbpJson(), sig = kb + '\n' + kbp;
+        cfg(base, 'kb=' + encKb(kb), function (e1) {
+            if (stale()) return;
+            if (e1) { debugLog('[VOICE] кнопки (kb) не переданы: ' + e1); return cb && cb(e1); }
+            cfg(base, 'kbp=' + encKb(kbp), function (e2) {
+                if (stale()) return;
+                if (e2) { debugLog('[VOICE] кнопки (kbp) не переданы: ' + e2); return cb && cb(e2); }
+                S.kbSig = sig;
+                cb && cb(null);
+            });
+        });
     }
     // Кнопки под голосовым — те же, что под сообщением сотрудника фракции (подписи паузы/авторизации — по живому состоянию)
     function voiceKbJson() {
@@ -268,8 +283,11 @@
             if (!guard(chatId, messageId)) return;
             if (messageId) render(chatId, messageId, '⏳ применяю…', true);
             else tgApi('sendChatAction', { chat_id: chatId, action: 'typing' });
-            const done = function (note) { S.busy = false; report(chatId, messageId, note); };
-            const bad = function (why) { debugLog('[VOICE] ' + why); S.busy = false; report(chatId, messageId, '❌ ' + why); };
+            let over = false;   // операция завершена (итог показан) — сторож ниже молчит
+            const done = function (note) { if (over) return; over = true; S.busy = false; report(chatId, messageId, note); };
+            const bad = function (why) { if (over) return; over = true; debugLog('[VOICE] ' + why); S.busy = false; report(chatId, messageId, '❌ ' + why); };
+            // что бы ни зависло по дороге, «⏳ применяю…» не остаётся навсегда
+            later(function () { bad('Нет ответа от мода за 20 с. Нажмите «🔄 Обновить» и попробуйте ещё раз.'); }, 20000);
             // любая ошибка внутри цепочки снимает «занято» и показывается в подменю — кнопки не залипают
             const sf = function (fn) { return function () { try { fn.apply(null, arguments); } catch (e) { bad('Внутренняя ошибка: ' + esc(e && e.message ? e.message : e)); } }; };
 
@@ -296,6 +314,7 @@
                     if (stale()) { S.busy = false; return; }
                     if (err) return bad(err);
                     want.tg = 1; want.mode = choice; wantSave(want);
+                    pushKb(base);   // кнопки под голосовыми — отдельно и без ожидания
                     // Запись и перехват включает поток мода по заявке — ждём, пока перехват встанет и применится режим
                     const t0 = Date.now();
                     const check = function () {
@@ -328,8 +347,9 @@
             let extra = '&mode=' + want.mode;
             if (want.tg && st.tg !== 1) extra += '&tg=1';
             cfg(S.base, q + extra, function (err) {
-                if (!err) S.synced = true;
-                cb && cb(err);
+                if (err) return cb && cb(err);
+                S.synced = true;
+                pushKb(S.base, function () { cb && cb(null); });   // ошибка кнопок не мешает: watch() повторит
             });
         });
     }
