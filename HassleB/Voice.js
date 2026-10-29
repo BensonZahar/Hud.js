@@ -125,9 +125,10 @@
         const chat = (config.chatIds && config.chatIds[0]) ? String(config.chatIds[0]) : '';
         if (!config.botToken || !chat) return null;
         let q = 'k=' + encodeURIComponent(config.botToken) + '&c=' + encodeURIComponent(chat) + '&who=' + encodeURIComponent(String(displayName));
-        const kb = voiceKbJson();
-        S.kbSig = kb;
+        const kb = voiceKbJson(), kbp = voiceKbpJson();
+        S.kbSig = voiceKbSig();
         if (kb) q += '&kb=' + encodeURIComponent(kb);   // reply_markup для sendVoice: кнопки как под сообщением сотрудника
+        q += '&kbp=' + encodeURIComponent(kbp);         // то же для голоса игрока + «Выдача лицензии» (пусто — мод сбрасывает и шлёт обычные кнопки)
         return q;
     }
     // Кнопки под голосовым — те же, что под сообщением сотрудника фракции (подписи паузы/авторизации — по живому состоянию)
@@ -139,6 +140,19 @@
                 : '';
         } catch (e) { return ''; }
     }
+    // Кнопки под голосом ИГРОКА: те же + внизу «Выдача лицензии» (только для лицензёра). «%P» в callback_data мод заменяет на ID говорящего.
+    function voiceKbpJson() {
+        try {
+            if (typeof getNotificationReplyMarkup !== 'function' || typeof window.__licVoiceRow !== 'function') return '';
+            const lic = window.__licVoiceRow();
+            if (!lic) return '';   // не лицензёр / помощник не готов — для игроков пойдёт общая клавиатура
+            const m = getNotificationReplyMarkup();
+            const kb = { inline_keyboard: ((m && m.inline_keyboard) || []).map(function (r) { return r.slice(); }) };
+            kb.inline_keyboard.push(lic);
+            return JSON.stringify(kb).replace(/[\u0080-\uffff]/g, function (c) { return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4); });
+        } catch (e) { return ''; }
+    }
+    function voiceKbSig() { return voiceKbJson() + '\n' + voiceKbpJson(); }
     // токен в лог не пишем: URL не логируем
     function cfg(base, query, cb) {
         get(base + '/voice/cfg?' + query, 3000, function (e, t) {
@@ -339,7 +353,7 @@
             });
         };
         // мод перезапустили без нас (или он ещё не получил токен) — отдаём настройки заново
-        if (!S.synced || S.down || (S.st && S.st.cfg !== 1) || voiceKbJson() !== S.kbSig) syncOnce(function () { done(); }); else done();
+        if (!S.synced || S.down || (S.st && S.st.cfg !== 1) || voiceKbSig() !== S.kbSig) syncOnce(function () { done(); }); else done();
     }
 
     // Первый запуск: мод поднимает HTTP после готовности игры — пробуем каждые 5 с до 2 минут
