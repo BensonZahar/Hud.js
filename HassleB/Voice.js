@@ -1,19 +1,28 @@
 // ╔══════════════════════════════════════════════════════════╗
-// ║  Voice.js — «🎙 Голос» в Telegram: ВСЁ в одном файле     ║
+// ║  Voice.js — «🎙 Голос TG» в Telegram: ВСЁ в одном файле  ║
 // ║  Голос игроков рядом (и рация/телефон — по выбору)       ║
 // ║  уходит в Telegram голосовыми сообщениями с ником.       ║
 // ║                                                          ║
 // ║  Code.js править НЕ нужно. Load.js подклеивает этот файл ║
 // ║  как Screen.js: он выполняется в области видимости       ║
 // ║  Code.js и сам ставит два перехвата:                     ║
-// ║   • editMessageText — добавляет в меню «Управление» две  ║
-// ║     кнопки («🎙 Голос в TG» и «🎧 Слышать»), но ТОЛЬКО   ║
-// ║     если клиент наш (KONSTT_CLIENT.ours === true);       ║
-// ║   • processUpdates — ловит нажатия voice_tg_<uid> и      ║
-// ║     voice_mode_<uid>, проверяет чат и аккаунт.           ║
+// ║   • editMessageText — добавляет в меню «Управление» ОДНУ ║
+// ║     кнопку «🎙 Голос TG: …» (подпись = живое состояние   ║
+// ║     мода), но ТОЛЬКО если клиент наш                     ║
+// ║     (KONSTT_CLIENT.ours === true);                       ║
+// ║   • processUpdates — ловит нажатия voice_* для своего    ║
+// ║     аккаунта, проверяет чат.                             ║
+// ║                                                          ║
+// ║  Кнопка открывает подменю (то же сообщение):             ║
+// ║     🔇 Выключить / 👥 Только рядом / 🌐 Всё / 🔄 / ⬅️    ║
+// ║  Выбранный пункт помечен ✅, после каждого нажатия       ║
+// ║  подменю перерисовывается по СВЕЖЕМУ состоянию мода —    ║
+// ║  перезаходить в меню больше не нужно.                    ║
+// ║                                                          ║
 // ║  Нужны из Code.js: config, uniqueId, displayName,        ║
 // ║  debugLog, tgApi, answerCallbackQuery, __hassleStale,    ║
-// ║  editMessageText, processUpdates.                        ║
+// ║  editMessageText, editMessageReplyMarkup, processUpdates ║
+// ║  (+ _ctl — необязательно).                               ║
 // ║                                                          ║
 // ║  Кто что делает                                          ║
 // ║   • Голос ловит и режет на реплики МОД (hassle_voice.c): ║
@@ -21,8 +30,8 @@
 // ║   • Отправляет в Telegram тоже МОД (JNI → HttpURLConn.): ║
 // ║     WebView игры не умеет бинарный POST (как и в Screen).║
 // ║   • Здесь: токен и чат моду (на диск не пишутся),        ║
-// ║     кнопки, переключатели, возврат настроек после        ║
-// ║     перезапуска игры и сообщение об ошибках отправки.    ║
+// ║     кнопки, подменю, возврат настроек после перезапуска  ║
+// ║     игры и сообщение об ошибках отправки.                ║
 // ║                                                          ║
 // ║  Порты мода 17791..17800 (Near 17771.., Screen 17781..). ║
 // ║  Экспорт: window.__voiceSet(chatId, on)                  ║
@@ -38,7 +47,9 @@
     const PORT_FIRST = 17791, PORT_COUNT = 10;
     const LS_KEY = 'konstt_voice_want';            // что человек включил: переживает /reload и перезапуск игры
     const WATCH_MS = 20000;                        // фоновый опрос состояния мода
-    const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], st: null, failSeen: -1, synced: false };
+    const FRESH_MS = 4000;                         // статус моложе этого считаем свежим и лишний раз не опрашиваем
+    const NO_MOD = 'Мод голоса в клиенте не отвечает. Нужна сборка клиента с hassle_voice.c, а игра должна быть запущена и загружена.';
+    const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], st: null, stAt: 0, down: false, failSeen: -1, synced: false, shown: {} };
 
     // setTimeout, который cleanup умеет отменить
     function later(fn, ms) {
@@ -51,6 +62,7 @@
     function stale() { return S.dead || __hassleStale(); }
     function esc(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
     function parse(t) { try { return JSON.parse(t); } catch (e) { return null; } }
+    function key(chatId, messageId) { return chatId + ':' + messageId; }
 
     // ── Что человек включал (localStorage; в WebView его может не быть — тогда просто не помним) ──
     function wantLoad() {
@@ -75,33 +87,29 @@
         } catch (e) { fin(e && e.message ? e.message : String(e)); }
     }
 
-    // Ищем порт мода (как Screen.js): сначала запомненный, затем 17791..17800.
-    function findBase(cb) {
+    // Состояние мода. Один запрос на запомненный порт; если не ответил — ищем порт заново (17791..17800).
+    // S.down = true, пока мод не отвечает: подписи кнопок не врут «ВКЛ», когда на деле связи нет.
+    function status(cb) {
+        const finish = function (e, j) {
+            if (e) { S.down = true; return cb(e); }
+            S.st = j; S.stAt = Date.now(); S.down = false;
+            cb(null, j);
+        };
         const probe = function (i) {
-            if (i >= PORT_COUNT) return cb('nobase');
+            if (i >= PORT_COUNT) return finish('nobase');
             const base = 'http://127.0.0.1:' + (PORT_FIRST + i);
             get(base + '/voice/status', 800, function (e, t) {
                 const j = parse(t);
-                if (!e && j && j.v === 1) { S.base = base; S.st = j; cb(null, base); } else probe(i + 1);
+                if (!e && j && j.v === 1) { S.base = base; finish(null, j); } else probe(i + 1);
             });
         };
         if (S.base) {
-            get(S.base + '/voice/status', 1500, function (e) {
-                if (!e) return cb(null, S.base);
+            get(S.base + '/voice/status', 2500, function (e, t) {
+                const j = parse(t);
+                if (!e && j && j.v === 1) return finish(null, j);
                 S.base = null; probe(0);
             });
         } else probe(0);
-    }
-
-    function status(cb) {
-        findBase(function (e, base) {
-            if (e) return cb(e);
-            get(base + '/voice/status', 2500, function (e1, t1) {
-                const j = parse(t1);
-                if (e1 || !j) return cb(e1 || 'ответ не JSON');
-                S.st = j; cb(null, j);
-            });
-        });
     }
 
     // Токен и чат для мода: только в память мода, на диск он их не пишет. Чат — первый из config.chatIds (мод шлёт в один).
@@ -126,93 +134,152 @@
         tgApi('sendMessage', { chat_id: chatId, text: html, parse_mode: 'HTML', disable_notification: true });
     }
     function head() { return '🎙 <b>Голос ' + displayName + '</b>\n'; }
-    function whenOurs(chatId, fn) {
+    const modeRu = function (m) { return m === 'all' ? 'всё, что слышит клиент (рядом, рация, телефон, общий канал)' : 'только те, кто рядом'; };
+
+    // ── Текущий выбор по состоянию мода: 'off' | 'near' | 'all' | null (мод не отвечает / ещё не спрашивали) ──
+    function cur() {
+        const st = S.st;
+        if (!st || S.down) return null;
+        return st.tg === 1 ? (st.mode === 'all' ? 'all' : 'near') : 'off';
+    }
+    function btnText() {
+        const c = cur();
+        if (c === null) return S.down ? '🎙 Голос TG: мод не отвечает' : '🎙 Голос TG: …';
+        if (c === 'off') return '🎙 Голос TG: выкл';
+        return '🎙 Голос TG: ✅ ' + (c === 'all' ? 'всё' : 'рядом');
+    }
+
+    // ── Подменю «Голос TG» (правим то же сообщение, где нажали кнопку) ──
+    function menuText(note) {
+        const c = cur(), st = S.st;
+        let t = '🎙 <b>Голос в Telegram — ' + displayName + '</b>\n';
+        if (c === null) t += S.down ? 'Мод голоса: <b>не отвечает</b>\n' : 'Состояние: <i>проверяю…</i>\n';
+        else {
+            t += 'Отправка: ' + (c === 'off' ? '<b>выкл</b>' : '<b>ВКЛ ✅</b>') + '\n';
+            if (c !== 'off') t += 'Слышно: <b>' + modeRu(st.mode) + '</b>\n';
+        }
+        if (note) t += '\n' + note + '\n';
+        t += '\n<i>Свои слова не пишутся — голос с вашего микрофона обратно не приходит.</i>';
+        return t;
+    }
+    function menuKb() {
+        const c = cur();
+        const item = function (id, label) { return [{ text: (c === id ? '✅ ' : '') + label, callback_data: 'voice_set_' + id + '_' + uniqueId }]; };
+        return {
+            inline_keyboard: [
+                item('off', '🔇 Выключить'),
+                item('near', '👥 Только рядом'),
+                item('all', '🌐 Всё, что слышит клиент'),
+                [{ text: '🔄 Обновить', callback_data: 'voice_refresh_' + uniqueId }],
+                [{ text: '⬅️ Назад', callback_data: 'show_controls_' + uniqueId }]
+            ]
+        };
+    }
+    // Сообщение сейчас показывает наше подменю? (Code.js запоминает последнюю клавиатуру в _ctl.kb.)
+    // Нет записи — считаем, что да (иначе после перезапуска кнопка «молчала» бы).
+    function onSubmenu(chatId, messageId) {
+        try {
+            const raw = _ctl.kb[key(chatId, messageId)];
+            return !raw || raw.indexOf('voice_set_') >= 0;
+        } catch (e) { return true; }
+    }
+    function render(chatId, messageId, note, force) {
+        const text = menuText(note), kb = menuKb();
+        const k = key(chatId, messageId), sig = text + JSON.stringify(kb);
+        if (!force && S.shown[k] === sig) return;   // ничего не поменялось — Telegram не дёргаем
+        S.shown[k] = sig;
+        const ks = Object.keys(S.shown);
+        if (ks.length > 100) ks.slice(0, 50).forEach(function (x) { delete S.shown[x]; });
+        editMessageText(chatId, messageId, text, kb);
+    }
+    // Итог операции: в подменю (если пользователь ещё в нём), а у вызова без сообщения (__voiceSet) — отдельным сообщением
+    function report(chatId, messageId, note) {
+        if (messageId) { if (onSubmenu(chatId, messageId)) render(chatId, messageId, note, true); }
+        else say(chatId, head() + note);
+    }
+    // Открыть/обновить подменю: сразу рисуем, что есть, затем уточняем по свежему статусу
+    function openMenu(chatId, messageId, forceFresh) {
+        if (stale()) return;
+        const fresh = S.st && !S.down && Date.now() - S.stAt < FRESH_MS && !forceFresh;
+        render(chatId, messageId, fresh ? '' : '⏳ проверяю мод…', true);
+        if (fresh) return;
+        status(function () {
+            if (stale() || !onSubmenu(chatId, messageId)) return;
+            render(chatId, messageId, '', false);
+        });
+    }
+
+    function whenOurs(chatId, messageId, fn) {
         if (stale()) return;
         const go = function () {
             if (stale()) return;
-            if (!oursNow()) return say(chatId, '❌ ' + head() + 'Клиент не наш — мода голоса нет.');
+            if (!oursNow()) return report(chatId, messageId, '❌ Клиент не наш — мода голоса нет.');
             fn();
         };
         // определение клиента ещё идёт (до 90 с после старта игры) — дожидаемся результата
         if (window.KONSTT_CLIENT && window.KONSTT_CLIENT.ours === null && typeof window.konsttWhenChecked === 'function') window.konsttWhenChecked().then(go, go);
         else go();
     }
-    function guard(chatId, name) {
-        if (S.busy && Date.now() - S.busyAt < 30000) { say(chatId, '⏳ ' + head() + 'уже выполняется, попробуйте через пару секунд'); return false; }
+    function guard(chatId, messageId) {
+        if (S.busy && Date.now() - S.busyAt < 30000) { report(chatId, messageId, '⏳ уже выполняется, подождите пару секунд'); return false; }
         S.busy = true; S.busyAt = Date.now();
         return true;
     }
-    function fail(chatId, why) {
-        S.busy = false;
-        debugLog('[VOICE] ' + why);
-        say(chatId, '❌ ' + head() + why);
-    }
-    const modeRu = function (m) { return m === 'all' ? 'всё, что слышит клиент (рядом, рация, телефон, общий канал)' : 'только те, кто рядом'; };
 
-    // ── Включить / выключить отправку голоса в Telegram ──
-    function setTg(chatId, on) {
-        whenOurs(chatId, function () {
-            if (!guard(chatId)) return;
-            tgApi('sendChatAction', { chat_id: chatId, action: 'typing' });
-            status(function (e, stNow) {
-                const base = S.base;
+    // ── Выбор в подменю: off | near | all ──
+    function choose(chatId, messageId, choice) {
+        whenOurs(chatId, messageId, function () {
+            if (!guard(chatId, messageId)) return;
+            if (messageId) render(chatId, messageId, '⏳ применяю…', true);
+            else tgApi('sendChatAction', { chat_id: chatId, action: 'typing' });
+            const done = function (note) { S.busy = false; report(chatId, messageId, note); };
+            const bad = function (why) { debugLog('[VOICE] ' + why); S.busy = false; report(chatId, messageId, '❌ ' + why); };
+            // любая ошибка внутри цепочки снимает «занято» и показывается в подменю — кнопки не залипают
+            const sf = function (fn) { return function () { try { fn.apply(null, arguments); } catch (e) { bad('Внутренняя ошибка: ' + esc(e && e.message ? e.message : e)); } }; };
+
+            status(sf(function (e) {
                 if (stale()) { S.busy = false; return; }
-                if (e) return fail(chatId, 'Мод голоса в клиенте не отвечает. Нужна сборка клиента с hassle_voice.c, а игра должна быть запущена и загружена.');
-                if (on === null) on = !(stNow && stNow.tg === 1);   // кнопка: переключаем по свежему состоянию мода
-                if (!on) {
-                    return cfg(base, 'tg=0', function (err) {
+                if (e) return bad(NO_MOD);
+                const base = S.base;
+
+                if (choice === 'off') {
+                    return cfg(base, 'tg=0', sf(function (err) {
                         if (stale()) { S.busy = false; return; }
-                        if (err) return fail(chatId, err);
-                        want.tg = 0; wantSave(want); S.busy = false;
-                        refreshSoon();
-                        say(chatId, head() + 'отправка в Telegram <b>выключена</b>\n<i>запись в файлы на устройстве идёт как шла (/voice off в игре — остановить)</i>');
-                    });
+                        if (err) return bad(err);
+                        want.tg = 0; wantSave(want);
+                        status(sf(function () {
+                            if (stale()) { S.busy = false; return; }
+                            done('отправка в Telegram <b>выключена</b>\n<i>запись в файлы на устройстве идёт как шла (/voice off в игре — остановить)</i>');
+                        }));
+                    }));
                 }
+
                 const q = cfgQuery();
-                if (!q) return fail(chatId, 'Нет токена бота или чата — нечего передать моду.');
-                cfg(base, q + '&mode=' + want.mode + '&tg=1', function (err) {
+                if (!q) return bad('Нет токена бота или чата — нечего передать моду.');
+                cfg(base, q + '&mode=' + choice + '&tg=1', sf(function (err) {
                     if (stale()) { S.busy = false; return; }
-                    if (err) return fail(chatId, err);
-                    want.tg = 1; wantSave(want);
-                    // Запись и перехват включает поток мода по заявке — ждём, пока перехват встанет
+                    if (err) return bad(err);
+                    want.tg = 1; want.mode = choice; wantSave(want);
+                    // Запись и перехват включает поток мода по заявке — ждём, пока перехват встанет и применится режим
                     const t0 = Date.now();
                     const check = function () {
-                        status(function (e2, st) {
+                        status(sf(function (e2, st) {
                             if (stale()) { S.busy = false; return; }
-                            if (!e2 && st.hooked === 1 && st.tg === 1) {
-                                S.busy = false; refreshSoon();
-                                return say(chatId, head() + 'отправка в Telegram <b>включена</b>\n<i>слышно: ' + modeRu(st.mode) + '. Свои слова не пишутся — голос с вашего микрофона обратно не приходит.</i>');
+                            if (!e2 && st.hooked === 1 && st.tg === 1 && st.mode === choice) {
+                                return done('✅ применено: <b>' + (choice === 'all' ? 'всё' : 'рядом') + '</b>');
                             }
                             if (Date.now() - t0 > 6000) {
+                                if (!e2 && st.hooked === 1 && st.tg === 1) return done('⚠️ мод пока сообщает другой режим — нажмите «🔄 Обновить»');
                                 cfg(base, 'tg=0', function () {});
                                 want.tg = 0; wantSave(want);
-                                return fail(chatId, 'Перехват голоса не встал за 6 с (поддерживается только arm64). Причина — в konstt.log, строки «voice:». Отправку выключил.');
+                                return bad('Перехват голоса не встал за 6 с (поддерживается только arm64). Причина — в konstt.log, строки «voice:». Отправку выключил.');
                             }
                             later(check, 400);
-                        });
+                        }));
                     };
-                    later(check, 400);
-                });
-            });
-        });
-    }
-
-    // ── «Слышать»: рядом ⇄ всё ──
-    function toggleMode(chatId) {
-        whenOurs(chatId, function () {
-            if (!guard(chatId)) return;
-            status(function (e, st) {
-                if (stale()) { S.busy = false; return; }
-                if (e) return fail(chatId, 'Мод голоса в клиенте не отвечает. Нужна сборка клиента с hassle_voice.c, а игра должна быть запущена и загружена.');
-                const next = st.mode === 'all' ? 'near' : 'all';
-                cfg(S.base, 'mode=' + next, function (err) {
-                    if (stale()) { S.busy = false; return; }
-                    if (err) return fail(chatId, err);
-                    want.mode = next; wantSave(want); S.busy = false;
-                    refreshSoon();
-                    say(chatId, head() + 'теперь слышно: <b>' + modeRu(next) + '</b>');
-                });
-            });
+                    later(check, 300);
+                }));
+            }));
         });
     }
 
@@ -250,9 +317,8 @@
             });
         };
         // мод перезапустили без нас (или он ещё не получил токен) — отдаём настройки заново
-        if (!S.synced || (S.st && S.st.cfg !== 1)) syncOnce(function () { done(); }); else done();
+        if (!S.synced || S.down || (S.st && S.st.cfg !== 1)) syncOnce(function () { done(); }); else done();
     }
-    function refreshSoon() { status(function () {}); }   // обновить кэш для подписей кнопок
 
     // Первый запуск: мод поднимает HTTP после готовности игры — пробуем каждые 5 с до 2 минут
     function boot() {
@@ -274,7 +340,7 @@
         attempt();
     }
 
-    // ── Перехват 1: кнопки в меню «Управление» ──
+    // ── Перехват 1: кнопка в меню «Управление» ──
     function cbOf(b) { return b && typeof b.callback_data === 'string' ? b.callback_data : ''; }
     function isControlsMenu(kb) {
         if (!kb || !Array.isArray(kb.inline_keyboard)) return false;
@@ -289,39 +355,55 @@
         });
         return hide && reload && info;
     }
+    // Ставит ОДНУ кнопку «🎙 Голос TG: …». Если голосовая строка уже есть (старая клавиатура из _ctl.kb, фоновое обновление welcome) —
+    // заменяем её свежей, а не оставляем как есть: именно из-за этого подписи раньше «залипали».
     function withVoiceButtons(kb) {
         try {
             if (!oursNow() || !isControlsMenu(kb)) return kb;
-            const rows = kb.inline_keyboard.slice();
-            if (rows.some(function (row) { return (row || []).some(function (b) { return cbOf(b).indexOf('voice_') === 0; }); })) return kb;
-            const st = S.st;
-            const tgOn = !!(st && st.tg === 1), all = !!(st && st.mode === 'all');
-            const b1 = { text: '🎙 Голос в TG: ' + (st ? (tgOn ? 'ВКЛ ✅' : 'выкл') : '…'), callback_data: 'voice_tg_' + uniqueId };
-            const b2 = { text: '🎧 Слышать: ' + (all ? 'всё' : 'рядом'), callback_data: 'voice_mode_' + uniqueId };
+            const isVoiceRow = function (row) { return (row || []).some(function (b) { return cbOf(b).indexOf('voice_') === 0; }); };
+            const rows = kb.inline_keyboard.filter(function (row) { return !isVoiceRow(row); });
             // ставим после «Инфо об аккаунте» и (если есть) после «📸 Скрин»
             let at = -1;
             rows.forEach(function (row, i) { if ((row || []).some(function (b) { const d = cbOf(b); return d.indexOf('local_account_info_') === 0 || d.indexOf('screen_shot_') === 0; })) at = i; });
-            rows.splice(at >= 0 ? at + 1 : rows.length - 1, 0, [b1], [b2]);
+            rows.splice(at >= 0 ? at + 1 : rows.length - 1, 0, [{ text: btnText(), callback_data: 'voice_menu_' + uniqueId }]);
             const out = {}; for (const k in kb) out[k] = kb[k];
             out.inline_keyboard = rows;
             return out;
-        } catch (e) { debugLog('[VOICE] кнопки не добавлены: ' + (e && e.message)); return kb; }
+        } catch (e) { debugLog('[VOICE] кнопка не добавлена: ' + (e && e.message)); return kb; }
+    }
+    // Меню «Управление» уже на экране с подписью из кэша → уточняем по живому состоянию мода и, если подпись изменилась,
+    // правим только клавиатуру этого сообщения (если пользователь ещё в «Управлении»).
+    function refreshControls(chatId, messageId) {
+        if (stale() || !oursNow()) return;
+        if (S.st && !S.down && Date.now() - S.stAt < FRESH_MS) return;
+        status(function () {
+            if (stale()) return;
+            try {
+                const raw = _ctl.kb[key(chatId, messageId)];
+                if (!raw || raw.indexOf('voice_menu_') < 0) return;   // сообщение уже не в «Управлении»
+                const next = withVoiceButtons(JSON.parse(raw));
+                if (JSON.stringify(next) === raw) return;
+                editMessageReplyMarkup(chatId, messageId, next);
+            } catch (e) { debugLog('[VOICE] обновление подписи: ' + (e && e.message)); }
+        });
     }
 
     // ── Перехват 2: нажатие кнопки ──
     // Свой чат и свой аккаунт проверяем сами (в обход processUpdates), остальное отдаём Code.js как есть.
-    function kindOf(u) {
+    // Старые сообщения с прежними кнопками (voice_tg_ / voice_mode_) тоже открывают подменю.
+    function parseCb(u) {
         const cq = u && u.callback_query;
         if (!cq || typeof cq.data !== 'string') return null;
-        let kind = null, pre = '';
-        if (cq.data.indexOf('voice_tg_') === 0) { kind = 'tg'; pre = 'voice_tg_'; }
-        else if (cq.data.indexOf('voice_mode_') === 0) { kind = 'mode'; pre = 'voice_mode_'; }
-        else return null;
-        if (cq.data.slice(pre.length) !== uniqueId) return null;
+        const d = cq.data;
+        let kind = null, arg = null;
+        const test = function (pre, k, a) { if (kind === null && d.indexOf(pre) === 0 && d.slice(pre.length) === uniqueId) { kind = k; arg = a; } };
+        test('voice_menu_', 'menu'); test('voice_refresh_', 'refresh'); test('voice_tg_', 'menu'); test('voice_mode_', 'menu');
+        ['off', 'near', 'all'].forEach(function (c) { test('voice_set_' + c + '_', 'set', c); });
+        if (!kind) return null;
         if (!(cq.message && cq.message.chat && config.chatIds.includes(String(cq.message.chat.id)))) return null;
-        return kind;
+        return { kind: kind, arg: arg, chatId: cq.message.chat.id, messageId: cq.message.message_id };
     }
-    function isMine(u) { return kindOf(u) !== null; }
+    function isMine(u) { return parseCb(u) !== null; }
 
     const hooks = [];   // [{orig, wrapped, getter, setter}] — для cleanup
     function hook(name, getter, setter, make) {
@@ -337,7 +419,10 @@
     }
     hook('editMessageText', function () { return editMessageText; }, function (f) { editMessageText = f; }, function (orig) {
         return function (chatId, messageId, text, replyMarkup) {
-            if (replyMarkup) replyMarkup = withVoiceButtons(replyMarkup);
+            if (replyMarkup && oursNow() && isControlsMenu(replyMarkup)) {
+                replyMarkup = withVoiceButtons(replyMarkup);
+                later(function () { refreshControls(chatId, messageId); }, 0);   // после orig: он запомнит клавиатуру в _ctl.kb
+            }
             return orig.apply(this, [chatId, messageId, text, replyMarkup].concat(Array.prototype.slice.call(arguments, 4)));
         };
     });
@@ -348,12 +433,12 @@
                 if (Array.isArray(updates) && updates.some(isMine)) {
                     const rest = [];
                     updates.forEach(function (u) {
-                        const kind = kindOf(u);
-                        if (!kind) { rest.push(u); return; }
+                        const c = parseCb(u);
+                        if (!c) { rest.push(u); return; }
                         try { answerCallbackQuery(u.callback_query.id); } catch (e) {}
-                        const chatId = u.callback_query.message.chat.id;
-                        if (kind === 'tg') setTg(chatId, null);
-                        else toggleMode(chatId);
+                        try { _mvUntrackMenu(c.chatId, c.messageId); } catch (e) {}   // ушли из меню движения — не перерисовывать его поверх
+                        if (c.kind === 'set') choose(c.chatId, c.messageId, c.arg);
+                        else openMenu(c.chatId, c.messageId, c.kind === 'refresh');
                     });
                     // lastUpdateId двигает вызывающий (checkTelegramCommands) — пустой список отдавать дальше незачем
                     if (!rest.length) return;
@@ -364,7 +449,7 @@
         };
     });
 
-    window.__voiceSet = function (chatId, on) { setTg(chatId, !!on); };
+    window.__voiceSet = function (chatId, on) { choose(chatId, null, on ? want.mode : 'off'); };
     window.__voiceStatus = function (cb) { status(cb || function () {}); };
     window.__voiceCleanup = function () {
         S.dead = true; S.busy = false;
