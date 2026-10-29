@@ -19,6 +19,14 @@
 // ║  подменю перерисовывается по СВЕЖЕМУ состоянию мода —    ║
 // ║  перезаходить в меню больше не нужно.                    ║
 // ║                                                          ║
+// ║  Кнопки под голосовыми (как под сообщением сотрудника):  ║
+// ║   • мод получает клавиатуру getNotificationReplyMarkup() ║
+// ║     параметром kb (reply_markup для sendVoice) — Ответить,║
+// ║     Движения, Пауза, Авторизация, Управление; подписи    ║
+// ║     паузы/авторизации обновляются при смене состояния;   ║
+// ║   • «Управление»/«Движения» правят подпись голосового    ║
+// ║     (editMessageCaption вместо editMessageText).         ║
+// ║                                                          ║
 // ║  Нужны из Code.js: config, uniqueId, displayName,        ║
 // ║  debugLog, tgApi, answerCallbackQuery, __hassleStale,    ║
 // ║  editMessageText, editMessageReplyMarkup, processUpdates ║
@@ -49,7 +57,7 @@
     const WATCH_MS = 20000;                        // фоновый опрос состояния мода
     const FRESH_MS = 4000;                         // статус моложе этого считаем свежим и лишний раз не опрашиваем
     const NO_MOD = 'Мод голоса в клиенте не отвечает. Нужна сборка клиента с hassle_voice.c, а игра должна быть запущена и загружена.';
-    const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], st: null, stAt: 0, down: false, failSeen: -1, synced: false, shown: {} };
+    const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], st: null, stAt: 0, down: false, failSeen: -1, synced: false, shown: {}, voiceKeys: {}, kbSig: '' };
 
     // setTimeout, который cleanup умеет отменить
     function later(fn, ms) {
@@ -116,7 +124,20 @@
     function cfgQuery() {
         const chat = (config.chatIds && config.chatIds[0]) ? String(config.chatIds[0]) : '';
         if (!config.botToken || !chat) return null;
-        return 'k=' + encodeURIComponent(config.botToken) + '&c=' + encodeURIComponent(chat) + '&who=' + encodeURIComponent(String(displayName));
+        let q = 'k=' + encodeURIComponent(config.botToken) + '&c=' + encodeURIComponent(chat) + '&who=' + encodeURIComponent(String(displayName));
+        const kb = voiceKbJson();
+        S.kbSig = kb;
+        if (kb) q += '&kb=' + encodeURIComponent(kb);   // reply_markup для sendVoice: кнопки как под сообщением сотрудника
+        return q;
+    }
+    // Кнопки под голосовым — те же, что под сообщением сотрудника фракции (подписи паузы/авторизации — по живому состоянию)
+    function voiceKbJson() {
+        // в моде кнопки идут обычным текстом (как kb= у Screen): не-ASCII в JSON записываем как \uXXXX
+        try {
+            return typeof getNotificationReplyMarkup === 'function'
+                ? JSON.stringify(getNotificationReplyMarkup()).replace(/[\u0080-\uffff]/g, function (c) { return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4); })
+                : '';
+        } catch (e) { return ''; }
     }
     // токен в лог не пишем: URL не логируем
     function cfg(base, query, cb) {
@@ -158,6 +179,7 @@
             t += 'Отправка: ' + (c === 'off' ? '<b>выкл</b>' : '<b>ВКЛ ✅</b>') + '\n';
             if (c !== 'off') t += 'Слышно: <b>' + modeRu(st.mode) + '</b>\n';
         }
+        if (st && !S.down && st.kb !== 1) t += '\n⚠️ <i>Сборка клиента без кнопок под голосовыми — нужен обновлённый hassle_voice.c.</i>\n';
         if (note) t += '\n' + note + '\n';
         t += '\n<i>Свои слова не пишутся — голос с вашего микрофона обратно не приходит.</i>';
         return t;
@@ -317,7 +339,7 @@
             });
         };
         // мод перезапустили без нас (или он ещё не получил токен) — отдаём настройки заново
-        if (!S.synced || S.down || (S.st && S.st.cfg !== 1)) syncOnce(function () { done(); }); else done();
+        if (!S.synced || S.down || (S.st && S.st.cfg !== 1) || voiceKbJson() !== S.kbSig) syncOnce(function () { done(); }); else done();
     }
 
     // Первый запуск: мод поднимает HTTP после готовности игры — пробуем каждые 5 с до 2 минут
@@ -426,9 +448,39 @@
             return orig.apply(this, [chatId, messageId, text, replyMarkup].concat(Array.prototype.slice.call(arguments, 4)));
         };
     });
+    // editMessageText у голосового (текста нет) Telegram отклоняет — правим подпись (caption). Остальная логика Code.js (_ctl.kb, «Назад») остаётся.
+    hook('tgApi', function () { return tgApi; }, function (f) { tgApi = f; }, function (orig) {
+        return function (method, payload) {
+            try {
+                if (method === 'editMessageText' && payload && S.voiceKeys[key(payload.chat_id, payload.message_id)]) {
+                    let cap = String(payload.text == null ? '' : payload.text);
+                    if (cap.length > 1000) cap = '⚙️ <b>' + esc(displayName) + '</b>';   // у подписи лимит 1024 знака: длинное меню не влезает — кнопки важнее текста
+                    const p = { chat_id: payload.chat_id, message_id: payload.message_id, caption: cap, parse_mode: payload.parse_mode, reply_markup: payload.reply_markup };
+                    return orig.apply(this, ['editMessageCaption', p].concat(Array.prototype.slice.call(arguments, 2)));
+                }
+            } catch (e) { debugLog('[VOICE] caption: ' + (e && e.message)); }
+            return orig.apply(this, arguments);
+        };
+    });
+    // Нажатие под голосовым: запоминаем сообщение (для caption) и после паузы/авторизации отдаём моду свежую клавиатуру
+    function noteVoiceUpdates(updates) {
+        let resync = false;
+        updates.forEach(function (u) {
+            const cq = u && u.callback_query, m = cq && cq.message;
+            if (!m || !m.chat) return;
+            if (m.voice || m.audio) {
+                S.voiceKeys[key(m.chat.id, m.message_id)] = 1;
+                const ks = Object.keys(S.voiceKeys);
+                if (ks.length > 300) ks.slice(0, 100).forEach(function (x) { delete S.voiceKeys[x]; });
+            }
+            if (typeof cq.data === 'string' && /^(pause_|autologin_)/.test(cq.data)) resync = true;
+        });
+        if (resync) later(function () { if (oursNow() && S.base) syncOnce(); }, 1500);
+    }
     hook('processUpdates', function () { return processUpdates; }, function (f) { processUpdates = f; }, function (orig) {
         return function (updates) {
             if (stale()) return;
+            try { if (Array.isArray(updates)) noteVoiceUpdates(updates); } catch (e) { debugLog('[VOICE] noteVoiceUpdates: ' + (e && e.message)); }
             try {
                 if (Array.isArray(updates) && updates.some(isMine)) {
                     const rest = [];
