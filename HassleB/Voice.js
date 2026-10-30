@@ -6,15 +6,16 @@
 // ║  Code.js править НЕ нужно. Load.js подклеивает этот файл ║
 // ║  как Screen.js: он выполняется в области видимости       ║
 // ║  Code.js и сам ставит два перехвата:                     ║
-// ║   • editMessageText — добавляет в меню «Управление» ОДНУ ║
+// ║   • editMessageText/editMessageReplyMarkup — добавляют в ║
+// ║     меню «Функции» ОДНУ                                  ║
 // ║     кнопку «🎙 Голос TG: …» (подпись = живое состояние   ║
 // ║     мода), но ТОЛЬКО если клиент наш                     ║
 // ║     (KONSTT_CLIENT.ours === true);                       ║
 // ║   • processUpdates — ловит нажатия voice_* для своего    ║
 // ║     аккаунта, проверяет чат.                             ║
 // ║                                                          ║
-// ║  Кнопка «🎙 Голос TG 🟢/🔴» (цвет = состояние, как в     ║
-// ║  «Функциях») открывает меню в том же сообщении:          ║
+// ║  Кнопка «🎙 Голос TG 🟢/🔴» в «Функциях» (цвет = состояние║
+// ║  как у AFK/КАЧ) открывает меню в том же сообщении:       ║
 // ║   1) «Для кого?»  👤 Для этого аккаунта / 👥 Для всех;   ║
 // ║   2) настройки: 👥 Рядом / 🌐 Всё — выбранный зелёный;   ║
 // ║      повторное нажатие на него выключает отправку        ║
@@ -62,7 +63,7 @@
     const WATCH_MS = 20000;                        // фоновый опрос состояния мода
     const FRESH_MS = 4000;                         // статус моложе этого считаем свежим и лишний раз не опрашиваем
     const NO_MOD = 'Мод голоса в клиенте не отвечает. Нужна сборка клиента с hassle_voice.c, а игра должна быть запущена и загружена.';
-    const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], st: null, stAt: 0, down: false, failSeen: -1, synced: false, shown: {}, voiceKeys: {}, kbSig: '', scope: {}, lastBc: null };
+    const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], st: null, stAt: 0, down: false, failSeen: -1, synced: false, shown: {}, voiceKeys: {}, kbSig: '', scope: {}, lastBc: null, noRefresh: false };
 
     // setTimeout, который cleanup умеет отменить
     function later(fn, ms) {
@@ -215,7 +216,7 @@
         return {
             inline_keyboard: [
                 [mkBtn('👤 Для этого аккаунта', 'voice_open_local_' + uniqueId, 'primary'), mkBtn('👥 Для всех аккаунтов', 'voice_open_global_' + uniqueId, 'primary')],
-                [mkBtn('⬅️ Вернуться назад', 'show_controls_' + uniqueId)]
+                [mkBtn('⬅️ Вернуться назад', 'show_functions_' + uniqueId)]
             ]
         };
     }
@@ -438,50 +439,51 @@
         attempt();
     }
 
-    // ── Перехват 1: кнопка в меню «Управление» ──
+    // ── Перехват 1: кнопка «🎙 Голос TG» в меню «Функции» (рядом с AFK, Отыгровкой, КАЧ/ЗП и паузой) ──
     function cbOf(b) { return b && typeof b.callback_data === 'string' ? b.callback_data : ''; }
-    function isControlsMenu(kb) {
+    // «Функции» узнаём по самой клавиатуре (как и другие кнопки: Code2/Code3 вставляют строку перед «Вернуться назад»):
+    // есть переключатели функций + возврат в «Управление». Подменю охвата/настроек (func_action_*, voice_*) сюда не попадают.
+    function isFunctionsMenu(kb) {
         if (!kb || !Array.isArray(kb.inline_keyboard)) return false;
-        let hide = false, reload = false, info = false;
+        let fn = false, back = false;
         kb.inline_keyboard.forEach(function (row) {
             (row || []).forEach(function (b) {
                 const d = cbOf(b);
-                if (d.indexOf('hide_controls_') === 0) hide = true;
-                else if (d.indexOf('global_reload_script_') === 0) reload = true;
-                else if (d.indexOf('local_account_info_') === 0) info = true;
+                if (d.indexOf('func_select_kac_') === 0 || d.indexOf('func_select_afk_') === 0 || d.indexOf('request_chat_message_') === 0) fn = true;
+                else if (d.indexOf('show_controls_') === 0) back = true;
             });
         });
-        return hide && reload && info;
+        return fn && back;
     }
-    // Ставит ОДНУ кнопку «🎙 Голос TG: …». Если голосовая строка уже есть (старая клавиатура из _ctl.kb, фоновое обновление welcome) —
+    // Ставит ОДНУ кнопку «🎙 Голос TG …» перед «Вернуться назад». Если голосовая строка уже есть (старая клавиатура из _ctl.kb) —
     // заменяем её свежей, а не оставляем как есть: именно из-за этого подписи раньше «залипали».
     function withVoiceButtons(kb) {
         try {
-            if (!oursNow() || !isControlsMenu(kb)) return kb;
+            if (!oursNow() || !isFunctionsMenu(kb)) return kb;
             const isVoiceRow = function (row) { return (row || []).some(function (b) { return cbOf(b).indexOf('voice_') === 0; }); };
             const rows = kb.inline_keyboard.filter(function (row) { return !isVoiceRow(row); });
-            // ставим после «Инфо об аккаунте» и (если есть) после «📸 Скрин»
-            let at = -1;
-            rows.forEach(function (row, i) { if ((row || []).some(function (b) { const d = cbOf(b); return d.indexOf('local_account_info_') === 0 || d.indexOf('screen_shot_') === 0; })) at = i; });
-            rows.splice(at >= 0 ? at + 1 : rows.length - 1, 0, [mkBtn(btnText(), 'voice_menu_' + uniqueId, btnStyle())]);
+            rows.splice(Math.max(0, rows.length - 1), 0, [mkBtn(btnText(), 'voice_menu_' + uniqueId, btnStyle())]);
             const out = {}; for (const k in kb) out[k] = kb[k];
             out.inline_keyboard = rows;
             return out;
         } catch (e) { debugLog('[VOICE] кнопка не добавлена: ' + (e && e.message)); return kb; }
     }
-    // Меню «Управление» уже на экране с подписью из кэша → уточняем по живому состоянию мода и, если подпись изменилась,
-    // правим только клавиатуру этого сообщения (если пользователь ещё в «Управлении»).
-    function refreshControls(chatId, messageId) {
+    // Меню «Функции» уже на экране с подписью из кэша → уточняем по живому состоянию мода и, если подпись изменилась,
+    // правим только клавиатуру этого сообщения (если пользователь ещё в «Функциях»).
+    function refreshFunctions(chatId, messageId) {
         if (stale() || !oursNow()) return;
         if (S.st && !S.down && Date.now() - S.stAt < FRESH_MS) return;
         status(function () {
             if (stale()) return;
             try {
                 const raw = _ctl.kb[key(chatId, messageId)];
-                if (!raw || raw.indexOf('voice_menu_') < 0) return;   // сообщение уже не в «Управлении»
-                const next = withVoiceButtons(JSON.parse(raw));
+                if (!raw || raw.indexOf('voice_menu_') < 0) return;   // сообщение уже не в «Функциях»
+                const cur_ = JSON.parse(raw);
+                if (!isFunctionsMenu(cur_)) return;
+                const next = withVoiceButtons(cur_);
                 if (JSON.stringify(next) === raw) return;
-                editMessageReplyMarkup(chatId, messageId, next);
+                S.noRefresh = true;
+                try { editMessageReplyMarkup(chatId, messageId, next); } finally { S.noRefresh = false; }
             } catch (e) { debugLog('[VOICE] обновление подписи: ' + (e && e.message)); }
         });
     }
@@ -523,11 +525,21 @@
     }
     hook('editMessageText', function () { return editMessageText; }, function (f) { editMessageText = f; }, function (orig) {
         return function (chatId, messageId, text, replyMarkup) {
-            if (replyMarkup && oursNow() && isControlsMenu(replyMarkup)) {
+            if (replyMarkup && oursNow() && isFunctionsMenu(replyMarkup)) {
                 replyMarkup = withVoiceButtons(replyMarkup);
-                later(function () { refreshControls(chatId, messageId); }, 0);   // после orig: он запомнит клавиатуру в _ctl.kb
+                if (!S.noRefresh) later(function () { refreshFunctions(chatId, messageId); }, 0);   // после orig: он запомнит клавиатуру в _ctl.kb
             }
             return orig.apply(this, [chatId, messageId, text, replyMarkup].concat(Array.prototype.slice.call(arguments, 4)));
+        };
+    });
+    // «Функции» чаще уходят через editMessageReplyMarkup (_ctlShowMenu), когда текст сообщения менять не нужно
+    hook('editMessageReplyMarkup', function () { return editMessageReplyMarkup; }, function (f) { editMessageReplyMarkup = f; }, function (orig) {
+        return function (chatId, messageId, replyMarkup) {
+            if (replyMarkup && oursNow() && isFunctionsMenu(replyMarkup)) {
+                replyMarkup = withVoiceButtons(replyMarkup);
+                if (!S.noRefresh) later(function () { refreshFunctions(chatId, messageId); }, 0);
+            }
+            return orig.apply(this, [chatId, messageId, replyMarkup].concat(Array.prototype.slice.call(arguments, 3)));
         };
     });
     // editMessageText у голосового (текста нет) Telegram отклоняет — правим подпись (caption). Остальная логика Code.js (_ctl.kb, «Назад») остаётся.
