@@ -27,6 +27,11 @@
 //     все остальные диалоги уходят в игру и в Code2 как обычно. ActorDialog (диалоги NPC) идёт другим путём — openInterface — и не затрагивается;
 //   • на сервер уходит штатный OnDialogResponse (так же отвечает Code2 из Telegram); перехваченный диалог игре не показывается.
 //
+// ВЕРСИЯ 3 — что изменилось (цель — не терять время на своих же паузах; сетевые круги и серверные проверки обойти нельзя):
+//   • /tpl save и /tpl pick уходят подряд, без ожидания ответа на save; на пикап телепортируемся, когда пришли оба ответа.
+//   • Хвост после возврата T_TAIL_MS 1200 → 300 мс, а новый /dress во время хвоста принимается (не раньше MIN_REENTER_MS после возврата: сервер раз в 250 мс сбрасывает «стою на пикапе»).
+//   • Журнал копится в памяти и пишется в файл после возврата (LOG_DEFER), чтобы запись на карту памяти не стояла между ответами на диалоги.
+//   • В журнале после возврата строка «ИТОГО по этапам»: подготовка / телепорт→диалог 1 / диалог 1→2 / «Да»→скин / всего — чтобы видеть, где реально уходит время.
 // ВЕРСИЯ 2 — что изменилось:
 //   • Журнал пишется в файл HLOG/dress.txt (рядом с konstt.log) через команду /jlog из мода hassle_jlog.c — не в консоль игры.
 //     Прошлый запуск игры лежит в dress_prev.txt. Каждая строка с временем (ЧЧ:ММ:СС.мс) и «+N мс» от старта /dress.
@@ -56,7 +61,10 @@ var T_DLG1_MS   = 8000;             // после телепорта: сколь
 var T_DLG2_MS   = 6000;             // после выбора пункта: сколько ждать диалог-вопрос
 var D_REPLY_MS  = 0;                // пауза перед ответом на диалог (0 — отвечаем сразу, в том же вызове, где диалог пришёл)
 var T_SKIN_MS   = 2500;             // после ответа «Да»: сколько ждать смену скина; не дождались — возвращаемся всё равно
-var T_TAIL_MS   = 1200;             // после команды возврата ещё столько слушаем чат — только чтобы записать в журнал подтверждение «вернулись»
+var T_TAIL_MS   = 300;              // после команды возврата ещё столько слушаем чат — только для журнала («вернулись»). Было 1200: всё это время /dress отвечал «уже выполняется»
+var MIN_REENTER_MS = 300;           // новый /dress во время хвоста разрешён, но не раньше, чем через столько мс после возврата: сервер раз в 250 мс (TIMER_250_MS) проверяет «ушёл ли с пикапа» — раньше пикап повторно не сработает
+var T_LIST_GRACE_MS = 400;          // после заголовка списка пикапов ждём остальные строки не дольше (было 1200)
+var LOG_DEFER   = true;             // true — журнал копится в памяти и уходит в файл ПОСЛЕ возврата (запись на карту памяти не стоит между диалогами)
 var UNDER_SEC    = 8;                // режим under: предел (страховка) удержания под полом, секунд; вынырнем раньше — сразу по смене скина
 var T_DLG1_UNDER_MS = 3500;         // режим under: диалог-список не открылся за это время — выныриваем сразу
 var T_TOTAL_MS  = 30000;            // общий потолок — после него всё снимаем и возвращаемся
@@ -90,6 +98,7 @@ function jlPump() {
     var st = jlState();
     if (st === 0) return;                                           // ждём ответ на /jlog _ping
     if (!JL.q.length) return;
+    if (LOG_DEFER && S && S.step !== 'tail') return;                // пока идёт сессия — только копим; сброс — в returnNow / endSession
     if (st < 0) { while (JL.q.length) toConsole(JL.q.shift()); return; }
     JL.busy = true;
     var line = JL.q.shift();
@@ -226,22 +235,34 @@ function unhook(sess) {
 }
 
 function startSession(pickNum, under, holdSec) {
-    if (S) { info('уже выполняется (шаг «' + S.step + '»). Прервать: /dress stop'); return; }
-    var sess = { step: under ? 'list' : 'save', under: !!under, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null };
+    if (S) {
+        if (S.step === 'tail') {                                    // уже вернулись, идёт только хвост журнала — не заставляем ждать
+            var w = Math.max(0, MIN_REENTER_MS - (Date.now() - (S.tRet || 0)));
+            endSession('новый запуск', false);
+            if (w > 0) setTimeout(function () { if (!_dead && !S) startSession(pickNum, under, holdSec); }, w); else startSession(pickNum, under, holdSec);
+            return;
+        }
+        info('уже выполняется (шаг «' + S.step + '»). Прервать: /dress stop'); return;
+    }
+    var sess = { step: under ? 'list' : 'save', under: !!under, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, tRet: 0, tTp: 0, tD1: 0, tD2: 0, saved: false, listReady: false, saveTimer: null, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null };
     S = sess;
     if (!hookChat(sess)) { S = null; fail('не нашёл OnChatAddMessage — бот ещё не запущен?'); return; }
     if (!hookDialogs(sess)) { unhook(sess); S = null; fail('не нашёл addDialogInQueue — игра ещё не загрузила диалоги'); return; }
     var skinHooked = hookSkin(sess);
     jlPing();                                       // проверяем, отвечает ли мод /jlog (ответ ловит onChat); строки журнала до ответа ждут в очереди
     setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
-    log('=== старт Dress v2, шаг ' + sess.step + (under ? ', нырок, предел ' + sess.hold + ' с' : ', на пикапе') + (pickNum ? ', пикап №' + pickNum : '') + '; ловлю смену скина: ' + (skinHooked ? 'да' : 'НЕТ (только чат и таймаут ' + T_SKIN_MS + ' мс)') + '; скин сейчас: ' + curSkin());
+    log('=== старт Dress v3, шаг ' + sess.step + (under ? ', нырок, предел ' + sess.hold + ' с' : ', на пикапе') + (pickNum ? ', пикап №' + pickNum : '') + '; ловлю смену скина: ' + (skinHooked ? 'да' : 'НЕТ (только чат и таймаут ' + T_SKIN_MS + ' мс)') + '; скин сейчас: ' + curSkin());
     if (under) {                                    // нырок: возвращает сам /tpl, точка возврата не нужна — сразу за списком пикапов
         if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
         sess.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или мода /tpl нет в APK)'); endSession('нет списка', false); }, T_LIST_MS);
         return;
     }
+    // v3: save и pick уходят подряд, не дожидаясь ответа на save (команды выполняются по очереди в одном потоке: сначала запомнится точка, потом соберётся список).
+    // Телепорт на пикап — только когда пришли ОБА ответа (точка сохранена + список готов): без точки возврата не ныряем.
     if (!chatCmd('/tpl save ' + BACK_NAME)) { fail('не удалось отправить команду в чат'); endSession('нет чата', false); return; }
-    setTimer(function () { fail('/tpl не ответил на save — мод tpl не установлен в этом APK?'); endSession('нет ответа /tpl', false); }, T_SAVE_MS);
+    sess.saveTimer = setTimer(function () { fail('/tpl не ответил на save — мод tpl не установлен в этом APK?'); endSession('нет ответа /tpl', false); }, T_SAVE_MS);
+    if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
+    sess.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или /tpl pick не сработал)'); endSession('нет списка', false); }, T_LIST_MS);
 }
 
 function curSkin() {
@@ -262,11 +283,13 @@ function returnNow(why) {
     sess.returned = true;
     clearTimers();
     var t = Date.now(), cmd = sendReturn(sess);
-    sess.step = 'tail';
+    sess.step = 'tail'; sess.tRet = t;
     if (cmd === null) log('возврат не нужен (' + why + ')');
     else if (cmd === '') { fail('не удалось отправить команду возврата!'); log('ОШИБКА: команда возврата не отправилась (' + why + ')'); }
     else log('ВОЗВРАТ: ' + cmd + ' (' + why + '), с момента «Да» прошло ' + (sess.tYes ? (t - sess.tYes) : '?') + ' мс, с момента старта ' + (t - sess.t0) + ' мс');
     setTimer(function () { endSession('готово', false); }, T_TAIL_MS);
+    if (sess.tTp) log('ИТОГО по этапам: подготовка ' + (sess.tTp - sess.t0) + ' мс; телепорт→диалог 1 ' + (sess.tD1 ? (sess.tD1 - sess.tTp) : '?') + ' мс; диалог 1→диалог 2 ' + (sess.tD1 && sess.tD2 ? (sess.tD2 - sess.tD1) : '?') + ' мс; «Да»→смена скина ' + (sess.tYes ? (t - sess.tYes) : '?') + ' мс; до возврата всего ' + (t - sess.t0) + ' мс');
+    jlPump();                                                      // журнал — в файл только теперь, когда вернулись
     gtAdd('~g~Dress: ~w~вернулся на место');
 }
 function onSkin(src) {
@@ -287,6 +310,7 @@ function endSession(why, goBack) {
     sess.returned = true;
     log('конец: ' + why + ' (всего ' + (Date.now() - sess.t0) + ' мс)' + (cmd ? '; возврат: ' + cmd : ''));
     if (cmd) info('вернулся на место (' + why + ')');
+    jlPump();                                                      // S уже null — копившийся журнал уходит в файл
 }
 
 // ───────────────────────── разбор чата ─────────────────────────
@@ -310,27 +334,24 @@ function onChat(raw) {
     if (!S) return;
     if (RX_LOGCHAT.test(text)) log('чат: ' + text.slice(0, 160));
     if (S.step === 'wait' && RX_DONE.test(text)) { returnNow('сообщение сервера «Вы переоделись»'); return; }
-    if (S.step === 'save') {
-        if (RX_SAVED.test(text)) {
-            clearTimers();
-            setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
-            S.step = 'list';
-            log('точка возврата сохранена, запрашиваю список пикапов');
-            if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
-            S.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или /tpl pick не сработал)'); endSession('нет списка', false); }, T_LIST_MS);
-        } else if (RX_TPL_ERR.test(text)) {
-            fail('/tpl save не удался: ' + text.slice(0, 80)); endSession('save не удался', false);
+    if (S.step === 'save' || S.step === 'list') {
+        if (S.step === 'save') {                                       // v3: на шаге save одновременно ждём и подтверждение точки, и список пикапов
+            if (RX_SAVED.test(text)) {
+                if (S.saveTimer) { clearTimeout(S.saveTimer); S.saveTimer = null; }
+                S.saved = true;
+                log('точка возврата сохранена' + (S.listReady ? ', список уже готов' : ', жду список пикапов'));
+                if (S.listReady) pickAndGo();
+                return;
+            } else if (RX_TPL_ERR.test(text)) {
+                fail('/tpl save не удался: ' + text.slice(0, 80)); endSession('save не удался', false); return;
+            }
         }
-        return;
-    }
-    if (S.step === 'list') {
         if (RX_NONE.test(text)) { fail('рядом нет пикапов — подойдите к раздевалке (сервер стримит их только вблизи)'); endSession('нет пикапов', false); return; }
         var h = RX_HEADER.exec(text);
         if (h) {
             S.listN = Math.min(parseInt(h[1], 10) || 0, 10);   // на странице 10 строк (TPL_PAGE)
-            clearTimers();
-            setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
-            S.listTimer = setTimer(function () { pickAndGo(); }, 1200);   // если часть строк потерялась — берём что собрали
+            if (S.listTimer) { clearTimeout(S.listTimer); S.listTimer = null; }
+            S.listTimer = setTimer(function () { pickAndGo(); }, T_LIST_GRACE_MS);   // если часть строк потерялась — берём что собрали
             return;
         }
         var m = RX_LINE.exec(text);
@@ -342,7 +363,8 @@ function onChat(raw) {
 }
 
 function pickAndGo() {
-    if (!S || S.step !== 'list') return;
+    if (!S || (S.step !== 'list' && S.step !== 'save')) return;
+    if (!S.under && !S.saved) { S.listReady = true; return; }        // список готов, а точка возврата ещё не подтверждена — ждём (дальше вызовет onChat по «Точка … сохранена/обновлена»)
     var sel = null, i;
     if (S.pickNum) {
         for (i = 0; i < S.list.length; i++) if (S.list[i].n === S.pickNum) { sel = S.list[i]; break; }
@@ -359,6 +381,7 @@ function pickAndGo() {
     setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
     S.step = 'tp';
     S.sel = sel;
+    S.tTp = Date.now();
     log('выбран пикап №' + sel.n + ' (ID ' + sel.id + ', модель ' + sel.model + ', ' + sel.d + ' м) — ' + (S.under ? 'нырок' : 'телепорт') + '; в списке было ' + S.list.length + ' шт.');
     var t1 = T_DLG1_MS;
     if (S.under) {
@@ -392,6 +415,7 @@ function onDialog(params, content, priority) {
     var raw = Array.isArray(content) ? content.join('<n>') : String(content || '');
     var hay = title + ' ' + sub + ' ' + strip(raw);
     if (!TITLE_RX.test(hay)) return false;              // чужой диалог — не трогаем
+    if (S.step === 'tp') S.tD1 = Date.now(); else if (S.step === 'dlg2') S.tD2 = Date.now();
     log('диалог раздевалки: id=' + id + ' style=' + style + ' «' + title + '» ' + strip(raw).slice(0, 100));
 
     if (S.step === 'tp' && (style === 2 || style === 4 || style === 5)) {
@@ -472,6 +496,6 @@ onUndo(function () {
 window.Dress = { run: function (n, under, sec) { startSession(n || 0, !!under, sec || 0); }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v2 загружен: /dress [N], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (нужен мод /tpl с командой «up»; журнал — мод /jlog)');
+log('Dress.js v3 загружен: /dress [N], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (нужен мод /tpl с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
