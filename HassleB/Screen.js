@@ -26,6 +26,8 @@
 // ║   • Здесь: кнопка, перехваты и оркестрация (заявка →     ║
 // ║     снимок → команда «отправь» → результат → ошибка).    ║
 // ║                                                          ║
+// ║  Несколько окон игры на одном эмуляторе: скрипт находит   ║
+// ║  СВОЙ порт мода по метке окна (/screen kt… + status.id).  ║
 // ║  📸 Скрин в меню → «Обычное / Live» (отдельный выбор).   ║
 // ║  Под обычным фото: «🔄 Перескринить» (заменяет кадр в    ║
 // ║  этом же сообщении) и «📺 Live» (фото становится Live).  ║
@@ -51,6 +53,10 @@
     const LIVE_MAX = 5 * 60 * 1000;    // Live сам выключается через это время
     const STALE = '__stale__';         // «скрипт перезагружен» — молча выходим
     const S = { base: null, cap: 0, busy: false, busyAt: 0, dead: false, timers: [], live: null };
+    // Метка ЭТОГО окна игры. На одном эмуляторе (разделённый экран, клоны) localhost общий, и порты 17781..17790 занимают
+    // по очереди все запущенные игры — «первый ответивший» мог оказаться модом соседнего окна (скрин чужого аккаунта).
+    // Поэтому мы сами придумываем метку и просим СВОЮ игру её запомнить командой «/screen <метка>» (она выполняется только в нашем процессе).
+    S.id = 'kt' + (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)).replace(/[^a-z0-9]/g, '');
 
     // setTimeout, который cleanup умеет отменить
     function later(fn, ms) {
@@ -79,22 +85,65 @@
         } catch (e) { fin(e && e.message ? e.message : String(e)); }
     }
 
-    // Ищем порт мода (как Near.js): сначала запомненный, затем 17781..17790.
-    function findBase(cb) {
-        const probe = function (i) {
-            if (i >= PORT_COUNT) return cb('nobase');
-            const base = 'http://127.0.0.1:' + (PORT_FIRST + i);
+    // Опрос всех портов мода сразу; cb(список {base, j}) — только те, кто ответил как мод скрина
+    function scanAll(cb) {
+        const found = []; let left = PORT_COUNT;
+        for (let i = 0; i < PORT_COUNT; i++) (function (base) {
             get(base + '/screen/status', 800, function (e, t) {
                 const j = parse(t);
-                if (!e && j && j.v === 1) { S.base = base; S.cap = j.cap || 0; cb(null, base); } else probe(i + 1);
+                if (!e && j && j.v === 1) found.push({ base: base, j: j });
+                if (--left === 0) cb(found);
+            });
+        })('http://127.0.0.1:' + (PORT_FIRST + i));
+    }
+
+    // Ищем порт СВОЕГО мода: тот, у кого /screen/status.id равен нашей метке. cb(ошибка|null, base).
+    // Ошибки: 'nobase' — ни один мод не отвечает; 'nobind' — модов несколько/один, но ни один не назвал нашу метку.
+    function findBase(cb) {
+        const mine = function (list) { return list.filter(function (x) { return x.j.id === S.id; })[0] || null; };
+        const take = function (hit) { S.base = hit.base; S.cap = hit.j.cap || 0; cb(null, hit.base); };
+        const bindNow = function () {
+            scanAll(function (list) {
+                if (stale()) return cb(STALE);
+                const hit = mine(list);
+                if (hit) return take(hit);
+                if (!list.length) return cb('nobase');
+                // Старый мод (без метки: в статусе нет поля id) — привязать нечем; работаем как раньше (первый ответивший) и честно предупреждаем
+                if (list.every(function (x) { return typeof x.j.id === 'undefined'; })) {
+                    if (list.length > 1) debugLog('[SCREEN] в клиенте СТАРЫЙ мод скрина (нет метки окна), а окон игры несколько (' + list.length + ') — скрин может прийти с другого окна. Нужна сборка с новым hassle_screen.c.');
+                    return take(list[0]);
+                }
+                // Моды есть, но ни один не наш: просим СВОЮ игру запомнить метку (один раз) и ждём, пока она появится в статусе
+                try { sendChatInput('/screen ' + S.id); } catch (x) { return cb('Не удалось отправить метку в чат игры: ' + (x && x.message)); }
+                const t0 = Date.now();
+                (function wait() {
+                    later(function () {
+                        scanAll(function (l2) {
+                            if (stale()) return cb(STALE);
+                            const h2 = mine(l2);
+                            if (h2) return take(h2);
+                            if (Date.now() - t0 > 6000) return cb('nobind');
+                            wait();
+                        });
+                    }, 500);
+                })();
             });
         };
         if (S.base) {
             get(S.base + '/screen/status', 1500, function (e, t) {
-                if (!e) { const j = parse(t); S.cap = (j && j.cap) || 0; return cb(null, S.base); }
-                S.base = null; probe(0);
+                const j = parse(t);
+                if (!e && j && j.id === S.id) { S.cap = j.cap || 0; return cb(null, S.base); }
+                if (!e && j && typeof j.id === 'undefined') { S.cap = j.cap || 0; return cb(null, S.base); }   // старый мод без метки — как раньше
+                S.base = null; bindNow();   // порт молчит или теперь отвечает чужой/перезапущенный мод — ищем заново
             });
-        } else probe(0);
+        } else bindNow();
+    }
+
+    // Текст ошибки поиска порта (для fail/liveEnd)
+    function baseErr(e) {
+        if (e === 'nobind') return 'Окон игры с модом скрина несколько, но моя игра не откликнулась на привязку (команда «/screen kt…»). Нужна сборка клиента с обновлённым hassle_screen.c; игра должна быть загружена и чат доступен.';
+        if (e === 'nobase') return 'Мод скрина в клиенте не отвечает. Нужна сборка клиента с hassle_screen.c, а игра должна быть запущена и загружена.';
+        return String(e);
     }
 
     // Снимок: заявка моду → ждём, пока вырастет seq. cb(ошибка|null). live — кадр поменьше для Live.
@@ -109,7 +158,11 @@
                     const s = parse(t3);
                     if (s && s.seq > st0.seq) return cb(null);
                     if (s && s.fails > st0.fails) return cb('Снимок не вышел (подробности в чате игры и в konstt.log, строки «скрин:»)');
-                    if (Date.now() - since > maxMs) return cb('Снимок не готов за ' + Math.round(maxMs / 1000) + ' с — кадр не отрисовывался (игра свёрнута или зависла?)');
+                    if (Date.now() - since > maxMs) {
+                        if (s && typeof s.frames === 'number' && typeof st0.frames === 'number' && s.frames === st0.frames)
+                            return cb('Снимок не готов за ' + Math.round(maxMs / 1000) + ' с: окно игры НЕ рисует кадры (свёрнуто, неактивно или на паузе — в разделённом экране остановленное окно кадров не даёт). Нажмите на это окно и повторите.');
+                        return cb('Снимок не готов за ' + Math.round(maxMs / 1000) + ' с — кадр не отрисовывался (игра свёрнута или зависла?)');
+                    }
                     later(function () { poll(since, maxMs); }, 250);
                 });
             };
@@ -194,7 +247,7 @@
         tgApi('sendChatAction', { chat_id: chatId, action: 'upload_photo' });
         findBase(function (e, base) {
             if (stale()) { finish(); return; }
-            if (e) return fail('Мод скрина в клиенте не отвечает. Нужна сборка клиента с hassle_screen.c, а игра должна быть запущена и загружена.');
+            if (e) return fail(e === STALE ? STALE : baseErr(e));
             capture(base, false, function (ec) {
                 if (ec) return fail(ec);
                 // кнопки и правка сообщения умеет только новый мод (cap >= 2); старый шлёт просто фото
@@ -281,7 +334,7 @@
         tgApi('sendChatAction', { chat_id: chatId, action: 'upload_photo' });
         findBase(function (e, base) {
             if (stale()) { liveEnd(L, 'скрипт перезагружен', false); return; }
-            if (e) return liveEnd(L, 'Мод скрина в клиенте не отвечает. Нужна сборка клиента с hassle_screen.c, а игра должна быть запущена и загружена.', true);
+            if (e) return liveEnd(L, e === STALE ? 'скрипт перезагружен' : baseErr(e), e !== STALE);
             if (S.cap < 2) return liveEnd(L, 'В клиенте старая версия мода скрина — Live нужна сборка с новым hassle_screen.c (иначе каждый кадр уходил бы новым фото). Обычный скрин работает.', true);
             liveLoop(L, base);
         });
