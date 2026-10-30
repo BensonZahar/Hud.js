@@ -14,6 +14,13 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия «под пикап» (нырок, /tpl pick N under): не встаёте НА пикап, а на секунды уходите под пол, пикап срабатывает, и /tpl сам возвращает вас
+// туда, где вы стояли. Не мешает тем, кто стоит на пикапе. Точка возврата не нужна (/tpl save/go в этом режиме не шлются).
+//   /dress under [сек]     — нырок, пока идут оба диалога; сек — сколько держаться под полом (по умолчанию 3, от 0.2 до 15)
+//   /dress N under [сек]   — то же, но пикап под номером N из списка /tpl pick
+//   синонимы слова under: dive, нырок, ниже, под. Глубину задаёт /tpl depth (по умолчанию 1 м; обычные пикапы принимаются до 5 м)
+//   Только пешком и только к обычному пикапу (не к маркеру). Если диалог не открылся, прервать нырок нельзя — вас вернёт сам /tpl по истечении секунд.
+//
 // Чтобы не мешать остальному (тестовым NPC, их диалогам и интерфейсам):
 //   • ничего не висит постоянно: хуки на чат и на диалоги ставятся только на время запуска и снимаются в конце (или по тайм-ауту);
 //   • перехватываются ТОЛЬКО диалоги с «раздевалк» в заголовке/тексте и только в нужном порядке (сначала список, потом вопрос);
@@ -39,6 +46,7 @@ var T_DLG1_MS   = 8000;             // после телепорта: сколь
 var T_DLG2_MS   = 6000;             // после выбора пункта: сколько ждать диалог-вопрос
 var D_REPLY_MS  = 150;              // пауза перед ответом на диалог
 var D_BACK_MS   = 350;              // пауза между ответом «Да» и возвратом
+var UNDER_SEC    = 3;                // сколько секунд держаться под полом в режиме under (хватает на оба диалога)
 var T_TOTAL_MS  = 30000;            // общий потолок — после него всё снимаем и возвращаемся
 
 var _dead = false;
@@ -124,14 +132,19 @@ function unhook(sess) {
     // если поверх нас успели обернуть ещё раз — наша обёртка останется в цепочке, но по S !== sess она просто пропускает вызовы дальше
 }
 
-function startSession(pickNum) {
+function startSession(pickNum, under, holdSec) {
     if (S) { info('уже выполняется (шаг «' + S.step + '»). Прервать: /dress stop'); return; }
-    var sess = { step: 'save', pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), teleported: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null };
+    var sess = { step: under ? 'list' : 'save', under: !!under, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), teleported: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null };
     S = sess;
     if (!hookChat(sess)) { S = null; fail('не нашёл OnChatAddMessage — бот ещё не запущен?'); return; }
     if (!hookDialogs(sess)) { unhook(sess); S = null; fail('не нашёл addDialogInQueue — игра ещё не загрузила диалоги'); return; }
     setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
-    log('старт, шаг save' + (pickNum ? ', пикап №' + pickNum : ''));
+    log('старт, шаг ' + sess.step + (under ? ', под пикап ' + sess.hold + ' с' : '') + (pickNum ? ', пикап №' + pickNum : ''));
+    if (under) {                                    // нырок: возвращает сам /tpl, точка возврата не нужна — сразу за списком пикапов
+        if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
+        sess.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или мода /tpl нет в APK)'); endSession('нет списка', false); }, T_LIST_MS);
+        return;
+    }
     if (!chatCmd('/tpl save ' + BACK_NAME)) { fail('не удалось отправить команду в чат'); endSession('нет чата', false); return; }
     setTimer(function () { fail('/tpl не ответил на save — мод tpl не установлен в этом APK?'); endSession('нет ответа /tpl', false); }, T_SAVE_MS);
 }
@@ -206,9 +219,16 @@ function pickAndGo() {
     S.step = 'tp';
     S.sel = sel;
     log('выбран пикап №' + sel.n + ' (ID ' + sel.id + ', модель ' + sel.model + ', ' + sel.d + ' м) — телепорт');
-    S.teleported = true;                                // с этого момента при любой ошибке возвращаемся
-    if (!chatCmd('/tpl pick ' + sel.n)) { S.teleported = false; fail('не удалось отправить /tpl pick N'); endSession('нет чата', false); return; }
-    S.dlgTimer = setTimer(function () { fail('диалог «Раздевалка» не открылся за ' + (T_DLG1_MS / 1000) + ' с'); endSession('нет диалога 1', true); }, T_DLG1_MS);
+    var t1 = T_DLG1_MS;
+    if (S.under) {
+        // нырок: /tpl вернёт сам через hold секунд — вручную назад не идём (S.teleported остаётся false)
+        t1 = Math.min(T_DLG1_MS, Math.round(S.hold * 1000) + 1500);
+        if (!chatCmd('/tpl pick ' + sel.n + ' under ' + S.hold)) { fail('не удалось отправить /tpl pick N under'); endSession('нет чата', false); return; }
+    } else {
+        S.teleported = true;                            // с этого момента при любой ошибке возвращаемся
+        if (!chatCmd('/tpl pick ' + sel.n)) { S.teleported = false; fail('не удалось отправить /tpl pick N'); endSession('нет чата', false); return; }
+    }
+    S.dlgTimer = setTimer(function () { fail('диалог «Раздевалка» не открылся за ' + (t1 / 1000) + ' с'); endSession('нет диалога 1', true); }, t1);
 }
 
 // ───────────────────────── разбор диалогов ─────────────────────────
@@ -250,7 +270,11 @@ function onDialog(params, content, priority) {
         S.step = 'back';
         log('диалог 2 (id ' + id + '): «' + strip(raw).slice(0, 80) + '» → Да');
         setTimer(function () { respond(id, 1, -1, ''); }, D_REPLY_MS);                // «Да»
-        setTimer(function () { endSession('готово', true); }, D_REPLY_MS + D_BACK_MS);
+        setTimer(function () {
+            var under = S && S.under;
+            endSession('готово', true);
+            if (under) info('готово — /tpl вернёт вас на место сам');
+        }, D_REPLY_MS + D_BACK_MS);
         return true;
     }
     return false;
@@ -258,14 +282,23 @@ function onDialog(params, content, priority) {
 
 // ───────────────────────── команда в чате ─────────────────────────
 function statusText() {
-    return S ? ('шаг «' + S.step + '», ' + Math.round((Date.now() - S.t0) / 100) / 10 + ' с') : 'не запущено';
+    return S ? ((S.under ? 'под пикап, ' : '') + 'шаг «' + S.step + '», ' + Math.round((Date.now() - S.t0) / 100) / 10 + ' с') : 'не запущено';
 }
 function runCmd(args) {
     var a = (args[0] || '').toLowerCase();
     if (a === 'stop' || a === 'стоп') { if (S) endSession('прервано командой', true); else info('нечего прерывать'); return; }
     if (a === 'status' || a === 'статус') { info(statusText()); return; }
-    var n = parseInt(a, 10);
-    startSession(isNaN(n) ? 0 : n);
+    // разбор: число ДО слова under — номер пикапа N, число ПОСЛЕ него — секунды; без under единственное число — номер N
+    var under = false, n = 0, sec = 0, i, w, v;
+    for (i = 0; i < args.length; i++) {
+        w = String(args[i]).toLowerCase();
+        if (/^(under|dive|нырок|ниже|под)$/.test(w)) { under = true; continue; }
+        v = parseFloat(w.replace(',', '.'));
+        if (isNaN(v)) { fail('не понял «' + w + '». Примеры: /dress, /dress 2, /dress under, /dress under 4, /dress 2 under 4'); return; }
+        if (under) sec = v; else n = Math.round(v);
+    }
+    if (sec) sec = Math.max(0.2, Math.min(15, sec));
+    startSession(n, under, sec);
 }
 
 var origChatWin = window.sendChatInputCustom;
@@ -286,9 +319,9 @@ onUndo(function () {
     try { if (sendChatInput === myChat) sendChatInput = origChatVar || origChatWin; } catch (e) {}
 });
 
-window.Dress = { run: function (n) { startSession(n || 0); }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
+window.Dress = { run: function (n, under, sec) { startSession(n || 0, !!under, sec || 0); }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js загружен: /dress [N], /dress stop, /dress status (нужен мод /tpl в APK)');
+log('Dress.js загружен: /dress [N], /dress [N] under [сек], /dress stop, /dress status (нужен мод /tpl в APK)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
