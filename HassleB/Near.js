@@ -1,6 +1,7 @@
 // Near.js — игроки рядом через нативный мод Near (отдельный файл, Code3.js не тронут).
-// Мод Near (libHassleExtended в APK) отдаёт по HTTP на 127.0.0.1:17771..17780:
-//   /ping -> 'hassle-near'   /near -> JSON игроков рядом   /diag -> журнал мода   /rec?t=N -> реконнект (его делает rec.js)
+// Мод Near (libHassleExtended в APK) отдаёт по HTTP на 127.0.0.1:17771..17780 (несколько окон игры на одном эмуляторе — порт СВОЕГО окна
+// находится по метке: /nearid <метка> в чат + GET /id):
+//   /ping -> 'hassle-near'   /id -> метка окна   /near -> JSON игроков рядом   /diag -> журнал мода   /rec?t=N -> реконнект (его делает rec.js)
 // JSON /near: {ok, stage, ago, me:{id,x,y,z,vx,vy,vz,age,ping}, n:[{id,nick,label,x,y,z,vx,vy,vz,age,d,d2,hp,ar,ping,score,veh}]};
 //   d — дистанция 3D, d2 — по горизонтали (м); список, сортировка и радиус считаются по d (3D); vx,vy,vz — скорость м/с; age — мс с последней смены позиции; ago — мс от тика мода до ответа.
 //
@@ -69,7 +70,7 @@ var PORTS = [], i0;
 for (i0 = 0; i0 < 10; i0++) PORTS.push(17771 + i0);
 var FRESH_MS = 1500, POLL_MS = 200, IDLE_MS = 15000;
 var V_CAP = 40, H_CAP = 1500, ERR_BASE = 0.3, ERR_K = 0.2;   // потолок скорости (м/с), потолок горизонта прогноза (мс), параметры неопределённости
-var base = null, snap = null, stamp = 0, snapAgo = 0, snapRtt = 0, busy = false, portIdx = 0;
+var base = null, snap = null, stamp = 0, snapAgo = 0, snapRtt = 0, busy = false, portIdx = 0, nextLocate = 0;
 var wantUntil = 0, keepOn = false, timer = null;
 
 function xhr(url, ok, fail, timeout) {
@@ -81,6 +82,63 @@ function xhr(url, ok, fail, timeout) {
         r.onerror = r.ontimeout = fail;
         r.send();
     } catch (e) { fail(); }
+}
+
+// ── Привязка к СВОЕМУ окну игры ──
+// На одном эмуляторе (разделённый экран, клоны) localhost общий, и порты 17771..17780 занимают все запущенные игры по очереди.
+// «Первый ответивший» мог быть модом соседнего окна — тогда игроки рядом и расстояния брались бы оттуда. Поэтому скрипт придумывает метку,
+// просит СВОЮ игру запомнить её командой «/nearid <метка>» (команда выполняется только в нашем процессе) и берёт порт, где GET /id вернул эту метку.
+var myId = 'kt' + (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)).replace(/[^a-z0-9]/g, '');
+var bindTries = 0, bindCool = 0, locating = null, warnedLegacy = false;
+function chatCmd(t) {
+    try { if (typeof sendChatInput === 'function') { sendChatInput(t); return true; } } catch (e) { warn('чат:', e && e.message); }
+    return false;
+}
+// Все порты сразу: cb([{base, id}]); id — метка окна ('' — мод есть, метка не задана), undefined — старый мод (нет /id)
+function scanMods(cb) {
+    var out = [], left = PORTS.length;
+    PORTS.forEach(function (p) {
+        var b = 'http://127.0.0.1:' + p;
+        var end = function () { if (--left === 0) cb(out); };
+        xhr(b + '/ping', function (t) {
+            if (t !== 'hassle-near') return end();
+            xhr(b + '/id', function (id) { out.push({ base: b, id: String(id || '').trim() }); end(); },
+                function () { out.push({ base: b, id: undefined }); end(); }, 800);
+        }, end, 800);
+    });
+}
+// Ищем порт СВОЕГО мода. cb(base | null). Один поиск за раз (остальные ждут его результат).
+function locate(cb) {
+    if (locating) { locating.push(cb); return; }
+    locating = [cb];
+    var finish = function (b) { var l = locating, i; locating = null; for (i = 0; i < l.length; i++) { try { l[i](b); } catch (e) {} } };
+    var mine = function (list) { var i; for (i = 0; i < list.length; i++) if (list[i].id === myId) return list[i]; return null; };
+    scanMods(function (list) {
+        if (_dead) return finish(null);
+        var hit = mine(list);
+        if (hit) return finish(hit.base);
+        if (!list.length) return finish(null);
+        // старый мод (нет /id) — привязать нечем: работаем как раньше (первый ответивший) и честно предупреждаем
+        if (list.every(function (x) { return x.id === undefined; })) {
+            if (list.length > 1 && !warnedLegacy) { warnedLegacy = true; warn('в клиенте СТАРЫЙ мод Near (нет метки окна), а окон игры несколько (' + list.length + ') — данные могут идти из другого окна. Нужна сборка с новым hassle_near.c.'); }
+            return finish(list[0].base);
+        }
+        if (Date.now() < bindCool || bindTries >= 5) return finish(null);
+        bindTries++;
+        if (!chatCmd('/nearid ' + myId)) { bindCool = Date.now() + 10000; return finish(null); }
+        var t0 = Date.now();
+        (function wait() {
+            setTimeout(function () {
+                if (_dead) return finish(null);
+                scanMods(function (l2) {
+                    var h2 = mine(l2);
+                    if (h2) { bindTries = 0; return finish(h2.base); }
+                    if (Date.now() - t0 > 6000) { bindCool = Date.now() + 10000; warn('мод этого окна не откликнулся на привязку (/nearid) — нужна сборка клиента с обновлённым hassle_near.c'); return finish(null); }
+                    wait();
+                });
+            }, 500);
+        })();
+    });
 }
 
 // Принять снимок: запоминаем, когда получили, сколько мод держал его до ответа (ago) и сколько шёл запрос (RTT)
@@ -100,11 +158,8 @@ function tick() {
     busy = true;
     var done = function () { busy = false; };
     if (!base) {
-        var p = PORTS[portIdx++ % PORTS.length];
-        xhr('http://127.0.0.1:' + p + '/ping', function (t) {
-            if (t === 'hassle-near') base = 'http://127.0.0.1:' + p;
-            done();
-        }, done, 400);
+        if (Date.now() < nextLocate) { done(); return; }       // поиск порта не чаще раза в секунду (мода может не быть вовсе)
+        locate(function (b) { if (b) base = b; else nextLocate = Date.now() + 1000; done(); });
         return;
     }
     var t0 = Date.now();
@@ -121,14 +176,7 @@ onUndo(stopTimer);
 // Разовые запросы (для чат-команд): сами ищут порт, ждут ответ
 function findBase(cb) {
     if (base) return cb(base);
-    var i = 0;
-    (function nextPort() {
-        if (_dead || i >= PORTS.length) return cb(null);
-        var p = PORTS[i++];
-        xhr('http://127.0.0.1:' + p + '/ping', function (t) {
-            if (t === 'hassle-near') { base = 'http://127.0.0.1:' + p; cb(base); } else nextPort();
-        }, nextPort, 400);
-    })();
+    locate(function (b) { if (b) base = b; cb(b); });
 }
 function refresh(cb) {
     findBase(function (b) {

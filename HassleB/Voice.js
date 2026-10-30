@@ -48,6 +48,7 @@
 // ║     игры и сообщение об ошибках отправки.                ║
 // ║                                                          ║
 // ║  Порты мода 17791..17800 (Near 17771.., Screen 17781..). ║
+// ║  Свой порт ищется по метке окна (/voice kt… + status.id). ║
 // ║  Экспорт: window.__voiceSet(chatId, on)                  ║
 // ║           window.__voiceStatus(cb)                       ║
 // ║           window.__voiceCleanup()  (зовёт Load.js)       ║
@@ -62,8 +63,14 @@
     const LS_KEY = 'konstt_voice_want';            // что человек включил: переживает /reload и перезапуск игры
     const WATCH_MS = 20000;                        // фоновый опрос состояния мода
     const FRESH_MS = 4000;                         // статус моложе этого считаем свежим и лишний раз не опрашиваем
+    const NO_BIND = 'Окон игры с модом голоса несколько, но моя игра не откликнулась на привязку (команда «/voice kt…»). Нужна сборка клиента с обновлённым hassle_voice.c; игра должна быть загружена и чат доступен.';
     const NO_MOD = 'Мод голоса в клиенте не отвечает. Нужна сборка клиента с hassle_voice.c, а игра должна быть запущена и загружена.';
     const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], st: null, stAt: 0, down: false, failSeen: -1, synced: false, shown: {}, voiceKeys: {}, kbSig: '', scope: {}, lastBc: null, noRefresh: false };
+    // Метка ЭТОГО окна игры. На одном эмуляторе (разделённый экран, клоны) localhost общий, и порты 17791..17800 занимают все запущенные игры
+    // по очереди — «первый ответивший» мог оказаться модом соседнего окна (токен и настройки ушли бы не в тот аккаунт). Поэтому мы сами придумываем
+    // метку и просим СВОЮ игру запомнить её командой «/voice <метка>» (выполняется только в нашем процессе); порт — тот, где status.id совпал.
+    S.id = 'kt' + (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)).replace(/[^a-z0-9]/g, '');
+    S.bindTries = 0; S.bindCool = 0; S.warnedLegacy = false;
 
     // setTimeout, который cleanup умеет отменить
     function later(fn, ms) {
@@ -103,29 +110,62 @@
         } catch (e) { fin(e && e.message ? e.message : String(e)); }
     }
 
-    // Состояние мода. Один запрос на запомненный порт; если не ответил — ищем порт заново (17791..17800).
+    // Опрос всех портов мода сразу; cb([{base, j}]) — только ответившие как мод голоса
+    function scanAll(cb) {
+        const found = []; let left = PORT_COUNT;
+        for (let i = 0; i < PORT_COUNT; i++) (function (base) {
+            get(base + '/voice/status', 800, function (e, t) {
+                const j = parse(t);
+                if (!e && j && j.v === 1) found.push({ base: base, j: j });
+                if (--left === 0) cb(found);
+            });
+        })('http://127.0.0.1:' + (PORT_FIRST + i));
+    }
+
+    // Состояние СВОЕГО мода: порт, где status.id равен нашей метке (если метки ещё нет — привязываем командой в чат своей игры).
     // S.down = true, пока мод не отвечает: подписи кнопок не врут «ВКЛ», когда на деле связи нет.
+    // Ошибки: 'nobase' — ни один мод не отвечает; 'nobind' — моды есть, но ни один не назвал нашу метку.
     function status(cb) {
         const finish = function (e, j) {
             if (e) { S.down = true; return cb(e); }
             S.st = j; S.stAt = Date.now(); S.down = false;
             cb(null, j);
         };
-        const probe = function (i) {
-            if (i >= PORT_COUNT) return finish('nobase');
-            const base = 'http://127.0.0.1:' + (PORT_FIRST + i);
-            get(base + '/voice/status', 800, function (e, t) {
-                const j = parse(t);
-                if (!e && j && j.v === 1) { S.base = base; finish(null, j); } else probe(i + 1);
+        const mine = function (list) { return list.filter(function (x) { return x.j.id === S.id; })[0] || null; };
+        const take = function (hit) { S.base = hit.base; finish(null, hit.j); };
+        const bindNow = function () {
+            scanAll(function (list) {
+                const hit = mine(list);
+                if (hit) return take(hit);
+                if (!list.length) return finish('nobase');
+                // старый мод (в статусе нет поля id) — привязать нечем: работаем как раньше (первый ответивший) и честно предупреждаем
+                if (list.every(function (x) { return typeof x.j.id === 'undefined'; })) {
+                    if (list.length > 1 && !S.warnedLegacy) { S.warnedLegacy = true; try { debugLog('[VOICE] в клиенте СТАРЫЙ мод голоса (нет метки окна), а окон игры несколько (' + list.length + ') — настройки могут уйти в другое окно. Нужна сборка с новым hassle_voice.c.'); } catch (e) {} }
+                    return take(list[0]);
+                }
+                if (Date.now() < S.bindCool || S.bindTries >= 5) return finish('nobind');
+                S.bindTries++;
+                try { sendChatInput('/voice ' + S.id); } catch (x) { S.bindCool = Date.now() + 10000; return finish('nobind'); }
+                const t0 = Date.now();
+                (function wait() {
+                    later(function () {
+                        scanAll(function (l2) {
+                            const h2 = mine(l2);
+                            if (h2) { S.bindTries = 0; return take(h2); }
+                            if (Date.now() - t0 > 6000) { S.bindCool = Date.now() + 10000; return finish('nobind'); }
+                            wait();
+                        });
+                    }, 500);
+                })();
             });
         };
         if (S.base) {
             get(S.base + '/voice/status', 2500, function (e, t) {
                 const j = parse(t);
-                if (!e && j && j.v === 1) return finish(null, j);
-                S.base = null; probe(0);
+                if (!e && j && j.v === 1 && (j.id === S.id || typeof j.id === 'undefined')) return finish(null, j);
+                S.base = null; bindNow();   // порт молчит или отвечает чужой/перезапущенный мод — ищем заново
             });
-        } else probe(0);
+        } else bindNow();
     }
 
     // Токен и чат для мода: только в память мода, на диск он их не пишет. Чат — первый из config.chatIds (мод шлёт в один).
@@ -326,7 +366,7 @@
 
             status(sf(function (e) {
                 if (stale()) { S.busy = false; return; }
-                if (e) return bad(NO_MOD);
+                if (e) return bad(e === 'nobind' ? NO_BIND : NO_MOD);
                 const base = S.base;
 
                 if (choice === 'off') {
