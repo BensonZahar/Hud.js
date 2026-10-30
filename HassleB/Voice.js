@@ -13,11 +13,16 @@
 // ║   • processUpdates — ловит нажатия voice_* для своего    ║
 // ║     аккаунта, проверяет чат.                             ║
 // ║                                                          ║
-// ║  Кнопка открывает подменю (то же сообщение):             ║
-// ║     🔇 Выключить / 👥 Только рядом / 🌐 Всё / 🔄 / ⬅️    ║
-// ║  Выбранный пункт помечен ✅, после каждого нажатия       ║
-// ║  подменю перерисовывается по СВЕЖЕМУ состоянию мода —    ║
-// ║  перезаходить в меню больше не нужно.                    ║
+// ║  Кнопка «🎙 Голос TG 🟢/🔴» (цвет = состояние, как в     ║
+// ║  «Функциях») открывает меню в том же сообщении:          ║
+// ║   1) «Для кого?»  👤 Для этого аккаунта / 👥 Для всех;   ║
+// ║   2) настройки: одна кнопка-переключатель отправки       ║
+// ║      (🟢 ВКЛ / 🔴 ВЫКЛ) и выбор режима 👥 Рядом / 🌐 Всё ║
+// ║  «Для всех» — применяется здесь и рассылается остальным  ║
+// ║  аккаунтам (broadcastGlobalCommand 'voice_set', принимает║
+// ║  обёртка handleGlobalBroadcastCommand, как у собеса).    ║
+// ║  После каждого нажатия меню перерисовывается по СВЕЖЕМУ  ║
+// ║  состоянию мода — перезаходить в меню не нужно.          ║
 // ║                                                          ║
 // ║  Кнопки под голосовыми (как под сообщением сотрудника):  ║
 // ║   • мод получает клавиатуру getNotificationReplyMarkup() ║
@@ -57,7 +62,7 @@
     const WATCH_MS = 20000;                        // фоновый опрос состояния мода
     const FRESH_MS = 4000;                         // статус моложе этого считаем свежим и лишний раз не опрашиваем
     const NO_MOD = 'Мод голоса в клиенте не отвечает. Нужна сборка клиента с hassle_voice.c, а игра должна быть запущена и загружена.';
-    const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], st: null, stAt: 0, down: false, failSeen: -1, synced: false, shown: {}, voiceKeys: {}, kbSig: '' };
+    const S = { base: null, busy: false, busyAt: 0, dead: false, timers: [], st: null, stAt: 0, down: false, failSeen: -1, synced: false, shown: {}, voiceKeys: {}, kbSig: '', scope: {}, lastBc: null };
 
     // setTimeout, который cleanup умеет отменить
     function later(fn, ms) {
@@ -192,70 +197,98 @@
         if (!st || S.down) return null;
         return st.tg === 1 ? (st.mode === 'all' ? 'all' : 'near') : 'off';
     }
+    // Кнопка в «Управлении» — как в «Функциях»: 🟢/🔴 и цвет по состоянию
     function btnText() {
         const c = cur();
-        if (c === null) return S.down ? '🎙 Голос TG: мод не отвечает' : '🎙 Голос TG: …';
-        if (c === 'off') return '🎙 Голос TG: выкл';
-        return '🎙 Голос TG: ✅ ' + (c === 'all' ? 'всё' : 'рядом');
+        if (c === null) return S.down ? '🎙 Голос TG: мод не отвечает' : '🎙 Голос TG …';
+        if (c === 'off') return '🎙 Голос TG 🔴';
+        return '🎙 Голос TG 🟢 ' + (c === 'all' ? 'всё' : 'рядом');
+    }
+    function btnStyle() { const c = cur(); return c === null ? undefined : (c === 'off' ? 'danger' : 'success'); }
+    function mkBtn(text, data, style) { const b = { text: text, callback_data: data }; if (style) b.style = style; return b; }
+    const scopeRu = function (s) { return s === 'global' ? '👥 Для всех аккаунтов' : '👤 Для этого аккаунта'; };
+    function scopeOf(chatId, messageId) { return S.scope[key(chatId, messageId)] === 'global' ? 'global' : 'local'; }
+
+    // ── Шаг 1: «Для кого применить?» (как у уведомлений и функций) ──
+    function scopeText() { return '🎙 <b>Голос в Telegram</b>\n\nДля кого применить изменения?'; }
+    function scopeKb() {
+        return {
+            inline_keyboard: [
+                [mkBtn('👤 Для этого аккаунта', 'voice_open_local_' + uniqueId, 'primary'), mkBtn('👥 Для всех аккаунтов', 'voice_open_global_' + uniqueId, 'primary')],
+                [mkBtn('⬅️ Вернуться назад', 'show_controls_' + uniqueId)]
+            ]
+        };
+    }
+    function openScope(chatId, messageId) {
+        if (stale()) return;
+        const text = scopeText(), kb = scopeKb();
+        S.shown[key(chatId, messageId)] = text + JSON.stringify(kb);
+        editMessageText(chatId, messageId, text, kb);
     }
 
-    // ── Подменю «Голос TG» (правим то же сообщение, где нажали кнопку) ──
-    function menuText(note) {
+    // ── Шаг 2: настройки (правим то же сообщение). Кнопки-переключатели с состоянием, без отдельных «Включить/Выключить» ──
+    function menuText(note, scope) {
         const c = cur(), st = S.st;
-        let t = '🎙 <b>Голос в Telegram — ' + displayName + '</b>\n';
+        let t = '🎙 <b>Голос в Telegram — ' + esc(displayName) + '</b>\n' + scopeRu(scope) + '\n\n';
         if (c === null) t += S.down ? 'Мод голоса: <b>не отвечает</b>\n' : 'Состояние: <i>проверяю…</i>\n';
         else {
-            t += 'Отправка: ' + (c === 'off' ? '<b>выкл</b>' : '<b>ВКЛ ✅</b>') + '\n';
+            t += 'Отправка: ' + (c === 'off' ? '🔴 <b>ВЫКЛ</b>' : '🟢 <b>ВКЛ</b>') + '\n';
             if (c !== 'off') t += 'Слышно: <b>' + modeRu(st.mode) + '</b>\n';
         }
+        t += '\n👥 <b>Рядом</b> — только те, кто рядом\n🌐 <b>Всё</b> — всё, что слышит клиент (рация, телефон, общий канал)\n';
+        if (scope === 'global') t += '\n<i>Нажатие применится у всех аккаунтов (выше — состояние этого).</i>\n';
         if (st && !S.down && !(st.kb >= 1)) t += '\n⚠️ <i>Сборка клиента без кнопок под голосовыми — нужен обновлённый hassle_voice.c.</i>\n';
         if (note) t += '\n' + note + '\n';
         t += '\n<i>Свои слова не пишутся — голос с вашего микрофона обратно не приходит.</i>';
         return t;
     }
-    function menuKb() {
-        const c = cur();
-        const item = function (id, label) { return [{ text: (c === id ? '✅ ' : '') + label, callback_data: 'voice_set_' + id + '_' + uniqueId }]; };
-        return {
-            inline_keyboard: [
-                item('off', '🔇 Выключить'),
-                item('near', '👥 Только рядом'),
-                item('all', '🌐 Всё, что слышит клиент'),
-                [{ text: '🔄 Обновить', callback_data: 'voice_refresh_' + uniqueId }],
-                [{ text: '⬅️ Назад', callback_data: 'show_controls_' + uniqueId }]
-            ]
-        };
+    function menuKb(scope) {
+        const c = cur(), s = scope === 'global' ? 'global' : 'local', u = uniqueId;
+        const act = function (choice) { return 'voice_do_' + s + '_' + choice + '_' + u; };
+        const rows = [];
+        // одна кнопка вместо пары «Включить / Выключить»: показывает состояние и переключает
+        if (c === null) rows.push([mkBtn(S.down ? '⚠️ Мод не отвечает — повторить' : '⏳ Проверяю мод…', 'voice_refresh_' + s + '_' + u, S.down ? 'danger' : undefined)]);
+        else if (c === 'off') rows.push([mkBtn('🔴 Отправка в Telegram: ВЫКЛ', act(want.mode === 'all' ? 'all' : 'near'), 'danger')]);
+        else rows.push([mkBtn('🟢 Отправка в Telegram: ВКЛ', act('off'), 'success')]);
+        // режим: выбранный — зелёный; нажатие на любой включает отправку в этом режиме
+        rows.push([
+            mkBtn((c === 'near' ? '🟢 ' : '👥 ') + 'Рядом', act('near'), c === 'near' ? 'success' : undefined),
+            mkBtn((c === 'all' ? '🟢 ' : '🌐 ') + 'Всё', act('all'), c === 'all' ? 'success' : undefined)
+        ]);
+        rows.push([mkBtn('🔄 Обновить', 'voice_refresh_' + s + '_' + u), mkBtn('⬅️ Назад', 'voice_menu_' + u)]);
+        return { inline_keyboard: rows };
     }
-    // Сообщение сейчас показывает наше подменю? (Code.js запоминает последнюю клавиатуру в _ctl.kb.)
+    // Сообщение сейчас показывает наши НАСТРОЙКИ? (Code.js запоминает последнюю клавиатуру в _ctl.kb.)
     // Нет записи — считаем, что да (иначе после перезапуска кнопка «молчала» бы).
-    function onSubmenu(chatId, messageId) {
+    function onSettings(chatId, messageId) {
         try {
             const raw = _ctl.kb[key(chatId, messageId)];
-            return !raw || raw.indexOf('voice_set_') >= 0;
+            return !raw || raw.indexOf('voice_do_') >= 0;
         } catch (e) { return true; }
     }
     function render(chatId, messageId, note, force) {
-        const text = menuText(note), kb = menuKb();
+        const sc = scopeOf(chatId, messageId);
+        const text = menuText(note, sc), kb = menuKb(sc);
         const k = key(chatId, messageId), sig = text + JSON.stringify(kb);
         if (!force && S.shown[k] === sig) return;   // ничего не поменялось — Telegram не дёргаем
         S.shown[k] = sig;
         const ks = Object.keys(S.shown);
-        if (ks.length > 100) ks.slice(0, 50).forEach(function (x) { delete S.shown[x]; });
+        if (ks.length > 100) ks.slice(0, 50).forEach(function (x) { delete S.shown[x]; delete S.scope[x]; });
         editMessageText(chatId, messageId, text, kb);
     }
-    // Итог операции: в подменю (если пользователь ещё в нём), а у вызова без сообщения (__voiceSet) — отдельным сообщением
+    // Итог операции: в настройках (если пользователь ещё в них), а у вызова без сообщения (__voiceSet, broadcast) — отдельным сообщением
     function report(chatId, messageId, note) {
-        if (messageId) { if (onSubmenu(chatId, messageId)) render(chatId, messageId, note, true); }
+        if (messageId) { if (onSettings(chatId, messageId)) render(chatId, messageId, note, true); }
         else say(chatId, head() + note);
     }
-    // Открыть/обновить подменю: сразу рисуем, что есть, затем уточняем по свежему статусу
+    // Открыть/обновить настройки: сразу рисуем, что есть, затем уточняем по свежему статусу
     function openMenu(chatId, messageId, forceFresh) {
         if (stale()) return;
         const fresh = S.st && !S.down && Date.now() - S.stAt < FRESH_MS && !forceFresh;
         render(chatId, messageId, fresh ? '' : '⏳ проверяю мод…', true);
         if (fresh) return;
         status(function () {
-            if (stale() || !onSubmenu(chatId, messageId)) return;
+            if (stale() || !onSettings(chatId, messageId)) return;
             render(chatId, messageId, '', false);
         });
     }
@@ -336,6 +369,16 @@
                 }));
             }));
         });
+    }
+
+    // ── «Для всех аккаунтов»: у себя применяем сразу, остальным — broadcast (беседа + BroadcastChannel, как у уведомлений и собеса) ──
+    function setGlobal(chatId, messageId, choice) {
+        S.lastBc = { val: choice, t: Date.now() };   // эхо своего же broadcast второй раз не применять
+        choose(chatId, messageId, choice);
+        try {
+            if (typeof broadcastGlobalCommand === 'function') broadcastGlobalCommand('voice_set', choice);
+            else debugLog('[VOICE] broadcastGlobalCommand не найден — другим аккаунтам не отправлено');
+        } catch (e) { debugLog('[VOICE] broadcast: ' + (e && e.message)); }
     }
 
     // ── Фон: после запуска игры / /reload возвращаем моду токен, чат и то, что было включено; сообщаем об ошибках отправки ──
@@ -421,7 +464,7 @@
             // ставим после «Инфо об аккаунте» и (если есть) после «📸 Скрин»
             let at = -1;
             rows.forEach(function (row, i) { if ((row || []).some(function (b) { const d = cbOf(b); return d.indexOf('local_account_info_') === 0 || d.indexOf('screen_shot_') === 0; })) at = i; });
-            rows.splice(at >= 0 ? at + 1 : rows.length - 1, 0, [{ text: btnText(), callback_data: 'voice_menu_' + uniqueId }]);
+            rows.splice(at >= 0 ? at + 1 : rows.length - 1, 0, [mkBtn(btnText(), 'voice_menu_' + uniqueId, btnStyle())]);
             const out = {}; for (const k in kb) out[k] = kb[k];
             out.inline_keyboard = rows;
             return out;
@@ -451,13 +494,19 @@
         const cq = u && u.callback_query;
         if (!cq || typeof cq.data !== 'string') return null;
         const d = cq.data;
-        let kind = null, arg = null;
-        const test = function (pre, k, a) { if (kind === null && d.indexOf(pre) === 0 && d.slice(pre.length) === uniqueId) { kind = k; arg = a; } };
-        test('voice_menu_', 'menu'); test('voice_refresh_', 'refresh'); test('voice_tg_', 'menu'); test('voice_mode_', 'menu');
-        ['off', 'near', 'all'].forEach(function (c) { test('voice_set_' + c + '_', 'set', c); });
+        let kind = null, arg = null, scope = 'local';
+        const test = function (pre, k, a, sc) { if (kind === null && d.indexOf(pre) === 0 && d.slice(pre.length) === uniqueId) { kind = k; arg = a; if (sc) scope = sc; } };
+        // с выбором «этот аккаунт / все аккаунты»
+        test('voice_open_local_', 'open', null, 'local'); test('voice_open_global_', 'open', null, 'global');
+        test('voice_refresh_local_', 'refresh', null, 'local'); test('voice_refresh_global_', 'refresh', null, 'global');
+        ['local', 'global'].forEach(function (sc) { ['off', 'near', 'all'].forEach(function (c) { test('voice_do_' + sc + '_' + c + '_', 'set', c, sc); }); });
+        // прежние кнопки (старые сообщения): открывают выбор охвата, «Обновить» и «выбор режима» — для этого аккаунта
+        test('voice_menu_', 'menu'); test('voice_tg_', 'menu'); test('voice_mode_', 'menu');
+        test('voice_refresh_', 'refresh', null, 'local');
+        ['off', 'near', 'all'].forEach(function (c) { test('voice_set_' + c + '_', 'set', c, 'local'); });
         if (!kind) return null;
         if (!(cq.message && cq.message.chat && config.chatIds.includes(String(cq.message.chat.id)))) return null;
-        return { kind: kind, arg: arg, chatId: cq.message.chat.id, messageId: cq.message.message_id };
+        return { kind: kind, arg: arg, scope: scope, chatId: cq.message.chat.id, messageId: cq.message.message_id };
     }
     function isMine(u) { return parseCb(u) !== null; }
 
@@ -523,7 +572,9 @@
                         if (!c) { rest.push(u); return; }
                         try { answerCallbackQuery(u.callback_query.id); } catch (e) {}
                         try { _mvUntrackMenu(c.chatId, c.messageId); } catch (e) {}   // ушли из меню движения — не перерисовывать его поверх
-                        if (c.kind === 'set') choose(c.chatId, c.messageId, c.arg);
+                        if (c.kind === 'menu') { openScope(c.chatId, c.messageId); return; }
+                        S.scope[key(c.chatId, c.messageId)] = c.scope;   // в каком охвате открыты настройки этого сообщения
+                        if (c.kind === 'set') { if (c.scope === 'global') setGlobal(c.chatId, c.messageId, c.arg); else choose(c.chatId, c.messageId, c.arg); }
                         else openMenu(c.chatId, c.messageId, c.kind === 'refresh');
                     });
                     // lastUpdateId двигает вызывающий (checkTelegramCommands) — пустой список отдавать дальше незачем
@@ -532,6 +583,34 @@
                 }
             } catch (e) { debugLog('[VOICE] processUpdates: ' + (e && e.message)); }
             return orig.apply(this, [updates].concat(Array.prototype.slice.call(arguments, 1)));
+        };
+    });
+
+    // Команда «для всех аккаунтов»: voice_set = off | near | all. Остальные команды отдаём дальше (Code.js / Code2.js).
+    hook('handleGlobalBroadcastCommand', function () { return handleGlobalBroadcastCommand; }, function (f) { handleGlobalBroadcastCommand = f; }, function (orig) {
+        return function (cmd, val, fromBroadcast) {
+            if (cmd !== 'voice_set' || S.dead) return orig.apply(this, arguments);
+            try {
+                if (stale()) return;
+                const choice = (val === 'off' || val === 'near' || val === 'all') ? val : null;
+                if (!choice) { debugLog('[VOICE] [GLOBAL] неизвестное значение voice_set = ' + val); return; }
+                const now = Date.now();
+                if (S.lastBc && S.lastBc.val === choice && now - S.lastBc.t < 4000) { debugLog('[VOICE] [GLOBAL] дубль voice_set = ' + choice + ' — пропущен'); return; }   // эхо (беседа + BroadcastChannel)
+                S.lastBc = { val: choice, t: now };
+                if (window.KONSTT_CLIENT && window.KONSTT_CLIENT.ours === false) { debugLog('[VOICE] [GLOBAL] клиент не наш — пропущено'); return; }
+                const chat = (config.chatIds && config.chatIds[0]) ? config.chatIds[0] : null;
+                if (!chat) return;
+                const run = function (tries) {
+                    if (stale()) return;
+                    if (S.busy && Date.now() - S.busyAt < 30000) {   // предыдущее применение ещё идёт — подождём, а не молчим
+                        if (tries < 3) later(function () { run(tries + 1); }, 3000);
+                        else debugLog('[VOICE] [GLOBAL] занято — voice_set = ' + choice + ' не применён');
+                        return;
+                    }
+                    choose(chat, null, choice);   // итог — отдельным сообщением с ником (как у остальных глобальных команд)
+                };
+                run(0);
+            } catch (e) { debugLog('[VOICE] [GLOBAL] ' + (e && e.message)); }
         };
     });
 
