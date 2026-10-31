@@ -3240,24 +3240,86 @@ function createButton(text, command, style) {
     if (style) btn.style = style;
     return btn;
 }
-// Универсальная функция для всех запросов к Telegram Bot API
-// FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
-function tgApi(method, payload, onSuccess, onError, _retryCount) {
-    if (__hassleStale()) return; // старая копия после /reload — молчим (иначе сообщения двоятся)
-    _retryCount = _retryCount || 0;
-    // FIX: общий backoff — после 429 все запросы (кроме answerCallbackQuery) ждут вместе,
-    // а не бьют по API каждый со своим таймером
-    if (method !== 'answerCallbackQuery') {
-        const _blockWait = (window._hassleTgBlockedUntil || 0) - Date.now();
-        if (_blockWait > 0) {
-            setTimeout(() => tgApi(method, payload, onSuccess, onError, _retryCount), _blockWait + 50);
-            return;
+// ── ДИАГНОСТИКА: кольцевой журнал (последние 300 событий), выгрузка командой /hbdiag в чате Telegram ──
+// Нужен, чтобы при «подвисании» кнопок было видно, что именно было: 429-пауза, пустой опрос или простой в очереди.
+window.__hbDiag = window.__hbDiag || [];
+function _hbd(kind, info) {
+    try {
+        const d = new Date(), a = window.__hbDiag;
+        a.push(d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0') + ' ' + kind + ' ' + info);
+        if (a.length > 300) a.splice(0, a.length - 300);
+    } catch (e) {}
+}
+// ── ОГРАНИЧЕНИЕ ЧАСТОТЫ (429) ──
+// Раньше после любого 429 блокировался ВЕСЬ tgApi на retry_after секунд: нажатие кнопки доходило, но ответ на него и все
+// уведомления из игры стояли в общей очереди, а потом уходили разом «пачкой» (и могли снова поймать 429).
+// Теперь: 1) блокируется только чат, на который пришёл 429 (запросы без chat_id — answerCallbackQuery и т.п. — не блокируются никогда);
+//         2) отложенные запросы идут по одному с интервалом TG_RELEASE_GAP_MS, ответы на нажатия кнопок — вперёд фоновых;
+//         3) повторные правки одного и того же сообщения схлопываются — уходит только последняя.
+window._hassleTgBlock = window._hassleTgBlock || {};   // chat_id -> до какого момента (мс) Telegram просил подождать
+window._hassleTgQ = window._hassleTgQ || {};           // chat_id -> очередь отложенных запросов
+window._hassleTgDrain = window._hassleTgDrain || {};   // chat_id -> id таймера выдачи очереди
+const TG_RELEASE_GAP_MS = 1100;
+function _tgChatKey(payload) { return payload && payload.chat_id != null ? String(payload.chat_id) : null; }
+function _tgBlockLeft(key) { return key ? Math.max(0, (window._hassleTgBlock[key] || 0) - Date.now()) : 0; }
+function _tgBlockMaxLeft() {
+    let m = 0;
+    try { Object.keys(window._hassleTgBlock).forEach(function (k) { m = Math.max(m, _tgBlockLeft(k)); }); } catch (e) {}
+    return m;
+}
+function _tgDrain(key, delay) {
+    if (window._hassleTgDrain[key]) return;                       // выдача уже запланирована
+    const q = window._hassleTgQ[key];
+    if (!q || !q.length) return;
+    window._hassleTgDrain[key] = window.setTimeout(function () {
+        window._hassleTgDrain[key] = 0;
+        if (__hassleStale()) { window._hassleTgQ[key] = []; return; }   // старая копия после /reload — молчим
+        const left = _tgBlockLeft(key);
+        if (left > 0) { _tgDrain(key, left + 50); return; }
+        const job = (window._hassleTgQ[key] || []).shift();
+        if (job) {
+            _hbd('TGQ', job.method + ' выпущен из очереди, осталось ' + window._hassleTgQ[key].length);
+            tgApi(job.method, job.payload, job.onSuccess, job.onError, job.retry, job.pri, true);
+        }
+        if (window._hassleTgQ[key] && window._hassleTgQ[key].length) _tgDrain(key, TG_RELEASE_GAP_MS);
+    }, Math.max(delay || 0, 0));
+}
+function _tgEnqueue(key, job, front) {
+    const q = (window._hassleTgQ[key] = window._hassleTgQ[key] || []);
+    if (job.method === 'editMessageText' || job.method === 'editMessageReplyMarkup') {
+        for (let i = 0; i < q.length; i++) {
+            const o = q[i];
+            if (o.method === job.method && o.payload.message_id === job.payload.message_id) {
+                q.splice(i, 1);
+                _hbd('TGQ', 'схлопнута правка сообщения ' + job.payload.message_id);
+                break;
+            }
         }
     }
+    if (front || job.pri) {
+        let p = 0;
+        while (p < q.length && q[p].pri) p++;                      // после уже стоящих приоритетных, перед фоновыми
+        q.splice(p, 0, job);
+    } else q.push(job);
+    _hbd('TGQ', job.method + (job.pri ? ' (ответ на кнопку)' : '') + ' отложен, в очереди ' + q.length + ', чат ждёт ещё ' + _tgBlockLeft(key) + 'мс');
+    _tgDrain(key, _tgBlockLeft(key) + 50);
+}
+// Универсальная функция для всех запросов к Telegram Bot API
+function tgApi(method, payload, onSuccess, onError, _retryCount, _pri, _fromQueue) {
+    if (__hassleStale()) return; // старая копия после /reload — молчим (иначе сообщения двоятся)
+    _retryCount = _retryCount || 0;
+    const _key = _tgChatKey(payload);
+    const _prio = (_pri === undefined) ? !!window.__hbInCb : !!_pri;   // запрос, рождённый обработчиком нажатия кнопки — приоритетный
+    if (_key && !_fromQueue && (_tgBlockLeft(_key) > 0 || (window._hassleTgQ[_key] && window._hassleTgQ[_key].length))) {
+        _tgEnqueue(_key, { method: method, payload: payload, onSuccess: onSuccess, onError: onError, retry: _retryCount, pri: _prio }, false);
+        return;
+    }
+    const _t0 = Date.now();
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/${method}`, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.onload = function() {
+        _hbd('TG', method + ' HTTP ' + xhr.status + ' ' + (Date.now() - _t0) + 'мс');
         if (xhr.status === 200) {
             try {
                 const data = JSON.parse(xhr.responseText);
@@ -3265,7 +3327,6 @@ function tgApi(method, payload, onSuccess, onError, _retryCount) {
                 else debugLog(`tgApi ${method} OK`);
             } catch(e) { debugLog(`tgApi ${method} parse error: ${e.message}`); }
         } else if (xhr.status === 429 && _retryCount < 3) {
-            // FIX: Telegram вернул "Too Many Requests" — ждём retry_after и повторяем
             let retryAfter = 5;
             try {
                 const errData = JSON.parse(xhr.responseText);
@@ -3274,14 +3335,20 @@ function tgApi(method, payload, onSuccess, onError, _retryCount) {
                 }
             } catch(e) {}
             debugLog(`tgApi ${method} 429 — повтор через ${retryAfter}с (попытка ${_retryCount + 1}/3)`);
-            window._hassleTgBlockedUntil = Math.max(window._hassleTgBlockedUntil || 0, Date.now() + retryAfter * 1000);
-            setTimeout(() => tgApi(method, payload, onSuccess, onError, _retryCount + 1), retryAfter * 1000);
+            _hbd('429', method + ' retry_after=' + retryAfter + 'с (попытка ' + (_retryCount + 1) + '/3)');
+            if (_key) {
+                window._hassleTgBlock[_key] = Math.max(window._hassleTgBlock[_key] || 0, Date.now() + retryAfter * 1000);
+                _tgEnqueue(_key, { method: method, payload: payload, onSuccess: onSuccess, onError: onError, retry: _retryCount + 1, pri: _prio }, true);
+            } else {
+                setTimeout(() => tgApi(method, payload, onSuccess, onError, _retryCount + 1, _prio), retryAfter * 1000);
+            }
         } else {
             debugLog(`tgApi ${method} error: ${xhr.status} ${xhr.responseText}`);
             if (onError) onError(xhr.status, xhr.responseText);
         }
     };
     xhr.onerror = function() {
+        _hbd('TG', method + ' сетевая ошибка ' + (Date.now() - _t0) + 'мс');
         debugLog(`tgApi ${method} network error`);
         if (onError) onError('network');
     };
@@ -3454,7 +3521,10 @@ function answerCallbackQuery(callbackQueryId) {
     if (!callbackQueryId || _answeredCb.has(callbackQueryId)) return;
     _answeredCb.add(callbackQueryId);
     if (_answeredCb.size > 300) _answeredCb.delete(_answeredCb.values().next().value);
-    tgApi('answerCallbackQuery', { callback_query_id: callbackQueryId },
+    const _wait = _tgBlockMaxLeft();
+    const _ackPayload = { callback_query_id: callbackQueryId };
+    if (_wait > 1500) _ackPayload.text = '⏳ Telegram притормозил отправку, ответ придёт через ~' + Math.ceil(_wait / 1000) + ' с';   // кнопка не «молчит»
+    tgApi('answerCallbackQuery', _ackPayload,
         () => debugLog(`Callback_query ${callbackQueryId} подтверждён`),
         (s) => debugLog(`Callback_query ${callbackQueryId} не подтверждён: ${s}`),
         3);
@@ -5343,6 +5413,8 @@ function getNotificationReplyMarkup() {
 if (!window._hassleCurrentPollXhr) window._hassleCurrentPollXhr = null;
 let _pollXhr = null;
 let _pollRestartScheduled = false; // FIX: предотвращает двойной запуск poll-цикла
+let _pollFails = 0;                // подряд идущие сбои опроса — для нарастающей паузы (0,5 → 1 → 2 → 4 → 8 с)
+function _pollBackoff(base) { _pollFails++; return Math.min(base * Math.pow(2, Math.min(_pollFails - 1, 4)), 8000); }
 
 // Прерывает текущий long-poll и немедленно перезапускает с timeout=0.
 // Вызывать перед sendMessage — освобождает соединение для срочных API-вызовов.
@@ -5415,10 +5487,24 @@ function checkTelegramCommands() {
     window._hassleCurrentPollXhr = xhr; // FIX: для hassleCleanupHooks
     xhr.open('GET', url, true);
     xhr.timeout = 15000; // FIX: был 30000 при timeout=25 — мёртвое соединение висело до 30 с
+    const _pt0 = Date.now();
+    // Сторож: WebView игры (Cohtml) мог молча «потерять» запрос — ни onload, ни onerror, ни ontimeout (так же страхуется Voice.js).
+    let _pwd = window.setTimeout(function () {
+        _pwd = 0;
+        if (_pollXhr !== xhr || __hassleStale()) return;
+        _hbd('POLL', 'СТОРОЖ: опрос завис ' + (Date.now() - _pt0) + 'мс без ответа — перезапуск');
+        try { xhr.abort(); } catch (e) {}
+        _pollXhr = null; window._hassleCurrentPollXhr = null;
+        setTimeout(checkTelegramCommands, 0);
+    }, 17000);
+    const _pwdClear = function () { if (_pwd) { window.clearTimeout(_pwd); _pwd = 0; } };
     xhr.onload = function() {
+        _pwdClear();
+        _hbd('POLL', 'HTTP ' + xhr.status + ' ' + (Date.now() - _pt0) + 'мс');
         if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
         if (__hassleStale()) return; // ответ пришёл уже старой копии — не обрабатываем (новая получит его сама)
         if (xhr.status === 200) {
+            _pollFails = 0;
             let data = null;
             try {
                 data = JSON.parse(xhr.responseText);
@@ -5439,7 +5525,8 @@ function checkTelegramCommands() {
                 // не обрывает пачку и не даёт update «застрять» в очереди
                 for (const u of data.result) {
                     try {
-                        processUpdates([u]);
+                        window.__hbInCb = !!u.callback_query;   // всё, что отправит обработчик кнопки, идёт в очереди раньше фоновых сообщений
+                        try { processUpdates([u]); } finally { window.__hbInCb = false; }
                     } catch (e) {
                         debugLog(`Ошибка обработки update ${u.update_id}: ${e && e.message}`);
                     }
@@ -5449,9 +5536,9 @@ function checkTelegramCommands() {
             }
         } else {
             // FIX: раньше при 409/429/401/5xx опрос перезапускался с задержкой 0 мс (бесконечный цикл)
-            let delay = 2000;
+            let delay = _pollBackoff(500);   // было ровно 2 с: кнопка молчала, пока не пройдёт пауза
             if (xhr.status === 409) {
-                delay = 3000;
+                delay = 1000;
                 // FIX: 409 = два getUpdates на одном токене (второй запущенный экземпляр) — нажатия делятся между ними
                 window.__hassle409 = (window.__hassle409 || 0) + 1;
                 console.warn(`[POLL] 409 Conflict #${window.__hassle409}: этот токен опрашивает ещё кто-то (второй экземпляр/аккаунт с тем же токеном)`);
@@ -5474,18 +5561,31 @@ function checkTelegramCommands() {
         }
     };
     xhr.onerror = function(error) {
+        _pwdClear();
+        _hbd('POLL', 'сетевая ошибка через ' + (Date.now() - _pt0) + 'мс');
         if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
         if (__hassleStale()) return;
         debugLog('Ошибка при проверке команд:', error);
-        setTimeout(checkTelegramCommands, config.checkInterval);
+        setTimeout(checkTelegramCommands, _pollBackoff(500));
     };
     xhr.ontimeout = function() {
+        _pwdClear();
+        _hbd('POLL', 'таймаут ' + (Date.now() - _pt0) + 'мс');
         if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
         if (__hassleStale()) return;
         debugLog('Long-polling timeout, перезапуск...');
         setTimeout(checkTelegramCommands, 0);
     };
     xhr.send();
+}
+function _hbdSend() {
+    const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const q = window._hassleTgQ || {}, qs = Object.keys(q).map(k => k + ':' + q[k].length).join(' ') || '—';
+    const head = `🩺 <b>HBDIAG (${displayName})</b>\n` +
+        `ждать чату ещё: ${_tgBlockMaxLeft()}мс · очередь: ${qs} · сбоев опроса подряд: ${_pollFails} · 409: ${window.__hassle409 || 0}\n`;
+    let body = (window.__hbDiag || []).slice(-60).join('\n');
+    if (body.length > 3300) body = body.slice(body.length - 3300);
+    sendToTelegram(head + '<pre>' + esc(body) + '</pre>', true, null);
 }
 function processUpdates(updates) {
     if (__hassleStale()) return;
@@ -5579,6 +5679,8 @@ function processUpdates(updates) {
                 // /reload@ИмяБота — так команда приходит, когда её выбирают из списка подсказок Telegram в группе: раньше строгое
                 // сравнение с '/reload' её не узнавало, и перезагрузка «не срабатывала». @имя игнорируем — перезагружаются все боты.
                 reloadAllAccounts(true); // /reload видят все боты сами — broadcast не нужен
+            } else if (message === '/hbdiag' || /^\/hbdiag@\w+$/i.test(message)) {
+                _hbdSend();
             } else if (message === '/dbg_on') {
                 startDebugStatTracker(); // сам отправляет стартовое сообщение через _dbg3TgPush
             } else if (message === '/dbg_off') {
