@@ -14,6 +14,8 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия 2.2: «/dressu» — то же, что «/dress use», но если за T_USE_FB_MS диалог не открылся (сервер молча игнорирует повторный вход с того же места), сам добирает
+// старым путём (точка возврата, телепорт на пикап, возврат). Так переодевание получается всегда, а телепорт только когда без него нельзя.
 // Версия 2.1 «вход без движения» (/dress use, /dress N use): мод tpl вызывает игровой вход в пикап (/tpl pick N use) — вы НЕ телепортируетесь и не возвращаетесь,
 // стойте рядом с пикапом (сервер принимает обычный пикап до ~5 м). Точка возврата не нужна. Диалоги и «Да» — те же. «/dress tp» — старый способ (телепорт и возврат).
 // По умолчанию «/dress» работает по-старому; сделать use основным — USE_DEFAULT = true. Нужен мод hassle_tpl.c с командой use (его правка — отдельным файлом).
@@ -63,6 +65,7 @@ var T_SKIN_MS   = 2500;             // после ответа «Да»: ско�
 var T_TAIL_MS   = 1200;             // после команды возврата ещё столько слушаем чат — только чтобы записать в журнал подтверждение «вернулись»
 var USE_DEFAULT  = false;            // true — «/dress» без слов идёт через «/tpl pick N use» (вход в пикап БЕЗ движения, нужен мод tpl с командой use); false — как раньше, только «/dress use»
 var UNDER_SEC    = 8;                // режим under: предел (страховка) удержания под полом, секунд; вынырнем раньше — сразу по смене скина
+var T_USE_FB_MS  = 1800;            // «/dressu»: диалог не открылся за это время после use — сервер вход проигнорировал, добираем старым путём (точка возврата + телепорт)
 var T_DLG1_USE_MS = 4000;           // режим use: диалог-список не открылся за это время — значит сервер вход не принял (далеко от пикапа) или мода use нет
 var T_DLG1_UNDER_MS = 3500;         // режим under: диалог-список не открылся за это время — выныриваем сразу
 var T_TOTAL_MS  = 30000;            // общий потолок — после него всё снимаем и возвращаемся
@@ -231,9 +234,9 @@ function unhook(sess) {
     // если поверх нас успели обернуть ещё раз — наша обёртка останется в цепочке, но по S !== sess она просто пропускает вызовы дальше
 }
 
-function startSession(pickNum, under, holdSec, use) {
+function startSession(pickNum, under, holdSec, use, fb) {
     if (S) { info('уже выполняется (шаг «' + S.step + '»). Прервать: /dress stop'); return; }
-    var sess = { step: (under || use) ? 'list' : 'save', under: !!under, use: !!use, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null };
+    var sess = { step: (under || use) ? 'list' : 'save', under: !!under, use: !!use, fb: !!use && !!fb, fbUsed: false, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null };
     S = sess;
     if (!hookChat(sess)) { S = null; fail('не нашёл OnChatAddMessage — бот ещё не запущен?'); return; }
     if (!hookDialogs(sess)) { unhook(sess); S = null; fail('не нашёл addDialogInQueue — игра ещё не загрузила диалоги'); return; }
@@ -347,6 +350,20 @@ function onChat(raw) {
     }
 }
 
+// «/dressu»: вход без движения (use) не открыл диалог — повторяем ПО-СТАРОМУ с самого начала (сохранить точку → список → телепорт на пикап → возврат).
+// Возврат нужен, только если мы телепортировались: до этого момента S.teleported = false, так что при любой ошибке по дороге вас никуда не «вернёт».
+function fallbackToTp() {
+    if (!S || S.step !== 'tp' || S.fbUsed) return;
+    S.fbUsed = true; S.use = false;
+    log('use не открыл диалог за ' + T_USE_FB_MS + ' мс — запасной путь: точка возврата и телепорт на пикап');
+    info('вход без движения не сработал — телепорт на пикап');
+    clearTimers();
+    S.step = 'save'; S.list = []; S.listN = -1;
+    setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
+    if (!chatCmd('/tpl save ' + BACK_NAME)) { fail('не удалось отправить команду в чат'); endSession('нет чата', false); return; }
+    setTimer(function () { fail('/tpl не ответил на save'); endSession('нет ответа /tpl', false); }, T_SAVE_MS);
+}
+
 function pickAndGo() {
     if (!S || S.step !== 'list') return;
     var sel = null, i;
@@ -380,7 +397,11 @@ function pickAndGo() {
         S.teleported = true;                            // с этого момента при любой ошибке возвращаемся
         if (!chatCmd('/tpl pick ' + sel.n)) { S.teleported = false; fail('не удалось отправить /tpl pick N'); endSession('нет чата', false); return; }
     }
-    S.dlgTimer = setTimer(function () { fail('диалог «Раздевалка» не открылся за ' + (t1 / 1000) + ' с' + (S.use ? ' (use: вы дальше ~5 м от пикапа, либо мод tpl без команды use — смотрите чат; старый способ: /dress tp)' : '')); endSession('нет диалога 1', true); }, t1);
+    if (S.use && S.fb) t1 = T_USE_FB_MS;
+    S.dlgTimer = setTimer(function () {
+        if (S.use && S.fb && !S.fbUsed) { fallbackToTp(); return; }       // /dressu: use не сработал — запасной путь
+        fail('диалог «Раздевалка» не открылся за ' + (t1 / 1000) + ' с' + (S.use ? ' (use: вы дальше ~5 м от пикапа, либо мод tpl без команды use — смотрите чат; старый способ: /dress tp)' : '')); endSession('нет диалога 1', true);
+    }, t1);
 }
 
 // выполнить действие сейчас (D_REPLY_MS = 0) или через D_REPLY_MS; ошибка — завершаем сессию с возвратом
@@ -439,7 +460,7 @@ function onDialog(params, content, priority) {
 function statusText() {
     return S ? ((S.use ? 'вход без движения, ' : S.under ? 'под пикап, ' : '') + 'шаг «' + S.step + '», ' + Math.round((Date.now() - S.t0) / 100) / 10 + ' с') : 'не запущено';
 }
-function runCmd(args) {
+function runCmd(args, fb) {
     var a = (args[0] || '').toLowerCase();
     if (a === 'stop' || a === 'стоп') { if (S) endSession('прервано командой', true); else info('нечего прерывать'); return; }
     if (a === 'status' || a === 'статус') { info(statusText()); return; }
@@ -461,7 +482,7 @@ function runCmd(args) {
     }
     if (sec) sec = Math.max(0.2, Math.min(15, sec));
     if (use) under = false;                           // use важнее под-пикапного нырка
-    startSession(n, under, sec, use);
+    startSession(n, under, sec, use, !!fb && use);
 }
 
 var origChatWin = window.sendChatInputCustom;
@@ -472,6 +493,7 @@ var myChat = function (e) {
     if (!_dead && typeof e === 'string') {
         var a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
         if (cmd === '/dress' || cmd === '/раздевалка') { runCmd(a.slice(1)); return; }
+        if (cmd === '/dressu' || cmd === '/раздевалка2') { runCmd(['use'].concat(a.slice(1)), true); return; }   // use + запасной телепорт, если сервер не отреагировал
     }
     if (typeof prevChat === 'function') return prevChat.apply(this, arguments);
 };
@@ -482,9 +504,9 @@ onUndo(function () {
     try { if (sendChatInput === myChat) sendChatInput = origChatVar || origChatWin; } catch (e) {}
 });
 
-window.Dress = { run: function (n, under, sec, use) { startSession(n || 0, !!under, sec || 0, !!use); }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
+window.Dress = { run: function (n, under, sec, use, fb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb); }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v2.1 загружен: /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
+log('Dress.js v2.2 загружен: /dressu [N] (вход без движения; не сработал — сам добирает телепортом), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
