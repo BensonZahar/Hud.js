@@ -113,7 +113,8 @@ function konsttDetectClient() {
             console.log(st.ours ? `🧩 Клиент: НАШ (сборка ${st.build}, порт ${st.port}, ${st.ms} мс)` : st.denied ? `🧩 Клиент: НАШ, но нет доступа к модам (ID ${st.hwid || '?'})` : `🧩 Клиент: обычный/чужой (мод не найден за ${st.ms} мс)`);
             if (st.denied && !window.__konsttWarned) {
                 window.__konsttWarned = true;
-                console.warn('🚫 Нет доступа к модам: клиент наш, но ID устройства ' + (st.hwid || '?') + ' не в списке ключей');
+                console.warn('🚫 Нет доступа к модам: клиент наш, но ID устройства не в списке ключей');
+                console.warn('🔑 ID: ' + (st.hwid || '?'));                              // ключ отдельной строкой — его удобно найти и скопировать
                 try {
                     if (typeof sendToTelegram === 'function') {
                         sendToTelegram(`🚫 <b>Нет доступа к модам</b> — аккаунт #${window.ACCOUNT_NUMBER || '?'} (${window.CURRENT_USER || '—'}): клиент наш, но ID устройства не в списке ключей.\nID: <code>${st.hwid || '?'}</code>`, true);
