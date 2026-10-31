@@ -346,7 +346,7 @@
         if (stale()) return;
         const go = function () {
             if (stale()) return;
-            if (!oursNow()) return say(chatId, 'Клиент не наш — мода скрина нет.');
+            if (!oursNow()) return say(chatId, (window.KONSTT_CLIENT && window.KONSTT_CLIENT.denied) ? '🚫 Нет доступа к модам.' : 'Клиент не наш — мода скрина нет.');
             tgApi('sendMessage', {
                 chat_id: chatId, text: '📸 <b>' + displayName + '</b>: что снять?', parse_mode: 'HTML', disable_notification: true,
                 reply_markup: { inline_keyboard: [[{ text: '📸 Обычное', callback_data: 'screen_do_shot_' + uniqueId }, { text: '📺 Live', callback_data: 'screen_do_live_' + uniqueId }]] }
@@ -365,7 +365,7 @@
         if (stale()) return;
         const go = function () {
             if (stale()) return;
-            if (!oursNow()) return say(chatId, 'Клиент не наш — мода скрина нет.');
+            if (!oursNow()) return say(chatId, (window.KONSTT_CLIENT && window.KONSTT_CLIENT.denied) ? '🚫 Нет доступа к модам.' : 'Клиент не наш — мода скрина нет.');
             if (live) liveStart(chatId, mid); else run(chatId, mid);
         };
         // определение клиента ещё идёт (до 90 с после старта игры) — дожидаемся результата

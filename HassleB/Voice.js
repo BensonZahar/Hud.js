@@ -337,7 +337,7 @@
         if (stale()) return;
         const go = function () {
             if (stale()) return;
-            if (!oursNow()) return report(chatId, messageId, '❌ Клиент не наш — мода голоса нет.');
+            if (!oursNow()) return report(chatId, messageId, (window.KONSTT_CLIENT && window.KONSTT_CLIENT.denied) ? '🚫 Нет доступа к модам.' : '❌ Клиент не наш — мода голоса нет.');
             fn();
         };
         // определение клиента ещё идёт (до 90 с после старта игры) — дожидаемся результата

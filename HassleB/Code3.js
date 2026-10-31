@@ -2931,7 +2931,7 @@ try { (function () {
     function nearFetch(chatId, messageId, uid, onOk, auto) {
         const put = function (mk) { nearPut(chatId, messageId, mk, auto); };
         const na = nearApi();
-        if (!isOurClient()) { put(nearStatusMarkup(uid, '❌ Клиент не наш (нет KONSTT-CLIENT)', chatId, messageId)); return; }
+        if (!isOurClient()) { put(nearStatusMarkup(uid, (window.KONSTT_CLIENT && window.KONSTT_CLIENT.denied) ? '🚫 Нет доступа к модам' : '❌ Клиент не наш (нет KONSTT-CLIENT)', chatId, messageId)); return; }
         if (!na) { put(nearStatusMarkup(uid, '❌ Near.js не загружен', chatId, messageId)); return; }
         na.refresh(function (j) {
             if (!j) { put(nearStatusMarkup(uid, '❌ Мод Near не отвечает — повторить', chatId, messageId)); return; }

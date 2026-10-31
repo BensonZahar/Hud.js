@@ -49,7 +49,7 @@ const setInterval = function (fn, ms) {
 // ║  Сервер мода стартует после готовности игры, поэтому     ║
 // ║  опрашиваем раз в 3 с, до 90 с.                          ║
 // ╚══════════════════════════════════════════════════════════╝
-window.KONSTT_CLIENT = window.KONSTT_CLIENT || { ours: null, port: 0, build: '', checked: false, ms: 0 };
+window.KONSTT_CLIENT = window.KONSTT_CLIENT || { ours: null, port: 0, build: '', checked: false, ms: 0, denied: false, hwid: '' };
 function konsttGet(port, path) {
     return new Promise(resolve => {
         let done = false;
@@ -65,6 +65,19 @@ function konsttGet(port, path) {
         } catch (e) { fin(null); }
     });
 }
+// Клиент наш, но доступа к модам нет: загрузчик в APK (порты 17760..17762) отвечает на /hmstatus «Нет доступа…», а мод (17771+) не стартует.
+// Возвращает { hwid } (ID устройства, 16 hex, может быть пустым) или null, если загрузчик молчит / доступ есть.
+async function konsttProbeDenied() {
+    for (let p = 17760; p <= 17762; p++) {
+        const s = await konsttGet(p, '/hmstatus');
+        if (s && s.indexOf('Нет доступа') === 0) {
+            let id = await konsttGet(p, '/hwid');
+            if (!id || !/^[0-9a-fA-F]{8,32}$/.test(id)) { const m = /Ваш ID:\s*([0-9a-fA-F]{8,32})/.exec(s); id = m ? m[1] : ''; }
+            return { hwid: id || '' };
+        }
+    }
+    return null;
+}
 async function konsttProbePort(port) {
     const id = await konsttGet(port, '/konstt');
     return (id && id.indexOf('KONSTT-CLIENT') === 0) ? { build: id.slice(13).trim() || '?' } : null;
@@ -74,7 +87,7 @@ function konsttDetectClient() {
     if (st.checked && st.ours) return Promise.resolve(st);                         // наш клиент в рамках запуска игры не меняется
     if (st.__running && st.__gen === __HASSLE_GEN && window.__konsttWait) return window.__konsttWait;   // эта копия уже проверяет
     st.__running = true; st.__gen = __HASSLE_GEN;                                  // /reload: прошлая копия остановилась — начинаем заново
-    st.ours = null; st.port = 0; st.build = ''; st.checked = false;
+    st.ours = null; st.port = 0; st.build = ''; st.checked = false; st.denied = false; st.hwid = '';
     const t0 = Date.now();
     const GIVE_UP_MS = 90000, EVERY_MS = 3000;
     window.__konsttWait = new Promise(resolve => {
@@ -84,8 +97,12 @@ function konsttDetectClient() {
                 info = await konsttProbePort(p);
                 if (info) found = p;
             }
+            let dn = null;
+            if (!found) dn = await konsttProbeDenied();                                // мода нет — может, у нашего клиента просто нет доступа
             if (found) {
                 st.ours = true; st.port = found; st.build = info.build;
+            } else if (dn) {
+                st.ours = false; st.denied = true; st.hwid = dn.hwid;                  // отказ не изменится до перезапуска игры — ждать 90 с незачем
             } else if (Date.now() - t0 >= GIVE_UP_MS) {
                 st.ours = false;
             } else {
@@ -93,8 +110,17 @@ function konsttDetectClient() {
                 return;
             }
             st.checked = true; st.ms = Date.now() - t0; st.__running = false;
-            console.log(st.ours ? `🧩 Клиент: НАШ (сборка ${st.build}, порт ${st.port}, ${st.ms} мс)` : `🧩 Клиент: обычный/чужой (мод не найден за ${st.ms} мс)`);
-            if (!st.ours && !window.__konsttWarned) {
+            console.log(st.ours ? `🧩 Клиент: НАШ (сборка ${st.build}, порт ${st.port}, ${st.ms} мс)` : st.denied ? `🧩 Клиент: НАШ, но нет доступа к модам (ID ${st.hwid || '?'})` : `🧩 Клиент: обычный/чужой (мод не найден за ${st.ms} мс)`);
+            if (st.denied && !window.__konsttWarned) {
+                window.__konsttWarned = true;
+                console.warn('🚫 Нет доступа к модам: клиент наш, но ID устройства ' + (st.hwid || '?') + ' не в списке ключей');
+                try {
+                    if (typeof sendToTelegram === 'function') {
+                        sendToTelegram(`🚫 <b>Нет доступа к модам</b> — аккаунт #${window.ACCOUNT_NUMBER || '?'} (${window.CURRENT_USER || '—'}): клиент наш, но ID устройства не в списке ключей.\nID: <code>${st.hwid || '?'}</code>`, true);
+                    }
+                } catch (e) { console.warn('[KONSTT] не удалось отправить в Telegram:', e && e.message); }
+            }
+            if (!st.ours && !st.denied && !window.__konsttWarned) {
                 window.__konsttWarned = true;
                 console.warn('⚠️ Клиент не наш: константа KONSTT-CLIENT не получена — функционал, завязанный на наш клиент, работать не будет');
                 try {
