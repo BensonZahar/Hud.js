@@ -14,6 +14,13 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия 2.3 «подмена sync» (требует свежий мод hassle_tpl.c с командой «/tpl sync»): use-режим (/dressu, /dress use) больше НЕ двигает вас и не шлёт «сброс» на сервер.
+// Перед входом в пикап скрипт командой «/tpl sync N 2.2 6» включает подмену позиции в sync-пакете: игра продолжает слать серверу пакет «пешком», но с позицией
+// в 2.2 м от пикапа (вы физически стоите вплотную к пикапу — тестовые NPC не двигаются и не «стыкуются»). Сервер за ~0.25 с снимает флаг «игрок уже на пикапе»,
+// через SYNC_WAIT_MS скрипт шлёт «/tpl pick N use», потом диалоги как обычно. Подмена выключается («/tpl sync off») СРАЗУ по смене скина, при любой ошибке и в конце сессии;
+// сам мод закроет её через SYNC_SEC секунд, даже если скрипт упал. Не включилась (старый мод, перехват не встал) — один раз пробуем обычный use без подмены (SYNC_PLAIN_ON_FAIL).
+// Телепорт-запасной путь у /dressu теперь выключен (USE_FALLBACK_TP = false): никаких «сохранить точку → телепорт → вернуться». Старый способ — только явно: /dress tp.
+// Отключить подмену: SYNC_MODE = false, либо одним запуском «/dress use nosync».
 // Версия 2.2: «/dressu» — то же, что «/dress use», но если за T_USE_FB_MS диалог не открылся (сервер молча игнорирует повторный вход с того же места), сам добирает
 // старым путём (точка возврата, телепорт на пикап, возврат). Так переодевание получается всегда, а телепорт только когда без него нельзя.
 // Версия 2.1 «вход без движения» (/dress use, /dress N use): мод tpl вызывает игровой вход в пикап (/tpl pick N use) — вы НЕ телепортируетесь и не возвращаетесь,
@@ -66,6 +73,13 @@ var T_TAIL_MS   = 1200;             // после команды возврат�
 var USE_DEFAULT  = false;            // true — «/dress» без слов идёт через «/tpl pick N use» (вход в пикап БЕЗ движения, нужен мод tpl с командой use); false — как раньше, только «/dress use»
 var UNDER_SEC    = 8;                // режим under: предел (страховка) удержания под полом, секунд; вынырнем раньше — сразу по смене скина
 var T_USE_FB_MS  = 1800;            // «/dressu»: диалог не открылся за это время после use — сервер вход проигнорировал, добираем старым путём (точка возврата + телепорт)
+var USE_FALLBACK_TP = false;        // /dressu: true — если вход не сработал, добирать старым путём (точка возврата, телепорт на пикап, возврат); false — НИКОГДА не телепортироваться (тестовые NPC не «стыкуются»), при неудаче просто сообщить об ошибке
+var SYNC_MODE    = true;            // use-режим (/dressu, /dress use): перед входом включаем «/tpl sync N» — позиция в sync-пакете подменяется, сервер видит вас в SYNC_M м от пикапа, а вы стоите вплотную; false — use без подмены
+var SYNC_M       = 2.2;             // метров от пикапа, которые увидит сервер: больше ~1.5 — «вышел с пикапа» (флаг снимается), до ~5 — сервер ещё принимает use (у пикапов с клавишей предел меньше)
+var SYNC_SEC     = 6;               // предел окна подмены в моде tpl, сек (страховка: закроется само); обычно закрываем сами сразу по смене скина
+var T_SYNC_ACK_MS = 1500;           // сколько ждать ответ мода «Sync-подмена: включена»
+var SYNC_WAIT_MS = 700;             // пауза между включением подмены и use: первый пакет с новой позицией доходит до сервера (≤0.5 с у игры, обычно ~0), его таймер (250 мс) снимает флаг «игрок на пикапе»
+var SYNC_PLAIN_ON_FAIL = true;      // подмена не включилась: true — один раз пробуем обычный use без подмены (без телепорта); false — стоп с ошибкой
 var T_DLG1_USE_MS = 4000;           // режим use: диалог-список не открылся за это время — значит сервер вход не принял (далеко от пикапа) или мода use нет
 var T_DLG1_UNDER_MS = 3500;         // режим under: диалог-список не открылся за это время — выныриваем сразу
 var T_TOTAL_MS  = 30000;            // общий потолок — после него всё снимаем и возвращаемся
@@ -234,16 +248,16 @@ function unhook(sess) {
     // если поверх нас успели обернуть ещё раз — наша обёртка останется в цепочке, но по S !== sess она просто пропускает вызовы дальше
 }
 
-function startSession(pickNum, under, holdSec, use, fb) {
+function startSession(pickNum, under, holdSec, use, fb, sync) {
     if (S) { info('уже выполняется (шаг «' + S.step + '»). Прервать: /dress stop'); return; }
-    var sess = { step: (under || use) ? 'list' : 'save', under: !!under, use: !!use, fb: !!use && !!fb, fbUsed: false, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null };
+    var sess = { step: (under || use) ? 'list' : 'save', under: !!under, use: !!use, fb: !!use && !!fb, sync: !!use && !!sync, syncOn: false, syncTimer: null, tSync: 0, tSyncCmd: 0, fbUsed: false, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null };
     S = sess;
     if (!hookChat(sess)) { S = null; fail('не нашёл OnChatAddMessage — бот ещё не запущен?'); return; }
     if (!hookDialogs(sess)) { unhook(sess); S = null; fail('не нашёл addDialogInQueue — игра ещё не загрузила диалоги'); return; }
     var skinHooked = hookSkin(sess);
     jlPing();                                       // проверяем, отвечает ли мод /jlog (ответ ловит onChat); строки журнала до ответа ждут в очереди
     setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
-    log('=== старт Dress v2, шаг ' + sess.step + (use ? ', вход без движения (/tpl pick N use)' : under ? ', нырок, предел ' + sess.hold + ' с' : ', на пикапе') + (pickNum ? ', пикап №' + pickNum : '') + '; ловлю смену скина: ' + (skinHooked ? 'да' : 'НЕТ (только чат и таймаут ' + T_SKIN_MS + ' мс)') + '; скин сейчас: ' + curSkin());
+    log('=== старт Dress v2, шаг ' + sess.step + (use ? ', вход без движения (/tpl pick N use)' + (sess.sync ? ' + подмена позиции в sync (/tpl sync)' : '') : under ? ', нырок, предел ' + sess.hold + ' с' : ', на пикапе') + (pickNum ? ', пикап №' + pickNum : '') + '; ловлю смену скина: ' + (skinHooked ? 'да' : 'НЕТ (только чат и таймаут ' + T_SKIN_MS + ' мс)') + '; скин сейчас: ' + curSkin());
     if (under || use) {                             // нырок или «use»: возвращать никуда не надо (нырок возвращает сам /tpl, use не двигает) — точка возврата не нужна, сразу за списком пикапов
         if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
         sess.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или мода /tpl нет в APK)'); endSession('нет списка', false); }, T_LIST_MS);
@@ -258,6 +272,17 @@ function curSkin() {
     try { var st = window.App && window.App.$store; if (st) return st.getters['player/skinId']; } catch (e) {}
     return '?';
 }
+// Выключить подмену позиции в sync (если включали): сервер снова видит настоящую позицию. Только отправка команды, БЕЗ записи в журнал — запись делает вызывающий.
+// null — подмены не было; true/false — команда ушла/не ушла (при false окно закроется само через SYNC_SEC с).
+function syncOffCmd(sess) {
+    if (!sess || !sess.syncOn) return null;
+    sess.syncOn = false;
+    return chatCmd('/tpl sync off');
+}
+function syncOffLog(sess, so, why) {
+    if (so === null) return;
+    log('sync-подмена выключена (' + why + '): ' + (so ? '/tpl sync off' : 'НЕ УДАЛОСЬ отправить /tpl sync off — окно закроется само через ' + SYNC_SEC + ' с') + '; держалась ' + (sess.tSync ? (Date.now() - sess.tSync) : '?') + ' мс');
+}
 // Вернуться на место: нырок → «/tpl up» (вынырнуть немедленно), обычный режим → «/tpl go dressbk». Всё, что можно, шлём ДО записи в журнал.
 function sendReturn(sess) {
     if (sess.diving) return chatCmd('/tpl up') ? '/tpl up' : '';
@@ -270,8 +295,9 @@ function returnNow(why) {
     if (!sess || sess.returned) return;
     sess.returned = true;
     clearTimers();
-    var t = Date.now(), cmd = sendReturn(sess);
+    var t = Date.now(), so = syncOffCmd(sess), cmd = sendReturn(sess);      // подмену снимаем первой: сервер сразу видит настоящую позицию
     sess.step = 'tail';
+    syncOffLog(sess, so, why);
     if (cmd === null) log('возврат не нужен (' + why + ')');
     else if (cmd === '') { fail('не удалось отправить команду возврата!'); log('ОШИБКА: команда возврата не отправилась (' + why + ')'); }
     else log('ВОЗВРАТ: ' + cmd + ' (' + why + '), с момента «Да» прошло ' + (sess.tYes ? (t - sess.tYes) : '?') + ' мс, с момента старта ' + (t - sess.t0) + ' мс');
@@ -288,12 +314,13 @@ function onSkin(src) {
 function endSession(why, goBack) {
     var sess = S;
     if (!sess) return;
-    var cmd = null;
-    if (goBack && !sess.returned) cmd = sendReturn(sess);             // сначала возврат — потом всё остальное
+    var cmd = null, so = syncOffCmd(sess);            // подмену позиции снимаем в любом случае и первой
+    if (goBack && !sess.returned) cmd = sendReturn(sess);             // потом возврат — потом всё остальное
     clearTimers();
     unhook(sess);
     S = null;                                        // дальше любые хвосты хуков просто пропускают вызовы
     sess.returned = true;
+    syncOffLog(sess, so, why);
     log('конец: ' + why + ' (всего ' + (Date.now() - sess.t0) + ' мс)' + (cmd ? '; возврат: ' + cmd : ''));
     if (cmd) info('вернулся на место (' + why + ')');
 }
@@ -303,11 +330,14 @@ var RX_SAVED  = new RegExp('Точка\\s*«\\s*' + BACK_NAME + '\\s*»\\s*(со
 var RX_HEADER = /Пикапы и маркеры рядом:\s*(\d+)/i;
 var RX_NONE   = /Пикапов и маркеров рядом нет|Пикапы: пул не прочитался/i;
 var RX_LINE   = /(\d+)\.\s+ID\s+(\d+)\s+\[модель\s+([^\]]+)\]\s*—\s*(\d+)\s*м/;
+var RX_SYNC_ON  = /Sync-подмена:\s*включена/i;                                  // ответ мода tpl на «/tpl sync N …»
+var RX_SYNC_ERR = /Sync-подмена:\s*ошибка/i;                                    // не получилось (нет пикапа, перехват не встал, в машине…)
+var RX_TPL_OLD  = /не команда и не сохранённая точка|Используйте:\s*\/tpl/i;      // мод tpl без команды sync: «/tpl sync …» он принял за мусор и показал подсказку
 var RX_TPL_ERR = /Точка:\s*(уже|не удалось)/i;   // «Точка: уже 64 точки…» / «Точка: не удалось прочитать ваши координаты»
 
 var RX_JLOG   = /JLog:\s*готов/i;                       // ответ мода hassle_jlog.c на «/jlog _ping»
 var RX_DONE   = /Вы переоделись/i;                      // сообщение сервера сразу после смены одежды (запасной сигнал, если скин не заметили)
-var RX_LOGCHAT = /Точка|икап|Нырок|переод|елепорт|аздевал|Нельзя|не можете|Вы /;   // какие строки чата пишем в журнал (чужой чат не нужен)
+var RX_LOGCHAT = /Sync|Точка|икап|Нырок|переод|елепорт|аздевал|Нельзя|не можете|Вы /;   // какие строки чата пишем в журнал (чужой чат не нужен)
 function onChat(raw) {
     var text = strip(raw);
     if (RX_JLOG.test(text)) {
@@ -319,6 +349,16 @@ function onChat(raw) {
     if (!S) return;
     if (RX_LOGCHAT.test(text)) log('чат: ' + text.slice(0, 160));
     if (S.step === 'wait' && RX_DONE.test(text)) { returnNow('сообщение сервера «Вы переоделись»'); return; }
+    if (S.step === 'sync') {                           // ждём ответ мода на «/tpl sync N …»
+        if (RX_SYNC_ON.test(text)) {
+            if (S.syncTimer) { clearTimeout(S.syncTimer); S.syncTimer = null; }
+            S.syncOn = true; S.tSync = Date.now();
+            log('sync-подмена включена (ответ мода через ' + (S.tSync - S.tSyncCmd) + ' мс) — жду ' + SYNC_WAIT_MS + ' мс: сервер должен увидеть новую позицию и снять флаг пикапа');
+            S.syncTimer = setTimer(function () { afterSync(); }, SYNC_WAIT_MS);
+        } else if (RX_SYNC_ERR.test(text)) syncFailed(text.slice(0, 140));
+        else if (RX_TPL_OLD.test(text)) syncFailed('мод tpl не знает «/tpl sync» (старая сборка бандла?)');
+        return;
+    }
     if (S.step === 'save') {
         if (RX_SAVED.test(text)) {
             clearTimers();
@@ -355,6 +395,7 @@ function onChat(raw) {
 function fallbackToTp() {
     if (!S || S.step !== 'tp' || S.fbUsed) return;
     S.fbUsed = true; S.use = false;
+    syncOffLog(S, syncOffCmd(S), 'запасной путь');
     log('use не открыл диалог за ' + T_USE_FB_MS + ' мс — запасной путь: точка возврата и телепорт на пикап');
     info('вход без движения не сработал — телепорт на пикап');
     clearTimers();
@@ -382,12 +423,13 @@ function pickAndGo() {
     setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
     S.step = 'tp';
     S.sel = sel;
-    log('выбран пикап №' + sel.n + ' (ID ' + sel.id + ', модель ' + sel.model + ', ' + sel.d + ' м) — ' + (S.use ? 'вход без движения' : S.under ? 'нырок' : 'телепорт') + '; в списке было ' + S.list.length + ' шт.');
+    log('выбран пикап №' + sel.n + ' (ID ' + sel.id + ', модель ' + sel.model + ', ' + sel.d + ' м) — ' + (S.use ? (S.sync ? 'вход без движения с подменой позиции в sync' : 'вход без движения') : S.under ? 'нырок' : 'телепорт') + '; в списке было ' + S.list.length + ' шт.');
     var t1 = T_DLG1_MS;
     if (S.use) {
         // use: не двигаемся — мод сам вызывает игровой вход в пикап; возвращать нечего (teleported/diving остаются false)
-        if (!chatCmd('/tpl pick ' + sel.n + ' use')) { fail('не удалось отправить /tpl pick N use'); endSession('нет чата', false); return; }
-        t1 = T_DLG1_USE_MS;
+        if (S.sync) { startSync(sel); return; }          // сначала подмена позиции, use пойдёт из afterSync()
+        if (!sendUse(sel)) return;
+        t1 = useTimeout();
     } else if (S.under) {
         // нырок: возвращаем командой «/tpl up» сразу после смены скина; не успели — мод сам вынырнет через hold секунд (предел)
         t1 = Math.min(T_DLG1_UNDER_MS, Math.round(S.hold * 1000) + 1500);
@@ -397,11 +439,46 @@ function pickAndGo() {
         S.teleported = true;                            // с этого момента при любой ошибке возвращаемся
         if (!chatCmd('/tpl pick ' + sel.n)) { S.teleported = false; fail('не удалось отправить /tpl pick N'); endSession('нет чата', false); return; }
     }
-    if (S.use && S.fb) t1 = T_USE_FB_MS;
+    armDlgTimer(t1);
+}
+
+function useTimeout() { return (S && S.use && S.fb) ? T_USE_FB_MS : T_DLG1_USE_MS; }
+function sendUse(sel) {
+    if (!chatCmd('/tpl pick ' + sel.n + ' use')) { fail('не удалось отправить /tpl pick N use'); endSession('нет чата', false); return false; }
+    return true;
+}
+// Ждём диалог-список; не пришёл — ошибка (для /dressu с USE_FALLBACK_TP — запасной путь с телепортом)
+function armDlgTimer(t1) {
     S.dlgTimer = setTimer(function () {
-        if (S.use && S.fb && !S.fbUsed) { fallbackToTp(); return; }       // /dressu: use не сработал — запасной путь
-        fail('диалог «Раздевалка» не открылся за ' + (t1 / 1000) + ' с' + (S.use ? ' (use: вы дальше ~5 м от пикапа, либо мод tpl без команды use — смотрите чат; старый способ: /dress tp)' : '')); endSession('нет диалога 1', true);
+        if (S.use && S.fb && !S.fbUsed) { fallbackToTp(); return; }       // /dressu + USE_FALLBACK_TP: use не сработал — запасной путь
+        fail('диалог «Раздевалка» не открылся за ' + (t1 / 1000) + ' с' + (S.use ? (S.sync ? ' (use с подменой позиции: сервер не принял вход — смотрите чат и HLOG/dress.txt; старый способ: /dress tp)' : ' (use: вы дальше ~5 м от пикапа, либо мод tpl без команды use — смотрите чат; старый способ: /dress tp)') : '')); endSession('нет диалога 1', true);
     }, t1);
+}
+// Подмена позиции: «/tpl sync N метры сек» → ответ мода (onChat, шаг «sync») → пауза SYNC_WAIT_MS → afterSync(): use
+function startSync(sel) {
+    S.step = 'sync';
+    var cmd = '/tpl sync ' + sel.n + ' ' + SYNC_M + ' ' + SYNC_SEC;
+    S.tSyncCmd = Date.now();
+    if (!chatCmd(cmd)) { fail('не удалось отправить ' + cmd); endSession('нет чата', false); return; }
+    log('подмена позиции: ' + cmd + ' (вы стоите на месте; пикап №' + sel.n + ' по списку в ' + sel.d + ' м)');
+    S.syncTimer = setTimer(function () { syncFailed('нет ответа мода за ' + T_SYNC_ACK_MS + ' мс (в APK нет мода tpl с «/tpl sync»?)'); }, T_SYNC_ACK_MS);
+}
+function afterSync() {
+    if (!S || S.step !== 'sync') return;
+    S.syncTimer = null;
+    S.step = 'tp';                                      // теперь ждём диалог-список (onDialog)
+    if (!sendUse(S.sel)) return;
+    armDlgTimer(useTimeout());
+}
+function syncFailed(why) {
+    if (!S || S.step !== 'sync') return;
+    if (S.syncTimer) { clearTimeout(S.syncTimer); S.syncTimer = null; }
+    log('sync-подмена не включилась: ' + why);
+    if (!SYNC_PLAIN_ON_FAIL) { fail('подмена позиции не включилась: ' + why); endSession('sync не включился', false); return; }
+    info('подмена позиции не включилась — пробую вход без неё (без телепорта)');
+    S.sync = false; S.step = 'tp';
+    if (!sendUse(S.sel)) return;
+    armDlgTimer(useTimeout());
 }
 
 // выполнить действие сейчас (D_REPLY_MS = 0) или через D_REPLY_MS; ошибка — завершаем сессию с возвратом
@@ -458,7 +535,7 @@ function onDialog(params, content, priority) {
 
 // ───────────────────────── команда в чате ─────────────────────────
 function statusText() {
-    return S ? ((S.use ? 'вход без движения, ' : S.under ? 'под пикап, ' : '') + 'шаг «' + S.step + '», ' + Math.round((Date.now() - S.t0) / 100) / 10 + ' с') : 'не запущено';
+    return S ? ((S.use ? (S.sync ? 'вход без движения + подмена sync, ' : 'вход без движения, ')  : S.under ? 'под пикап, ' : '') + 'шаг «' + S.step + '», ' + Math.round((Date.now() - S.t0) / 100) / 10 + ' с') : 'не запущено';
 }
 function runCmd(args, fb) {
     var a = (args[0] || '').toLowerCase();
@@ -470,19 +547,21 @@ function runCmd(args, fb) {
         return;
     }
     // разбор: число ДО слова under — номер пикапа N, число ПОСЛЕ него — секунды; без under единственное число — номер N
-    var under = false, n = 0, sec = 0, i, w, v, use = USE_DEFAULT;
+    var under = false, n = 0, sec = 0, i, w, v, use = USE_DEFAULT, sync = SYNC_MODE;
     for (i = 0; i < args.length; i++) {
         w = String(args[i]).toLowerCase();
         if (/^(under|dive|нырок|ниже|под)$/.test(w)) { under = true; continue; }
         if (/^(use|touch|вход)$/.test(w)) { use = true; continue; }          // войти в пикап, не двигаясь (мод tpl: /tpl pick N use)
+        if (/^(nosync|plain|безсинк)$/.test(w)) { sync = false; continue; }   // use без подмены позиции в sync
+        if (/^(sync|синк|подмена)$/.test(w)) { sync = true; continue; }       // use с подменой (по умолчанию так, если SYNC_MODE)
         if (/^(tp|old|телепорт)$/.test(w)) { use = false; continue; }        // принудительно старый способ: телепорт на пикап и возврат
         v = parseFloat(w.replace(',', '.'));
-        if (isNaN(v)) { fail('не понял «' + w + '». Примеры: /dress, /dress use, /dress 2 use, /dress tp, /dress 2, /dress under, /dress 2 under 4, /dress log'); return; }
+        if (isNaN(v)) { fail('не понял «' + w + '». Примеры: /dress, /dress use, /dress 2 use, /dress use nosync, /dress tp, /dress 2, /dress under, /dress 2 under 4, /dress log'); return; }
         if (under) sec = v; else n = Math.round(v);
     }
     if (sec) sec = Math.max(0.2, Math.min(15, sec));
     if (use) under = false;                           // use важнее под-пикапного нырка
-    startSession(n, under, sec, use, !!fb && use);
+    startSession(n, under, sec, use, !!fb && use, sync);
 }
 
 var origChatWin = window.sendChatInputCustom;
@@ -493,7 +572,7 @@ var myChat = function (e) {
     if (!_dead && typeof e === 'string') {
         var a = e.trim().split(/\s+/), cmd = (a[0] || '').toLowerCase();
         if (cmd === '/dress' || cmd === '/раздевалка') { runCmd(a.slice(1)); return; }
-        if (cmd === '/dressu' || cmd === '/раздевалка2') { runCmd(['use'].concat(a.slice(1)), true); return; }   // use + запасной телепорт, если сервер не отреагировал
+        if (cmd === '/dressu' || cmd === '/раздевалка2') { runCmd(['use'].concat(a.slice(1)), USE_FALLBACK_TP); return; }   // use (+ подмена позиции в sync); запасной телепорт — только если USE_FALLBACK_TP = true
     }
     if (typeof prevChat === 'function') return prevChat.apply(this, arguments);
 };
@@ -504,9 +583,9 @@ onUndo(function () {
     try { if (sendChatInput === myChat) sendChatInput = origChatVar || origChatWin; } catch (e) {}
 });
 
-window.Dress = { run: function (n, under, sec, use, fb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb); }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
+window.Dress = { run: function (n, under, sec, use, fb, sync) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, sync === undefined ? SYNC_MODE : !!sync); }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v2.2 загружен: /dressu [N] (вход без движения; не сработал — сам добирает телепортом), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
+log('Dress.js v2.3 загружен: /dressu [N] (вход без движения + подмена позиции в sync, без телепорта' + (USE_FALLBACK_TP ? '; не сработал — добирает телепортом' : '') + '), /dress [N] [use [nosync]|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
