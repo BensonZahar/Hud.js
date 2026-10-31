@@ -78,8 +78,15 @@ function urlFor(ev) {
         (DIR + ev.file + '.mp3').split('/').map(function (s) { return encodeURIComponent(s.normalize ? s.normalize('NFC') : s); }).join('/');
 }
 function playNow(ev) {
+    var t0 = Date.now();
     try { window.playSound(urlFor(ev), false, SLOT); return true; }
     catch (e) { console.warn('[OZV] playSound:', e && e.message); return false; }
+    finally {
+        // замер: если движок «думает» над звуком дольше 300 мс — он держит поток игры; видно в /hbdiag (строки OZV)
+        var dt = Date.now() - t0;
+        try { if (typeof _hbd === 'function') _hbd('OZV', 'playSound ' + ev.key + ' ' + dt + 'мс'); } catch (e2) {}
+        if (dt > 300) dbg('playSound держал поток ' + dt + 'мс (' + ev.key + ')');
+    }
 }
 
 // Очередь: если за раз сработало несколько событий (кик админа → дисконнект, посадка → подброс…) — играем по очереди
@@ -97,7 +104,7 @@ function pump() {
 function enqueue(ev) {
     if (_queue.indexOf(ev) !== -1 || _queue.length >= 4) return;
     if (ev.prio) _queue.unshift(ev); else _queue.push(ev);
-    if (!_pumpTimer) pump();
+    if (!_pumpTimer) _pumpTimer = setTimeout(pump, 0);   // не внутри отправки уведомления: сбой или задержка playSound не должны задерживать сообщение в Telegram и строку чата
 }
 onUndo(function () { if (_pumpTimer) clearTimeout(_pumpTimer); _pumpTimer = null; _queue.length = 0; });
 
@@ -114,6 +121,22 @@ function trigger(key, test) {
     enqueue(ev);
     return true;
 }
+
+var _bcPending = [], _bcTimer = null;
+function flushBroadcast() {
+    _bcTimer = null;
+    var o = _bcPending.shift();
+    if (o) { try { broadcastGlobalCommand('ozv_set', (o.on ? 'on' : 'off') + '_' + o.key); } catch (e) { dbg('broadcast: ' + e.message); } }
+    if (_bcPending.length) _bcTimer = setTimeout(flushBroadcast, 1200);
+}
+// Каждая рассылка — видимое сообщение в беседу + удаление через 10 с + правка меню: частые нажатия «Все аккаунты» упирались в лимит чата (429)
+function queueBroadcast(on, key) {
+    if (key === 'all') _bcPending.length = 0;
+    else _bcPending = _bcPending.filter(function (o) { return o.key !== key; });
+    _bcPending.push({ on: !!on, key: key });
+    if (!_bcTimer) _bcTimer = setTimeout(flushBroadcast, 1200);
+}
+onUndo(function () { if (_bcTimer) clearTimeout(_bcTimer); _bcTimer = null; _bcPending.length = 0; });
 
 function setPref(key, on, scope) {
     var g = scope === 'global' && !!on;   // «для всех» — только при ВКЛ; ВЫКЛ и «этот аккаунт» флаг сбрасывают
@@ -338,7 +361,7 @@ function handleCb(cq, p) {
     // ВКЛ / ВЫКЛ
     setPref(p.key, p.on, p.scope);
     if (p.scope === 'global') {
-        try { broadcastGlobalCommand('ozv_set', (p.on ? 'on' : 'off') + '_' + p.key); } catch (e) { dbg('broadcast: ' + e.message); }   // остальным аккаунтам; у себя уже применили
+        queueBroadcast(p.on, p.key);   // остальным аккаунтам (с задержкой и схлопыванием, см. queueBroadcast); у себя уже применили
     }
     showKey(chatId, messageId, p.key, p.uid);   // остаёмся на экране события — кнопки сразу меняют цвет
 }
