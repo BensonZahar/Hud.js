@@ -2,7 +2,7 @@
 const NICK_CHECK_ENABLED = true; // ← поменяй на false чтобы выключить проверку
 
 const _ALLOWED_NICKS = [
-    "Zahar_Damidov",
+    "Konst_Konstov",
     "Fura_Morales",
     "Casper_Paradise",
     "Denis_Galievskiy",
@@ -67,11 +67,7 @@ const _ALLOWED_NICKS = [
 //   Правительство уволился:                      2026-09-22 15:44:22             (+24 дня)
 // ================================================================
 const jskOptions = [
-    { name: "Sergey_Romanov изменил должность {nick} на Капитан [№2] в ФСБ<t>2026-10-13 20:58:55<n>", action: "jsk_view" },
-    { name: "Sergey_Romanov принял {nick} в ФСБ должность на Старший лейтенант [№1]<t>2026-10-13 20:58:33<n>", action: "jsk_view" },
-    { name: "Alexey_Weenskiy изменил должность {nick} на Капитан [№6] в Мин. внутренних дел<t>2026-10-13 20:58:29<n>", action: "jsk_view" },
-    { name: "Alexey_Weenskiy принял {nick} в Мин. внутренних дел должность на Рядовой [№1]<t>2026-10-13 20:58:20<n>", action: "jsk_view" },
-    { name: "{nick} покинул организацию Правительство по собственному желанию<t>2026-09-22 15:44:22<n>", action: "jsk_view" },
+    { name: "{nick} покинул организацию Правительство по собственному желанию<t>2026-10-10 15:44:22<n>", action: "jsk_view" },
     { name: "Artem_Ledum изменил должность {nick} на Старший Секретарь [№5] в Правительство<t>2026-08-29 19:30:47<n>", action: "jsk_view" },
     { name: "Gabriel_Quintero изменил должность {nick} на Секретарь [№4] в Правительство<t>2026-08-28 16:45:11<n>", action: "jsk_view" },
     { name: "Gabriel_Quintero изменил должность {nick} на Нач. Охраны [№3] в Правительство<t>2026-08-27 23:00:29<n>", action: "jsk_view" },
@@ -133,7 +129,7 @@ const FAKE_WB2 = {
             status:     1,            // уволен
             fireStatus: 0,
             inviteDate: 1787826093,   // 2026-08-27 10:21:33 — принят в Правительство
-            fireDate:   1790091862,   // 2026-09-22 15:44:22 — уволился (23 дня назад)
+            fireDate:   1791647062,   // 2026-10-10 15:44:22 — уволился (22 дня назад)
             experience: "26 дн.",
             reason:     "Не указана"
         }
