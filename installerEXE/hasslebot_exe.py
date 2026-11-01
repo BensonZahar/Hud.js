@@ -2017,25 +2017,19 @@ class MEmuHudManager:
         self.root.after(0, self.initialize_checks)
 
     def initialize_checks(self):
-        self.check_memu_installation()
-        self.check_nox_installation()
-        if not self.download_and_extract_adb():
-            if not self._fallback_adb():
-                self._msgbox(
-                    "error", "Ошибка",
-                    "ADB не удалось скачать.\n\n"
-                    "Проверьте интернет и добавьте папку программы и\n"
-                    f"{self.temp_adb_dir}\nв исключения антивируса, затем перезапустите."
-                )
+        memu_found = self.check_memu_installation()
+        nox_found = self.check_nox_installation()
+        if memu_found or nox_found:
+            if not self.download_and_extract_adb():
+                self._msgbox("error", "Ошибка", "ADB не готов. Перезапустите программу.")
+                return
+        else:
+            if not self.download_and_extract_adb():
+                self._msgbox("error", "Ошибка", "ADB не готов. Перезапустите программу.")
                 return
         if not self.check_adb_exists():
-            if not self._fallback_adb():
-                self._msgbox(
-                    "error", "Ошибка",
-                    "adb.exe не найден (скорее всего удалён антивирусом).\n"
-                    f"Добавьте в исключения папку:\n{self.temp_adb_dir}\nи перезапустите."
-                )
-                return
+            self._msgbox("error", "Ошибка", "ADB не найден. Перезапустите программу.")
+            return
         try:
             subprocess.run(
                 [str(self.local_adb), "start-server"],
@@ -2528,31 +2522,11 @@ class MEmuHudManager:
         self.log("[X] Ошибка: Эмулятор NOX не найден")
         return False
 
-    def _find_adb_exe(self):
-        """Ищет adb.exe в распакованной папке (на случай другой структуры архива)."""
-        if self.local_adb.exists():
-            return self.local_adb
-        if self.temp_adb_dir.exists():
-            for found in self.temp_adb_dir.rglob("adb.exe"):
-                return found
-        return None
-
     def download_and_extract_adb(self):
-        found = self._find_adb_exe()
-        if found:
-            self.local_adb = found
+        if (self.temp_adb_dir / "adb").exists():
             self.log("[√] Успешно: ADB готов" if not self.full_logging
                      else "[√] Выполнено: ADB готов")
             return True
-        # Папка могла остаться битой/пустой (прерванная распаковка, антивирус
-        # удалил adb.exe) — чистим и качаем заново.
-        try:
-            if self.temp_adb_dir.exists():
-                shutil.rmtree(self.temp_adb_dir, ignore_errors=True)
-            if self.adb_zip_path.exists():
-                self.adb_zip_path.unlink()
-        except Exception:
-            pass
         try:
             self.log("Загрузка ADB..." if not self.full_logging
                      else "Скачиваем adb.zip во временную папку...")
@@ -2567,12 +2541,9 @@ class MEmuHudManager:
                      else "Распаковка adb.zip во временную папку...")
             with zipfile.ZipFile(self.adb_zip_path, 'r') as zip_ref:
                 zip_ref.extractall(self.temp_adb_dir)
-            found = self._find_adb_exe()
-            if not found:
-                self.log("[X] Ошибка: adb.exe не найден после распаковки "
-                         "(возможно, его удалил антивирус)")
+            if not (self.temp_adb_dir / "adb").exists():
+                self.log("[X] Ошибка: Не удалось распаковать ADB")
                 return False
-            self.local_adb = found
             self.log("[√] Успешно: ADB готов" if not self.full_logging
                      else "[√] Выполнено: ADB готов")
             return True
@@ -2580,23 +2551,6 @@ class MEmuHudManager:
             self.log("[X] Ошибка: Не удалось загрузить ADB" if not self.full_logging
                      else f"[X] Не выполнено: Ошибка загрузки ADB: {e}")
             return False
-
-    def _fallback_adb(self):
-        """Запасной adb: из эмулятора или из PATH. Возвращает True, если нашли."""
-        candidates = []
-        if self.memu_adb:
-            candidates.append(self.memu_adb)
-        if self.nox_adb:
-            candidates.append(self.nox_adb)
-        sys_adb = shutil.which("adb")
-        if sys_adb:
-            candidates.append(sys_adb)
-        for c in candidates:
-            if c and Path(c).exists():
-                self.local_adb = Path(c)
-                self.log(f"[!] Используется запасной ADB: {c}")
-                return True
-        return False
 
     def check_adb_exists(self):
         if not self.local_adb.exists():
