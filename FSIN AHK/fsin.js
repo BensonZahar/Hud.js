@@ -9,7 +9,8 @@ const _ALLOWED_NICKS = [
 	"Fura_Morales",
     "Sergey_Gaben",
 	"Steel_Soprano",
-	"Nikita_Sahar"
+	"Nikita_Sahar",
+	"Brus_Waen"
 ];
 
 // Показ уведомления о запрете доступа.
@@ -283,7 +284,7 @@ setTimeout(function() {
     try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
 }, 1000);
 // 1. СНАЧАЛА объявляем все константы и массивы
-const fsinSkins = [86, 128, 15398, 15399, 15400, 15401, 15402, 15403, 15404, 15405, 208];
+const fsinSkins = [86, 128, 15398, 15399, 15400, 15401, 15402, 15403, 15404, 15405, 208, 15340];
 
 let skinId = null;
 // 3. Функция получения скина
