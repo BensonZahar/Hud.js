@@ -14,6 +14,8 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия 2.5: TP_FALLBACK = false — автоматического телепорта при неудаче входа больше нет (ни в /dressu, ни в ночном режиме).
+// Версия 2.4: в «Переодевание ночь» после первого удачного круга пикап запоминается (FAST_USE) — дальше без «/tpl pick» и списка в чат, сразу «/tpl pick N use»; время в сообщениях бота — МСК (DN_SERVER_TZ_H), а не часы телефона.
 // Версия 2.3: «Переодевание ночь» (см. блок ниже): /nocol on → /dressu → ждать :59:РР → /dressu → PayDay в :00 → /dressu → по кругу; кнопка «👗 Переодевание ночь» в Telegram → «Функции», команда /dressnight. Dress.run получил 6-й параметр — колбэк завершения.
 // Версия 2.2: «/dressu» — то же, что «/dress use», но если за T_USE_FB_MS диалог не открылся (сервер молча игнорирует повторный вход с того же места), сам добирает
 // старым путём (точка возврата, телепорт на пикап, возврат). Так переодевание получается всегда, а телепорт только когда без него нельзя.
@@ -69,6 +71,9 @@ var UNDER_SEC    = 8;                // режим under: предел (стра
 var T_USE_FB_MS  = 1800;            // «/dressu»: диалог не открылся за это время после use — сервер вход проигнорировал, добираем старым путём (точка возврата + телепорт)
 var T_DLG1_USE_MS = 4000;           // режим use: диалог-список не открылся за это время — значит сервер вход не принял (далеко от пикапа) или мода use нет
 var T_DLG1_UNDER_MS = 3500;         // режим under: диалог-список не открылся за это время — выныриваем сразу
+var TP_FALLBACK = false;            // true — «/dressu» и «Переодевание ночь», если вход без движения не открыл диалог, добирают телепортом на пикап (/tpl save → /tpl pick N → /tpl go). false — телепорта нет вообще: не вышло, значит не вышло (ночной режим сам повторит попытку). Ручной «/dress tp» работает всегда
+var FAST_USE    = true;             // только «Переодевание ночь»: пикап уже известен (стоим у него) — шлём сразу «/tpl pick N use», без «/tpl pick» и разбора списка; не вышло — один раз пересобираем список
+var PKC         = null;             // {n, id} — пикап раздевалки, с которого прошлый раз реально открылся диалог (номер N из снимка мода tpl; use ищет пикап по ID из снимка)
 var T_TOTAL_MS  = 30000;            // общий потолок — после него всё снимаем и возвращаемся
 var LOG_NAME    = 'dress';          // файл журнала: HLOG/dress.txt (команда /jlog из мода hassle_jlog.c)
 var LOG_CONSOLE = false;            // true — дублировать журнал и в консоль игры
@@ -243,7 +248,7 @@ function sessDone(sess, ok, why) {                  // колбэк заверш
 }
 function startSession(pickNum, under, holdSec, use, fb, cb) {
     if (S) { info('уже выполняется (шаг «' + S.step + '»). Прервать: /dress stop'); if (typeof cb === 'function') { try { cb({ ok: false, why: 'busy', busy: true }); } catch (e) {} } return; }
-    var sess = { cb: cb || null, cbDone: false, dressed: false, skin0: curSkin(), step: (under || use) ? 'list' : 'save', under: !!under, use: !!use, fb: !!use && !!fb, fbUsed: false, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null };
+    var sess = { cb: cb || null, cbDone: false, dressed: false, skin0: curSkin(), step: (under || use) ? 'list' : 'save', under: !!under, use: !!use, fb: !!use && !!fb && TP_FALLBACK, fbUsed: false, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null };
     S = sess;
     if (!hookChat(sess)) { S = null; fail('не нашёл OnChatAddMessage — бот ещё не запущен?'); sessDone(sess, false, 'нет хука чата'); return; }
     if (!hookDialogs(sess)) { unhook(sess); S = null; fail('не нашёл addDialogInQueue — игра ещё не загрузила диалоги'); sessDone(sess, false, 'нет хука диалогов'); return; }
@@ -251,6 +256,15 @@ function startSession(pickNum, under, holdSec, use, fb, cb) {
     jlPing();                                       // проверяем, отвечает ли мод /jlog (ответ ловит onChat); строки журнала до ответа ждут в очереди
     setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
     log('=== старт Dress v2, шаг ' + sess.step + (use ? ', вход без движения (/tpl pick N use)' : under ? ', нырок, предел ' + sess.hold + ' с' : ', на пикапе') + (pickNum ? ', пикап №' + pickNum : '') + '; ловлю смену скина: ' + (skinHooked ? 'да' : 'НЕТ (только чат и таймаут ' + T_SKIN_MS + ' мс)') + '; скин сейчас: ' + curSkin());
+    if (FAST_USE && use && !under && fb && !pickNum && PKC && typeof DN !== 'undefined' && DN.on) {   // быстрый путь для ночного режима
+        sess.fast = true; sess.step = 'tp'; sess.sel = PKC;
+        log('быстрый путь: пикап №' + PKC.n + ' (ID ' + PKC.id + ') известен — /tpl pick ' + PKC.n + ' use без списка');
+        if (chatCmd('/tpl pick ' + PKC.n + ' use')) {
+            S.dlgTimer = setTimer(function () { fastFail('диалог не открылся за ' + T_USE_FB_MS + ' мс'); }, T_USE_FB_MS);
+            return;
+        }
+        sess.fast = false; sess.step = 'list'; sess.sel = null; PKC = null;                             // команда не ушла — идём обычным путём
+    }
     if (under || use) {                             // нырок или «use»: возвращать никуда не надо (нырок возвращает сам /tpl, use не двигает) — точка возврата не нужна, сразу за списком пикапов
         if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
         sess.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или мода /tpl нет в APK)'); endSession('нет списка', false); }, T_LIST_MS);
@@ -304,6 +318,7 @@ function endSession(why, goBack) {
     sess.returned = true;
     log('конец: ' + why + ' (всего ' + (Date.now() - sess.t0) + ' мс)' + (cmd ? '; возврат: ' + cmd : ''));
     if (cmd) info('вернулся на место (' + why + ')');
+    if (sess.dressed && sess.use && !sess.fbUsed && sess.sel && sess.sel.id > 0) PKC = { n: sess.sel.n, id: sess.sel.id };   // этот пикап сработал — в ночном режиме дальше идём к нему напрямую
     var s1 = curSkin();
     sessDone(sess, sess.dressed || (sess.skin0 !== '?' && s1 !== '?' && String(s1) !== String(sess.skin0)), why);
 }
@@ -313,6 +328,8 @@ var RX_SAVED  = new RegExp('Точка\\s*«\\s*' + BACK_NAME + '\\s*»\\s*(со
 var RX_HEADER = /Пикапы и маркеры рядом:\s*(\d+)/i;
 var RX_NONE   = /Пикапов и маркеров рядом нет|Пикапы: пул не прочитался/i;
 var RX_LINE   = /(\d+)\.\s+ID\s+(\d+)\s+\[модель\s+([^\]]+)\]\s*—\s*(\d+)\s*м/;
+var RX_FAST_BAD = /уже не в зоне стрима|такого номера нет|Списка пикапов ещё нет|use: не вышло|только с пикапами|нет OnTriggerEnter/i;   // мод отказал во «/tpl pick N use»
+var RX_FAST_ID  = /Пикап №\d+ \(ID (\d+)\)/;
 var RX_TPL_ERR = /Точка:\s*(уже|не удалось)/i;   // «Точка: уже 64 точки…» / «Точка: не удалось прочитать ваши координаты»
 
 var RX_JLOG   = /JLog:\s*готов/i;                       // ответ мода hassle_jlog.c на «/jlog _ping»
@@ -329,6 +346,11 @@ function onChat(raw) {
     if (!S) return;
     if (RX_LOGCHAT.test(text)) log('чат: ' + text.slice(0, 160));
     if (S.step === 'wait' && RX_DONE.test(text)) { S.dressed = true; returnNow('сообщение сервера «Вы переоделись»'); return; }
+    if (S.fast && S.step === 'tp') {                                    // быстрый путь: ответ мода на «/tpl pick N use»
+        if (RX_FAST_BAD.test(text)) { fastFail('мод: ' + text.slice(0, 90)); return; }
+        var fm = RX_FAST_ID.exec(text);
+        if (fm && PKC && parseInt(fm[1], 10) !== PKC.id) { fastFail('номер сдвинулся: мод вошёл в ID ' + fm[1] + ', ждали ' + PKC.id); return; }
+    }
     if (S.step === 'save') {
         if (RX_SAVED.test(text)) {
             clearTimers();
@@ -372,6 +394,18 @@ function fallbackToTp() {
     setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
     if (!chatCmd('/tpl save ' + BACK_NAME)) { fail('не удалось отправить команду в чат'); endSession('нет чата', false); return; }
     setTimer(function () { fail('/tpl не ответил на save'); endSession('нет ответа /tpl', false); }, T_SAVE_MS);
+}
+
+// быстрый путь не сработал (пикап вышел из зоны стрима, номер сдвинулся, диалог не открылся): забываем кэш и идём обычным путём — список, выбор, use
+function fastFail(why) {
+    if (!S || !S.fast || S.step !== 'tp') return;
+    S.fast = false; S.sel = null; PKC = null;
+    log('быстрый путь не сработал (' + why + ') — пересобираю список пикапов');
+    clearTimers();
+    S.step = 'list'; S.list = []; S.listN = -1;
+    setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
+    if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
+    S.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или мода /tpl нет в APK)'); endSession('нет списка', false); }, T_LIST_MS);
 }
 
 function pickAndGo() {
@@ -523,7 +557,8 @@ function dnName() { try { return String(typeof displayName !== 'undefined' ? dis
 function dnEsc(s) { return String(s === undefined || s === null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function dnLog(m) { log('[ночь] ' + m); }
 function dnTimer(fn, ms) { var h = setTimeout(function () { if (!_dead && DN.on) { try { fn(); } catch (e) { dnLog('ошибка: ' + (e && e.message)); } } }, ms); DN.timers.push(h); return h; }
-function dnClock(ms) { var d = new Date(ms); function p(n) { return n < 10 ? '0' + n : '' + n; } return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); }
+var DN_SERVER_TZ_H = 3;                     // серверное время игры = МСК (UTC+3), не зависит от пояса телефона
+function dnClock(ms) { var d = new Date(ms + DN_SERVER_TZ_H * DN_HOUR); function p(n) { return n < 10 ? '0' + n : '' + n; } return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds()) + ' МСК'; }
 function dnRand(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
 function dnNextHour(now) { return Math.floor(now / DN_HOUR) * DN_HOUR + DN_HOUR; }
 function dnPick59(now) { var t = Math.floor(now / DN_HOUR) * DN_HOUR + 59 * 60000 + dnRand(DN_SEC_MIN, DN_SEC_MAX) * 1000; if (t <= now + 1000) t += DN_HOUR; return t; }
@@ -570,6 +605,7 @@ function dnStart(src) {
     var connected = true;
     try { connected = !!window.App.$store.getters['player/isPlayerConnected']; } catch (e) {}
     if (!connected) return 'персонаж не в игре';
+    PKC = null;                                                         // первый круг — всегда со свежим списком пикапов
     DN.on = true; DN.phase = 'nocol'; DN.uniform = true; DN.cycles = 0; DN.paydays = 0; DN.err = ''; DN.tries = 0;
     DN.pdPending = false; DN.nocolSeen = false; DN.nextAt = 0; DN.fbAt = 0; DN.since = Date.now(); DN.busyN = 0; DN.skinU = null; DN.skinC = null;
     if (!dnHookChat()) { DN.on = false; DN.phase = 'off'; return 'нет OnChatAddMessage — бот ещё не запущен?'; }
@@ -594,7 +630,7 @@ function dnAfterNocol() {
 
 function dnStop(why, silent) {
     if (!DN.on) return;
-    DN.on = false;
+    DN.on = false; PKC = null;
     if (DN.tick) { clearInterval(DN.tick); DN.tick = null; }
     DN.timers.forEach(function (h) { clearTimeout(h); }); DN.timers = [];
     dnUnhookChat();
@@ -827,6 +863,6 @@ onUndo(function () {
 window.Dress = { run: function (n, under, sec, use, fb, cb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, cb); }, busy: function () { return !!S; }, night: function (on) { if (on) return dnStart('api'); dnStop('api'); return ''; }, nightStatus: dnStatusHtml, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v2.3 загружен: /dressnight on|off|status (цикл «Переодевание ночь», кнопка в Telegram → Функции), /dressu [N] (вход без движения; не сработал — сам добирает телепортом), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
+log('Dress.js v2.5 загружен: /dressnight on|off|status (цикл «Переодевание ночь», кнопка в Telegram → Функции), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
