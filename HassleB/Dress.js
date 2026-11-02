@@ -14,6 +14,7 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия 2.7: исправлен баг «список пикапов не пришёл» через 2,5 с: мод отвечает синхронно, таймер списка заводился ПОСЛЕ уже прошедшего списка и убивал живую сессию — из-за него настоящая причина (диалог не открылся) терялась.
 // Версия 2.6: диагностика «слишком близко к пикапу» (сервер игнорирует повторный вход, пока вы ближе 1.5 м; работает на 1.5…4 м) — сообщение вместо молчаливой неудачи.
 // Версия 2.5: TP_FALLBACK = false — автоматического телепорта при неудаче входа больше нет (ни в /dressu, ни в ночном режиме).
 // Версия 2.4: в «Переодевание ночь» после первого удачного круга пикап запоминается (FAST_USE) — дальше без «/tpl pick» и списка в чат, сразу «/tpl pick N use»; время в сообщениях бота — МСК (DN_SERVER_TZ_H), а не часы телефона.
@@ -176,6 +177,7 @@ function respond(dialogId, response, listitem, text) {
 var S = null;
 
 function setTimer(fn, ms) {
+    if (!S) return null;                                                // сессия уже закончилась (мод отвечает синхронно, внутри chatCmd)
     var h = setTimeout(function () { if (!_dead && S) { try { fn(); } catch (e) { fail('ошибка: ' + (e && e.message)); endSession('ошибка', true); } } }, ms);
     S.timers.push(h);
     return h;
@@ -262,18 +264,20 @@ function startSession(pickNum, under, holdSec, use, fb, cb) {
         sess.fast = true; sess.step = 'tp'; sess.sel = PKC;
         log('быстрый путь: пикап №' + PKC.n + ' (ID ' + PKC.id + ') известен — /tpl pick ' + PKC.n + ' use без списка');
         if (chatCmd('/tpl pick ' + PKC.n + ' use')) {
-            S.dlgTimer = setTimer(function () { fastFail('диалог не открылся за ' + T_USE_FB_MS + ' мс'); }, T_USE_FB_MS);
+            if (S === sess && sess.fast && sess.step === 'tp') S.dlgTimer = setTimer(function () { fastFail('диалог не открылся за ' + T_USE_FB_MS + ' мс'); }, T_USE_FB_MS);
             return;
         }
         sess.fast = false; sess.step = 'list'; sess.sel = null; PKC = null;                             // команда не ушла — идём обычным путём
     }
     if (under || use) {                             // нырок или «use»: возвращать никуда не надо (нырок возвращает сам /tpl, use не двигает) — точка возврата не нужна, сразу за списком пикапов
         if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
-        sess.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или мода /tpl нет в APK)'); endSession('нет списка', false); }, T_LIST_MS);
+        // мод отвечает СИНХРОННО (внутри chatCmd): список, выбор пикапа и «use» могут пройти ещё до этой строки. Таймер списка заводим, только если мы всё ещё ждём список —
+        // иначе он «осиротеет» и через T_LIST_MS убьёт уже идущую сессию («список не пришёл» при том, что список был)
+        if (S === sess && sess.step === 'list') sess.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или мода /tpl нет в APK)'); endSession('нет списка', false); }, T_LIST_MS);
         return;
     }
     if (!chatCmd('/tpl save ' + BACK_NAME)) { fail('не удалось отправить команду в чат'); endSession('нет чата', false); return; }
-    setTimer(function () { fail('/tpl не ответил на save — мод tpl не установлен в этом APK?'); endSession('нет ответа /tpl', false); }, T_SAVE_MS);
+    if (S === sess && sess.step === 'save') setTimer(function () { fail('/tpl не ответил на save — мод tpl не установлен в этом APK?'); endSession('нет ответа /tpl', false); }, T_SAVE_MS);
 }
 
 function curSkin() {
@@ -362,7 +366,7 @@ function onChat(raw) {
             S.step = 'list';
             log('точка возврата сохранена, запрашиваю список пикапов');
             if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
-            S.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или /tpl pick не сработал)'); endSession('нет списка', false); }, T_LIST_MS);
+            if (S && S.step === 'list') S.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или /tpl pick не сработал)'); endSession('нет списка', false); }, T_LIST_MS);
         } else if (RX_TPL_ERR.test(text)) {
             fail('/tpl save не удался: ' + text.slice(0, 80)); endSession('save не удался', false);
         }
@@ -397,7 +401,7 @@ function fallbackToTp() {
     S.step = 'save'; S.list = []; S.listN = -1;
     setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
     if (!chatCmd('/tpl save ' + BACK_NAME)) { fail('не удалось отправить команду в чат'); endSession('нет чата', false); return; }
-    setTimer(function () { fail('/tpl не ответил на save'); endSession('нет ответа /tpl', false); }, T_SAVE_MS);
+    if (S && S.step === 'save') setTimer(function () { fail('/tpl не ответил на save'); endSession('нет ответа /tpl', false); }, T_SAVE_MS);
 }
 
 // быстрый путь не сработал (пикап вышел из зоны стрима, номер сдвинулся, диалог не открылся): забываем кэш и идём обычным путём — список, выбор, use
@@ -416,7 +420,7 @@ function fastFail(why) {
     S.step = 'list'; S.list = []; S.listN = -1;
     setTimer(function () { fail('общий тайм-аут'); endSession('тайм-аут', true); }, T_TOTAL_MS);
     if (!chatCmd('/tpl pick')) { fail('не удалось отправить /tpl pick'); endSession('нет чата', false); return; }
-    S.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или мода /tpl нет в APK)'); endSession('нет списка', false); }, T_LIST_MS);
+    if (S && S.step === 'list') S.listTimer = setTimer(function () { fail('список пикапов не пришёл (рядом нет пикапов или мода /tpl нет в APK)'); endSession('нет списка', false); }, T_LIST_MS);
 }
 
 function pickAndGo() {
@@ -875,6 +879,6 @@ onUndo(function () {
 window.Dress = { run: function (n, under, sec, use, fb, cb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, cb); }, busy: function () { return !!S; }, night: function (on) { if (on) return dnStart('api'); dnStop('api'); return ''; }, nightStatus: dnStatusHtml, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v2.6 загружен: /dressnight on|off|status (цикл «Переодевание ночь», кнопка в Telegram → Функции), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
+log('Dress.js v2.7 загружен: /dressnight on|off|status (цикл «Переодевание ночь», кнопка в Telegram → Функции), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
