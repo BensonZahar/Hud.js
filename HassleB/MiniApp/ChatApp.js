@@ -12,6 +12,16 @@
 // ║    (local_chat_app_<id>) шлёт карточку с кнопкой.                    ║
 // ║  • /chatapp в игровом чате — прислать карточку с кнопкой.            ║
 // ║  • /chatsnap — то же, но без Firebase: только снимок из ссылки.      ║
+// ║  • СТРОКА ВВОДА в мини-аппе (как в игре): страница кладёт сообщение  ║
+// ║    в Firebase /chatin/<ключ отправки>.json, игра опрашивает эту      ║
+// ║    очередь и отправляет текст тем же sendChatInput, что и «Написать  ║
+// ║    в чат». Ключ отправки — ОТДЕЛЬНЫЙ от ключа чата (как у джойстика):║
+// ║    ссылка с ним даёт писать и выполнять команды от имени персонажа.  ║
+// ║    Обычный текст режется на куски ≤ 83 символов, между отправками    ║
+// ║    пауза и учёт антифлуда (как в Code3.js). Подтверждение доставки   ║
+// ║    — поле «a» в /chat/<ключ> (id принятых сообщений).                ║
+// ║    ВАЖНО: в Firebase → Realtime Database → Rules нужно правило для   ║
+// ║    /chatin (см. конец файла), иначе запись из мини-аппа вернёт 401.  ║
 // ║  Страница лежит рядом: HassleB/MiniApp/chatapp.html                  ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 try { (function () {
@@ -29,6 +39,15 @@ try { (function () {
     const HEARTBEAT = 20000;      // новых нет — всё равно обновляем метку времени, мс
     const URL_MAX = 1900;         // лимит ссылки-кнопки Telegram (как в Stats.js)
     const SNAP_TXT = 150;         // обрезка строки в снимке-ссылке
+    // ── Отправка из мини-аппа (строка ввода) ──
+    const IN_IDLE = 2000;         // как часто игра смотрит очередь /chatin, пока мини-апп молчит, мс
+    const IN_HOT = 400;           // …и пока мини-апп «рядом» (человек печатает / только что отправил), мс
+    const IN_HOT_MS = 25000;      // сколько держим быстрый режим после последней активности, мс
+    const IN_MAX = 512;           // как в игре: MAX_INPUT_LENGTH поля ввода
+    const SAY_LIMIT = 83;         // обычный чат длиннее сервер отбрасывает — режем на куски (как Code3.js)
+    const SAY_GAP = 700;          // пауза между кусками/командами, мс
+    const ACK_MAX = 12;           // сколько последних принятых id отдаём в /chat (подтверждение доставки)
+    const SEEN_MAX = 80;          // сколько последних id помним, чтобы не отправить дважды
 
     // Часовой пояс игры (минуты, как Date.getTimezoneOffset): игра пишет [ЧЧ:ММ:СС] по своему времени — мини-апп показывает так же
     function TZ() { try { return new Date().getTimezoneOffset(); } catch (e) { return 0; } }
@@ -36,12 +55,13 @@ try { (function () {
     function stale() { try { return typeof __hassleStale === 'function' && !!__hassleStale(); } catch (e) { return false; } }
     function who() { return (typeof displayName !== 'undefined' && displayName) ? String(displayName) : (window.CURRENT_USER || '?'); }
 
-    // Секретный ключ чата — свой, случайный, хранится в localStorage игры
-    function chatKey() {
-        const lsName = 'hassleChatKey' + (window.ACCOUNT_NUMBER ? '_' + window.ACCOUNT_NUMBER : '');
+    // Секретные ключи — свои, случайные, хранятся в localStorage игры.
+    // chatKey — чтение чата (/chat), sendKey — отправка из мини-аппа (/chatin): отдельный, как ctlKey у джойстика.
+    function secretKey(lsBase, winProp) {
+        const lsName = lsBase + (window.ACCOUNT_NUMBER ? '_' + window.ACCOUNT_NUMBER : '');
         let k = null;
         try { k = localStorage.getItem(lsName); } catch (e) {}
-        if (!k) k = window.__hassleChatKey;
+        if (!k) k = window[winProp];
         if (!k || !/^[A-Za-z0-9]{20,}$/.test(k)) {
             const A = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
             let r = [];
@@ -50,9 +70,11 @@ try { (function () {
             for (let i = 0; i < 28; i++) k += A[(r.length ? r[i] : Math.floor(Math.random() * 62)) % 62];
             try { localStorage.setItem(lsName, k); } catch (e) {}
         }
-        window.__hassleChatKey = k;
+        window[winProp] = k;
         return k;
     }
+    function chatKey() { return secretKey('hassleChatKey', '__hassleChatKey'); }
+    function sendKey() { return secretKey('hassleChatSendKey', '__hassleChatSendKey'); }
     // Компактная упаковка снимка (вмещает вдвое больше сообщений, чем JSON): кириллица — 1 байт (как cp1251),
     // «{RRGGBB}» — 4 байта (0x01 R G B), прочее вне ASCII — 0x02 + код символа. Обратно разбирает chatapp.html.
     function packStr(str) {
@@ -90,7 +112,8 @@ try { (function () {
     // вариант (Firebase недоступен — апп покажет снимок на момент отправки кнопки). Берём сколько влезает в лимит ссылки.
     // Формат до упаковки: первая строка «время(с)|пояс», дальше «секунд назад|цвет|текст» (цвет пуст — как у предыдущей).
     function appUrl(snapOnly) {   // snapOnly — без ключа k: страница не ходит в Firebase, показывает только снимок из ссылки
-        const base = APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + (snapOnly ? '' : 'k=' + chatKey() + '&') + 'n=' + encodeURIComponent(who()) + '&s=';
+        // w — ключ отправки (строка ввода в мини-аппе); в снимке (snapOnly) его нет — там писать некуда
+        const base = APP_URL + (APP_URL.indexOf('?') === -1 ? '?' : '&') + (snapOnly ? '' : 'k=' + chatKey() + '&w=' + sendKey() + '&') + 'n=' + encodeURIComponent(who()) + '&s=';
         const now = Date.now(), room = URL_MAX - base.length, head = Math.round(now / 1000) + '|' + TZ() + '\n';
         let used = packStr(head).length;
         const pick = [];
@@ -110,6 +133,8 @@ try { (function () {
     // ── Буфер сообщений (на window — переживает /reload) ──
     const buf = window.__hassleChatBuf = window.__hassleChatBuf || [];
     let dirty = true, seq = window.__hassleChatSeq || 0;
+    // id сообщений из мини-аппа, принятых игрой (уходят в /chat как «a» — по ним страница видит «доставлено»)
+    const acks = window.__hassleChatAck = window.__hassleChatAck || [];
 
     function onMsg(text, color, hidden) {
         try {
@@ -150,7 +175,7 @@ try { (function () {
         const m = buf.slice();
         let str = '';
         for (;;) {
-            str = JSON.stringify({ t: now, z: TZ(), m: m });
+            str = JSON.stringify({ t: now, z: TZ(), a: acks, m: m });
             if (str.length <= DB_MAX || m.length <= 1) break;
             m.shift();   // не влезает в лимит — выкидываем самые старые
         }
@@ -177,6 +202,130 @@ try { (function () {
         try { push(false); } catch (e) {}
     }, EVERY);
     window.__hassleChatTimer = timer;
+
+    // ── Приём сообщений из мини-аппа (строка ввода) ──
+    // Страница кладёт в /chatin/<ключ отправки> строку-JSON {p: метка «я рядом», m: [[id, текст], …]} — в m все ещё
+    // не подтверждённые сообщения по порядку. Игра берёт те id, которых ещё не видела, и отправляет их так же, как игрок
+    // из поля ввода / Telegram «Написать в чат»: sendChatInput(текст) — через всю цепочку хуков (/hb, /zon и т.д. работают).
+    // Первое чтение после запуска игры только запоминает то, что уже лежит в очереди: сообщения, написанные, пока игры не было, не уходят.
+    const seen = window.__hassleChatSeen = window.__hassleChatSeen || [];   // пережили /reload — повторно не отправляем
+    let inFirst = !window.__hassleChatInInit, inBusy = false, inFails = 0, lastP = null, hotUntil = 0, inWarned = false;
+    window.__hassleChatInInit = true;
+
+    // Лимит сервера: за раз ≥ 3 сообщений подряд — «Не флудите». Модель как в Code3.js: каждое +1000, убывает со временем.
+    const fl = { rate: 0, last: Date.now() };
+    function floodWait() {
+        const n = Date.now(); fl.rate = Math.max(0, fl.rate - (n - fl.last)); fl.last = n;
+        const over = fl.rate + 1000 - (3000 - 200);
+        return over > 0 ? Math.ceil(over) : 0;
+    }
+    function floodNote() { floodWait(); fl.rate += 1000; }
+
+    // Обычный текст режем на куски ≤ max по концу предложения/запятой/пробелу; команды («/…») не трогаем
+    function splitSay(text, max) {
+        text = String(text).trim();
+        if (text.charAt(0) === '/' || text.length <= max) return [text];
+        const parts = [];
+        let s = text;
+        while (s.length > max) {
+            const win = s.slice(0, max + 1);
+            let cut = -1, i, k;
+            const enders = ['. ', '! ', '? '], commas = [', ', '; '];
+            for (k = 0; k < enders.length; k++) { i = win.lastIndexOf(enders[k]); if (i >= max * 0.4) cut = Math.max(cut, i + 1); }
+            if (cut === -1) for (k = 0; k < commas.length; k++) { i = win.lastIndexOf(commas[k]); if (i >= max * 0.4) cut = Math.max(cut, i + 1); }
+            if (cut === -1) { i = win.lastIndexOf(' '); if (i > 0) cut = i; }
+            if (cut <= 0) cut = max;
+            parts.push(s.slice(0, cut).trim());
+            s = s.slice(cut).trim();
+        }
+        if (s) parts.push(s);
+        return parts.filter(Boolean);
+    }
+    function chatSend(t) {
+        if (typeof sendChatInput === 'function') return sendChatInput(t);
+        if (typeof window.sendChatInput === 'function') return window.sendChatInput(t);
+        throw new Error('sendChatInput недоступен');
+    }
+    const sayQ = [];
+    let sayBusy = false;
+    function sayDrain() {
+        if (stale()) { sayQ.length = 0; sayBusy = false; return; }
+        if (!sayQ.length) { sayBusy = false; return; }
+        sayBusy = true;
+        const w = floodWait();
+        if (w > 0) { setTimeout(sayDrain, w + 5); return; }
+        const t = sayQ.shift();
+        floodNote();
+        try { chatSend(t); } catch (e) { dbg('не отправилось: ' + (e && e.message)); }
+        setTimeout(sayDrain, SAY_GAP);
+    }
+    function enqueue(text) {
+        splitSay(text, SAY_LIMIT).forEach(function (p) { sayQ.push(p); });
+        if (!sayBusy) sayDrain();
+    }
+
+    function inHandle(o) {
+        const list = Array.isArray(o.m) ? o.m : [];
+        let got = 0;
+        if (inFirst) {                                   // первый раз после запуска: старое не отправляем
+            list.forEach(function (r) { if (r && r[0] != null && seen.indexOf(String(r[0])) < 0) seen.push(String(r[0])); });
+            inFirst = false;
+            lastP = o.p == null ? null : o.p;
+        } else {
+            list.forEach(function (r) {
+                if (!r || r[0] == null) return;
+                const id = String(r[0]);
+                if (id.length > 40 || seen.indexOf(id) >= 0) return;
+                seen.push(id);
+                const text = String(r[1] == null ? '' : r[1]).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, IN_MAX);
+                acks.push(id);                            // принято (даже пустое — чтобы страница не ждала зря)
+                if (!text) return;
+                got++;
+                dbg('из мини-аппа: ' + (text.charAt(0) === '/' ? text.split(/\s+/)[0] + ' …' : '«' + text.slice(0, 40) + (text.length > 40 ? '…' : '') + '»'));
+                enqueue(text);
+            });
+            if (o.p != null && o.p !== lastP) { lastP = o.p; hotUntil = Date.now() + IN_HOT_MS; }   // страница открыта и человек пишет
+        }
+        if (seen.length > SEEN_MAX) seen.splice(0, seen.length - SEEN_MAX);
+        if (acks.length > ACK_MAX) acks.splice(0, acks.length - ACK_MAX);
+        if (got) { hotUntil = Date.now() + IN_HOT_MS; dirty = true; try { push(true); } catch (e) {} }   // подтверждение — в /chat сразу
+    }
+    function inPoll() {
+        if (stale()) return;
+        const next = function () {
+            try { window.clearTimeout(window.__hassleChatInTimer); } catch (e) {}
+            window.__hassleChatInTimer = window.setTimeout(inPoll, inFails >= 5 ? 10000 : (Date.now() < hotUntil ? IN_HOT : IN_IDLE));
+        };
+        if (inBusy) return next();
+        inBusy = true;
+        const x = new XMLHttpRequest();
+        x.open('GET', DB_URL + '/chatin/' + sendKey() + '.json?_=' + Date.now(), true);
+        x.timeout = 4000;
+        const fin = function (ok, st) {
+            inBusy = false;
+            if (ok) { if (inFails >= 5) dbg('очередь /chatin снова доступна'); inFails = 0; }
+            else {
+                inFails++;
+                if (inFails === 1 && !inWarned && (st === 401 || st === 403)) { inWarned = true; dbg('нет доступа к /chatin — добавьте правило в Rules (см. ChatApp.js), строка ввода в мини-аппе работать не будет'); }
+            }
+            next();
+        };
+        x.onload = function () {
+            if (x.status >= 200 && x.status < 300) {
+                try {
+                    const v = JSON.parse(x.responseText);
+                    if (typeof v === 'string') inHandle(JSON.parse(v));
+                    else if (inFirst) { inFirst = false; }   // очереди ещё нет — всё, что появится потом, новое
+                } catch (e) {}
+                fin(true, x.status);
+            } else fin(false, x.status);
+        };
+        x.onerror = function () { fin(false, 0); };
+        x.ontimeout = function () { fin(false, 0); };
+        x.send();
+    }
+    try { window.clearTimeout(window.__hassleChatInTimer); } catch (e) {}
+    window.__hassleChatInTimer = window.setTimeout(inPoll, 3000);
 
     // ── Карточка с кнопкой (запасной путь и команды /chatapp, /chatsnap) ──
     // snapOnly (/chatsnap): ссылка без ключа — страница НЕ ходит в Firebase и показывает только снимок последних сообщений из самой ссылки
@@ -308,6 +457,21 @@ try { (function () {
         return origTgApi.call(this, method, payload, onSuccess, failBack, retryCount);
     };
 
-    dbg('Мини-апп чата загружен (кнопка «💬 Чат», /chatapp, live через Firebase /chat)');
+    dbg('Мини-апп чата загружен (кнопка «💬 Чат», /chatapp, live через Firebase /chat, строка ввода через /chatin)');
 })(); } catch (e) { try { console.error('[CHATAPP] ошибка ChatApp.js:', e); } catch (e2) {} }
+
+/* ════════════ Правила Firebase для строки ввода (один раз) ════════════
+   Firebase Console → Realtime Database → Rules. Рядом с уже существующими "chat" / "ctl" добавьте:
+
+     "chatin": {
+       "$key": {
+         ".read": true,
+         ".write": true,
+         ".validate": "newData.isString() && newData.val().length < 4000"
+       }
+     }
+
+   Без этого правила страница при отправке получит 401/403 и покажет «Firebase не принял запись». Всё остальное (чтение чата) работает как раньше.
+   Если ссылка с ключом отправки утекла — удалите в localStorage игры ключ hassleChatSendKey и перезапустите игру: появится новый,
+   а старые ссылки перестанут работать (новую кнопку «💬 Чат» выдаст меню «Функции»). */
 // END ChatApp.js //

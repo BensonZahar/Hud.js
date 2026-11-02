@@ -35,12 +35,51 @@ mark{background:var(--a);color:#000;text-shadow:none;border-radius:2px;padding:0
 .empty{text-align:center;color:#fff6;padding:40px 0;text-shadow:none}
 .ft{flex:none;text-align:center;color:#fff5;font-size:11px;padding:6px 0 calc(6px + env(safe-area-inset-bottom));border-top:1px solid #ffffff14}
 .ok{color:var(--g)}.bad{color:var(--r)}.warn{color:var(--y)}.mut{color:#fff9}
-#dn{position:fixed;right:14px;bottom:calc(40px + env(safe-area-inset-bottom));display:none;padding:7px 14px;border-radius:20px;background:var(--a);color:#000;font:italic 800 12px "Open Sans";font-stretch:75%;text-transform:uppercase;box-shadow:0 4px 16px #0008;cursor:pointer}
+#dn{position:fixed;right:14px;bottom:calc(var(--cinh,0px) + 40px + env(safe-area-inset-bottom));display:none;padding:7px 14px;border-radius:20px;background:var(--a);color:#000;font:italic 800 12px "Open Sans";font-stretch:75%;text-transform:uppercase;box-shadow:0 4px 16px #0008;cursor:pointer}
+
+/* ── Строка ввода: как radmir-chat-input в игре (Hud.css) — линия сверху, прозрачное поле, RU/EN справа,
+   подсказки команд (radmir-chat-hints) и клавиша Enter (controls-button) ── */
+.cin{flex:none;background:#010106f5;padding:0 14px}
+.cin[hidden]{display:none}
+.cin-w{max-width:640px;margin:0 auto}
+.cin-st{display:none;align-items:center;gap:6px;min-height:22px;padding:6px 0 0;font-size:12px;font-weight:600;color:#fff9}
+.cin-st.on{display:flex}
+form.cin-row{margin:0}
+.cin-row{display:flex;align-items:center;height:46px;border-top:1px solid #f4f1e126;transition:border-color .25s}
+.cin.foc .cin-row{border-top-color:#ffb11099}
+.cin-row input{flex:1 1 auto;min-width:0;height:100%;padding:3px 0 0;background:transparent;border:0;outline:0;border-radius:0;color:#f4f1e1;font:500 16px/22px "Open Sans",Arial,sans-serif;text-shadow:0 1px 3px #000000b3;-webkit-appearance:none;appearance:none}
+.cin-row input::placeholder{color:#f4f1e166;text-shadow:none}
+.cin-row input::selection{background:#ff6a0040}
+.cin-row input:disabled{opacity:.5}
+.cin-lang{flex:none;display:flex;align-items:center;justify-content:flex-end;padding:3px 0 0 10px;color:#f4f1e199;font:700 16px/22px "Open Sans",Arial,sans-serif;text-shadow:0 1px 3px #000000b3;user-select:none}
+.cin-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 0 8px}
+.hints{display:flex;gap:6px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.hints::-webkit-scrollbar{display:none}
+.hint{flex:none;display:flex;align-items:center;height:30px;padding:0 9px;background:#f4f1e140;color:#f4f1e199;font:500 14px/22px "Open Sans",Arial,sans-serif;white-space:nowrap;cursor:pointer;text-shadow:0 1px 3px #000000b3;transition:all .25s ease;user-select:none}
+.hint b{font-weight:500;color:#f4f1e1;transition:color .25s}
+.hint:hover,.hint.act{background:#f4f1e1;color:#27272799;box-shadow:0 8px 40px #f8f6ed3d;text-shadow:none}
+.hint:hover b,.hint.act b{color:#272727}
+/* клавиша Enter: светлая «кнопка» с тенью-ножкой, при нажатии проседает (controls-button) */
+.ekey{flex:none;position:relative;height:30px;min-width:68px;margin:0 0 0 auto;padding:0;border:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent;font:inherit}
+.ekey i{position:absolute;left:0;right:0;top:3px;bottom:-3px;background:#ffffff40;border-radius:2px 2px 6px 6px;transition:opacity .1s}
+.ekey span{position:relative;display:flex;align-items:center;justify-content:center;height:100%;padding:0 12px;background:#d8d4cc;color:#010106;font:italic 700 14px/1 "Open Sans",Arial,sans-serif;font-stretch:75%;text-transform:uppercase;transition:transform .1s ease,background .25s}
+.ekey u{text-decoration:none;padding-bottom:2px;border-bottom:2px solid #01010640}
+.ekey:active span{transform:translateY(3px)}
+.ekey:active i{opacity:0}
+.ekey:disabled{cursor:default}
+.ekey:disabled span{background:#292524;color:#eeeee633}
+.ekey:disabled i{opacity:0}
+.ekey:disabled u{border-bottom-color:transparent}
 </style></head><body>
 <div class="hd"><div class="tabs" id="tabs"><i id="ln"></i></div><div class="rt"><div class="who" id="who"></div><div class="sbtn" id="sb" title="Поиск">🔍</div></div></div>
 <div class="sr" id="sr"><input id="q" type="search" placeholder="Поиск по чату…" autocomplete="off" autocapitalize="off" spellcheck="false"><span id="sc"></span><span id="sx" title="Очистить / закрыть">✕</span></div>
 <div id="log"></div>
 <div id="dn">↓ новые</div>
+<div class="cin" id="cin" hidden><div class="cin-w">
+ <div class="cin-st" id="cst"></div>
+ <form class="cin-row" id="cf" action="javascript:void 0" novalidate><input id="ci" type="text" maxlength="512" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-label="Сообщение в игровой чат"><div class="cin-lang" id="cl">RU</div></form>
+ <div class="cin-bar"><div class="hints" id="hints"></div><button class="ekey" id="ek" type="button" tabindex="-1" aria-label="Отправить"><i></i><span><u>Enter</u></span></button></div>
+</div></div>
 <div class="ft" id="ft"></div>
 <script>
 const $=s=>document.querySelector(s),
@@ -140,6 +179,7 @@ async function poll(){
    const o=JSON.parse(s);
    if(usingSnap){all=[];seen.clear();usingSnap=false}
    if(typeof o.z==='number')Z=o.z;
+   if(Array.isArray(o.a))ack(o.a);   // id сообщений из строки ввода, которые игра приняла
    if(o.t!==lastT){lastT=o.t;seenAt=Date.now()-(first?Math.min(Math.max(0,Date.now()-o.t),36e5):0)}
    if(merge(o.m||[])||first)render()
   }else if(first)render();
@@ -162,5 +202,107 @@ $('#dn').onclick=()=>{stick=true;L.scrollTop=L.scrollHeight;$('#dn').style.displ
 TABS.forEach((t,i)=>{const e=document.createElement('div');e.className='tab';e.innerHTML=t[1]+'<span>'+t[0]+'</span>';e.onclick=()=>show(i);$('#tabs').appendChild(e)});
 show(0);document.fonts&&document.fonts.ready.then(()=>show(cur));
 setInterval(tick,1000);
-if(K){poll();setInterval(poll,2000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});try{tg&&tg.onEvent('activated',poll)}catch(e){}}
+// ═══ Строка ввода (как в игре) ═══
+// Сообщение уходит в Firebase /chatin/<w> (w — отдельный ключ отправки из ссылки), игра забирает его и шлёт sendChatInput.
+// Подтверждение — id в поле «a» чата (см. ack). Список команд и раскладка для подсказок — из Hud.js / index4.js игры.
+const W=Q.get('w'),CAN=!!(K&&W),CIN=$('#cin'),CI=$('#ci'),CL=$('#cl'),CS=$('#cst'),HB=$('#hints'),EK=$('#ek'),CF=$('#cf');
+const CMDS='/no /yes /cancel /hi /todo /me /do /try /w /s /n /lic /pass /skill /pay /donate /package /wbook /eat /put /pick /menu /mn /help /play /anim /limit /e /l /b /i /ic /alarm /charity /bank /time /name /id /report /house /end /history /sellsim /eject /buyfuel /fill /repair /change_oil /change_filter /repair_iznos /tow /attach /getfuel /tune /endtune /business /buybiz /sellbiz /sellmybiz /buy /healme /present /mask /maskoff /blow /home /sellhome /sellmyhome /live /liveout /makestore /use /homelock /hotel /exit /reset /put_on /fixcam /armoff /lock /car /getmycar /park /key /sellmycar /carpass /allow /trunk /washing /garage /sellgarage /sellmygarage /setspawn /bushelp /returnmoney /hospital /fwarn /unfwarn /rang /changeskin /showall /uninviteoff /rr /ff /f /dd /d /doc /leaders /leave /close /blist /blist_add /blist_del /out /medhelp /medhelpdrug /heal /changesex /medcard /showmc /vb /warehouse /makegun /makekey /dropmaterials /smenu /givelic /debtorlist /debtorsell /drugs /mytickets /bind /notaries /teamcar /sellteamcar /pcode /plist /alist /market /drop /wedding /divorce /tie /bag /trash /fire_ext /robbery /rp /info /tdo /tdo_delete /b_rank /photo_screen /kiss /take_number /myjobs /sell_plate /take /capture_timer /uninvite /bomb /boombox_put /boombox_pick /watch /craft /warns /music /find_fight /fight /jcars /trucker /fuellist /spanel /dice /give_item /family_delete /family_leave /fmenu /fm /nfm /family_rank /gangs /gang_create /gang_car /gang_cars /gang_spawn /invite_gang /steal_cars /sellzone /hacking /gang /events /add_event /billiard /football /helloween /jblist /duck_whistle /exchange /train_work /pa_edit /call /phone /p /sms /togphone /h /phone_black /selfie /carsharing /eat_list /buygarage /garden /buygarden /sellgarden /mhouse /bonus /gps /notification /auction /to_prison /jail_info /jail_time /doc_hack /pour_water /trans_water /fires /liclist /adlist /medlist /team_history /ad /up /edit /all /efir /t /bring /topedit /platoon /su_reasons /break_door /post /post_find /r /rr /r_mute /r_channel /uniforms /su /takelic /search /cuff /uncuff /clear /m /putpl /break /wanted /setmark /skip /arrest /ticket /escort /dbreak /ejectout /free /pg /police_tablet /pagesize /timestamp /q /quit /r_set /radio_set /radio_manage /set_style /return_items /fb_lobby_exit /fbl_exit /fb_lobby_ch /fblc /fb_lobby_uninvite /fb_lobby_type /fbl_type /fb_lobby /fbl /create_match /fb_msg /checkdocs /bizlist /ticket_reasons'.split(' ');
+const LAY={'й':'q','ц':'w','у':'e','к':'r','е':'t','н':'y','г':'u','ш':'i','щ':'o','з':'p','х':'[','ъ':']','ф':'a','ы':'s','в':'d','а':'f','п':'g','р':'h','о':'j','л':'k','д':'l','ж':';','э':"'",'я':'z','ч':'x','с':'c','м':'v','и':'b','т':'n','ь':'m','б':',','ю':'.','.':'/'};
+const sw=s=>Array.from(s).map(c=>LAY[c]||c).join('');
+let outbox=[],hist=[],hi=-1,hIdx=-1,hl=[],stKind='',stT=0,pingAt=0,wBusy=false,wAgain=false,wFails=0,retryT=0;
+try{hist=JSON.parse(localStorage.getItem('hcHist')||'[]').filter(x=>typeof x==='string').slice(0,50)}catch(e){}
+function pending(){return outbox.length>0}
+function fitC(){if(!CIN.hidden)document.documentElement.style.setProperty('--cinh',CIN.offsetHeight+'px')}
+function setSt(kind,html,ttl){clearTimeout(stT);stKind=kind;CS.className='cin-st'+(html?' on':'');CS.innerHTML=html||'';
+ if(ttl)stT=setTimeout(()=>{if(stKind===kind)setSt('','')},ttl);fitC()}
+// Обычный текст сервер принимает до 83 символов — игра режет на куски (как Code3.js); считаем куски так же
+function split(t,max){t=t.trim();if(t[0]==='/'||t.length<=max)return[t];const p=[];let s=t;
+ while(s.length>max){const w=s.slice(0,max+1);let c=-1,i;
+  ['. ','! ','? '].forEach(e=>{i=w.lastIndexOf(e);if(i>=max*.4)c=Math.max(c,i+1)});
+  if(c===-1)[', ','; '].forEach(e=>{i=w.lastIndexOf(e);if(i>=max*.4)c=Math.max(c,i+1)});
+  if(c===-1){i=w.lastIndexOf(' ');if(i>0)c=i}
+  if(c<=0)c=max;p.push(s.slice(0,c).trim());s=s.slice(c).trim()}
+ if(s)p.push(s);return p.filter(Boolean)}
+function info(){if(stKind&&stKind!=='info')return;const n=CI.value.trim()?split(CI.value,83).length:1;
+ if(n>1)setSt('info','<span class="mut">Уйдёт в '+n+' сообщения — сервер принимает до 83 символов за раз</span>');else if(stKind==='info')setSt('','')}
+function drawHints(v){HB.innerHTML=hl.map((c,i)=>'<div class="hint'+(i===hIdx?' act':'')+'" data-i="'+i+'"><b>'+E(c.slice(0,v.length))+'</b>'+E(c.slice(v.length))+'</div>').join('');fitC()}
+function sync(){const v=CI.value,ch=v.slice(-1);
+ if(/[а-яё]/i.test(ch))CL.textContent='RU';else if(/[a-z]/i.test(ch))CL.textContent='EN';
+ hl=v.length>1&&(v[0]==='/'||v[0]==='.')?CMDS.filter(c=>c.indexOf(sw(v.toLowerCase()))===0).slice(0,5):[];
+ if(!hl.length||hIdx>=hl.length)hIdx=-1;
+ drawHints(v);info()}
+function fill(c){CI.value=c;hIdx=-1;sync();CI.focus();try{CI.setSelectionRange(c.length,c.length)}catch(e){}}
+function histMove(d){
+ if(d>0){if(hi+1<hist.length)CI.value=hist[++hi]}
+ else if(hi-1>=0)CI.value=hist[--hi];else if(hi>=0||hist.indexOf(CI.value)>-1){hi=-1;CI.value=''}
+ sync();const n=CI.value.length;setTimeout(()=>{try{CI.setSelectionRange(n,n)}catch(e){}})}
+
+// Очередь на отправку: в Firebase лежат все ещё не подтверждённые сообщения (+ метка p «я рядом» — игра по ней опрашивает чаще)
+function body(){let m=outbox.map(x=>[x.id,x.text]),s;for(;;){s=JSON.stringify({p:Date.now(),m:m});if(s.length<=3800||m.length<=1)break;m.shift()}return s}
+function flush(){
+ if(!CAN)return;if(wBusy){wAgain=true;return}
+ wBusy=true;clearTimeout(retryT);
+ const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),8000),n0=outbox.length;
+ fetch(DB+'/chatin/'+encodeURIComponent(W)+'.json',{method:'PUT',body:JSON.stringify(body()),signal:ac.signal,keepalive:true}).then(r=>{
+  if(r.ok){wFails=0;return}
+  if(r.status===401||r.status===403){outbox=[];setSt('bad','<span class="bad">⚠ Firebase не принял запись ('+r.status+') — в Rules нужно правило для /chatin (см. конец ChatApp.js)</span>');wFails=0;return}
+  throw r.status
+ }).catch(()=>{
+  if(!outbox.length)return;
+  if(++wFails>=4){outbox=[];wFails=0;setSt('bad','<span class="bad">⚠ Нет связи с сервером — сообщение не отправлено</span>')}
+  else retryT=setTimeout(flush,1500)
+ }).then(()=>{clearTimeout(tm);wBusy=false;if(wAgain){wAgain=false;flush()}})}
+function ping(){const n=Date.now();if(!CAN||document.hidden||n-pingAt<8000)return;pingAt=n;flush()}
+// Игра подтвердила приём (id в «a» чата): сообщение доставлено — ответ/эхо придут обычной строкой в чате
+function ack(a){if(!outbox.length)return;const n=outbox.length;outbox=outbox.filter(m=>a.indexOf(m.id)<0);
+ if(outbox.length<n&&!outbox.length)setSt('ok','<span class="ok">✓ Доставлено в игру</span>',2500)}
+// Игра молчит 20 с — снимаем сообщение из очереди, чтобы оно не ушло потом само, и честно говорим об этом
+setInterval(()=>{if(document.hidden||!outbox.length)return;const n=Date.now(),old=outbox.filter(m=>n-m.at>20000);if(!old.length)return;
+ outbox=outbox.filter(m=>n-m.at<=20000);
+ setSt('bad','<span class="bad">⚠ Игра не подтвердила получение («'+E(old[0].text.slice(0,30))+'») — возможно, она не в сети. Не отправлено.</span>');flush()},1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){const n=Date.now();outbox.forEach(m=>{m.at=Math.max(m.at,n-10000)})}});
+
+function send(){
+ if(!CAN)return;
+ const raw=CI.value.trim(),t=raw.replace(/[\u0000-\u001f\u007f]+/g,' ').trim();
+ if(!t)return;
+ hist=[raw].concat(hist.filter(x=>x!==raw)).slice(0,50);hi=-1;
+ try{localStorage.setItem('hcHist',JSON.stringify(hist))}catch(e){}
+ CI.value='';hIdx=-1;sync();
+ outbox.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),text:t.slice(0,512),at:Date.now()});
+ setSt('send','<span class="warn">⏳ Отправляю…</span>');
+ pingAt=Date.now();flush();
+ stick=true;L.scrollTop=L.scrollHeight;$('#dn').style.display='none'}
+
+CF.addEventListener('submit',e=>{e.preventDefault();send()});
+CI.addEventListener('keydown',e=>{const k=e.key;if(e.isComposing)return;
+ if(k==='Enter'){e.preventDefault();if(hIdx>-1){fill(hl[hIdx]);return}send()}   // как в игре: Enter на выбранной подсказке только подставляет её
+ else if(k==='ArrowUp'){e.preventDefault();if(hIdx>-1){hIdx=-1;drawHints(CI.value)}else histMove(1)}
+ else if(k==='ArrowDown'){e.preventDefault();if(hl.length&&hIdx<0){hIdx=0;drawHints(CI.value)}else histMove(-1)}
+ else if(k==='ArrowRight'&&hl.length&&(hIdx>-1||CI.selectionStart===CI.value.length)){e.preventDefault();hIdx=hIdx+1<hl.length?hIdx+1:0;drawHints(CI.value)}
+ else if(k==='ArrowLeft'&&hl.length&&hIdx>-1){e.preventDefault();hIdx=hIdx-1>=0?hIdx-1:hl.length-1;drawHints(CI.value)}
+ else if(k==='Tab'&&hl.length){e.preventDefault();fill(hl[hIdx>-1?hIdx:0])}
+ else if(k==='Escape')CI.blur()});
+CI.addEventListener('input',()=>{hi=-1;sync();ping()});
+CI.addEventListener('focus',()=>{CIN.classList.add('foc');ping();setTimeout(()=>{window.scrollTo(0,0);fit()},250)});
+CI.addEventListener('blur',()=>CIN.classList.remove('foc'));
+// Нажатия по подсказкам и по Enter не должны отбирать фокус у поля — иначе на телефоне закроется клавиатура
+[HB,EK].forEach(x=>x.addEventListener('mousedown',e=>e.preventDefault()));
+HB.addEventListener('click',e=>{const h=e.target.closest('.hint');if(h&&hl[+h.dataset.i])fill(hl[+h.dataset.i])});
+EK.addEventListener('click',send);
+// Клавиатура телефона сжимает видимую область — подгоняем высоту страницы, чтобы строка ввода оставалась на виду
+function fit(){const h=(tg&&tg.viewportHeight)||(window.visualViewport&&visualViewport.height)||0;if(h)document.body.style.height=h+'px';fitC();if(stick)L.scrollTop=L.scrollHeight}
+try{tg&&tg.onEvent('viewportChanged',fit)}catch(e){}
+if(window.visualViewport)visualViewport.addEventListener('resize',fit);
+if(window.ResizeObserver)new ResizeObserver(fitC).observe(CIN);
+
+CL.textContent=/^ru/i.test(navigator.language||'ru')?'RU':'EN';
+if(K){CIN.hidden=false;
+ if(CAN)CI.placeholder='Сообщение или /команда';
+ else{CI.disabled=true;EK.disabled=true;CI.placeholder='Отправка недоступна';
+  setSt('warn','<span class="warn">В этой ссылке нет ключа отправки. Откройте чат заново кнопкой «💬 Чат» из меню «Функции» — тогда появится строка ввода.</span>')}
+ fitC()}
+
+// Пока отправленное сообщение ждёт подтверждения игры — опрашиваем чаще (и сразу видим ответ в чате)
+if(K){poll();(function loop(){setTimeout(function(){poll();loop()},pending()?800:2000)})();document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});try{tg&&tg.onEvent('activated',poll)}catch(e){}}
 </script></body></html>
