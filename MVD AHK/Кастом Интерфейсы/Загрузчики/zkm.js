@@ -7,7 +7,7 @@
 // (renderList, createVNode, …) были бы undefined → Invalid array length.
 // Замечание: loader импортирует renderList как 'i' (текущий index.js), тогда
 // как компонент пишет 'h as renderList' — инжекция исправляет это расхождение.
-import{r as resolveComponent,o as openBlock,c as createElementBlock,b as createVNode,a as createBaseVNode,F as Fragment,i as renderList,n as normalizeClass,e as createTextVNode,t as toDisplayString,f as createCommentVNode,w as withCtx,T as Transition,_ as _export_sfc}from"./index.js";
+import{r as resolveComponent,o as openBlock,c as createElementBlock,b as createVNode,a as createBaseVNode,F as Fragment,q as renderList,n as normalizeClass,e as createTextVNode,t as toDisplayString,f as createCommentVNode,w as withCtx,T as Transition,_ as _export_sfc}from"./index.js";
 import{M as ModalComponent,a as MODAL_TYPES,b as MODAL_COLOR_TYPES}from"./Modal.js";
 
 const _GH_BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/' + encodeURIComponent('Кастом Интерфейсы') + '/';
