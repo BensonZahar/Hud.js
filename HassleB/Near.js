@@ -215,6 +215,23 @@ function measure(p, me, age) {
     var dp = Math.sqrt(Math.pow(tx - me.x, 2) + Math.pow(ty - me.y, 2) + Math.pow(tz - me.z, 2));   // вашу позицию не двигаем: сервер знает то, что вы отправили
     return { d: d, dp: dp, err: ERR_BASE + ERR_K * (st + sm), h: h, age: age == null ? null : Math.round(age), vt: st, vm: sm };
 }
+// Дистанция на момент РАССЫЛКИ сообщения чата сервером (t0 — когда сообщение пришло к нам). Сервер считал по своим позициям на момент рассылки D ≈ t0 − RTT/2:
+//   цель в снимке — это её состояние на сервере в (снимок − RTT/2), значит сдвигаем её на h = возраст данных − (сейчас − t0) (RTT сокращается);
+//   вы в снимке — это последний ваш отправленный пакет, сервер знал вас на ≈ RTT раньше — сдвигаем вас на (h − RTT).
+function measureChat(p, me, age, t0) {
+    if (!hasPos(p) || !hasPos(me)) return null;
+    var h = (age || 0) - (t0 > 0 ? Date.now() - t0 : 0);
+    h = Math.max(-H_CAP, Math.min(H_CAP, h));
+    var rtt = me.ping > 0 ? me.ping : (p.ping || 0), hm = Math.max(-H_CAP, Math.min(H_CAP, h - rtt));
+    var pvx = p.vx || 0, pvy = p.vy || 0, pvz = p.vz || 0, mvx = me.vx || 0, mvy = me.vy || 0, mvz = me.vz || 0;
+    var st = spd(pvx, pvy, pvz), sm = spd(mvx, mvy, mvz);
+    var k = st > V_CAP ? V_CAP / st : 1, km = sm > V_CAP ? V_CAP / sm : 1;
+    var tx = p.x + pvx * k * h / 1000, ty = p.y + pvy * k * h / 1000, tz = p.z + pvz * k * h / 1000;
+    var ux = me.x + mvx * km * hm / 1000, uy = me.y + mvy * km * hm / 1000, uz = me.z + mvz * km * hm / 1000;
+    var d = Math.sqrt(Math.pow(p.x - me.x, 2) + Math.pow(p.y - me.y, 2) + Math.pow(p.z - me.z, 2));
+    var dp = Math.sqrt(Math.pow(tx - ux, 2) + Math.pow(ty - uy, 2) + Math.pow(tz - uz, 2));
+    return { d: d, dp: dp, err: ERR_BASE + ERR_K * (st + sm), h: h, age: age == null ? null : Math.round(age), vt: st, vm: sm };
+}
 function verdictFor(m, r) {
     if (!m) return 'unknown';
     if (m.dp + m.err <= r) return 'yes';
@@ -280,7 +297,7 @@ var API = {
             if (!j.ok) return cb({ ok: false, why: 'мод ещё не готов: ' + (j.stage || 'нет данных') });
             var p = findWho(j.n || [], who);
             if (!p || p === 'many') return cb({ ok: true, found: false, est: null });
-            var m = measure(p, j.me, dataAge());
+            var m = measureChat(p, j.me, dataAge(), t0);
             if (!m) return cb({ ok: true, found: true, est: null });
             cb({ ok: true, found: true, est: m.dp, d: m.d, err: m.err, age: m.age });
         });
