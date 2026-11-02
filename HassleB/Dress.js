@@ -14,6 +14,7 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия 2.6: диагностика «слишком близко к пикапу» (сервер игнорирует повторный вход, пока вы ближе 1.5 м; работает на 1.5…4 м) — сообщение вместо молчаливой неудачи.
 // Версия 2.5: TP_FALLBACK = false — автоматического телепорта при неудаче входа больше нет (ни в /dressu, ни в ночном режиме).
 // Версия 2.4: в «Переодевание ночь» после первого удачного круга пикап запоминается (FAST_USE) — дальше без «/tpl pick» и списка в чат, сразу «/tpl pick N use»; время в сообщениях бота — МСК (DN_SERVER_TZ_H), а не часы телефона.
 // Версия 2.3: «Переодевание ночь» (см. блок ниже): /nocol on → /dressu → ждать :59:РР → /dressu → PayDay в :00 → /dressu → по кругу; кнопка «👗 Переодевание ночь» в Telegram → «Функции», команда /dressnight. Dress.run получил 6-й параметр — колбэк завершения.
@@ -72,6 +73,7 @@ var T_USE_FB_MS  = 1800;            // «/dressu»: диалог не откры
 var T_DLG1_USE_MS = 4000;           // режим use: диалог-список не открылся за это время — значит сервер вход не принял (далеко от пикапа) или мода use нет
 var T_DLG1_UNDER_MS = 3500;         // режим under: диалог-список не открылся за это время — выныриваем сразу
 var TP_FALLBACK = false;            // true — «/dressu» и «Переодевание ночь», если вход без движения не открыл диалог, добирают телепортом на пикап (/tpl save → /tpl pick N → /tpl go). false — телепорта нет вообще: не вышло, значит не вышло (ночной режим сам повторит попытку). Ручной «/dress tp» работает всегда
+var NEAR_MIN_M  = 1.7;              // сервер (TIMER_250_MS в new.pwn) сбрасывает «вы стоите на пикапе» (P_IN_PICKUP) только когда вы дальше 1.5 м от него; пока ближе — повторный вход в тот же пикап молча игнорируется. 1.7 = 1.5 + запас
 var FAST_USE    = true;             // только «Переодевание ночь»: пикап уже известен (стоим у него) — шлём сразу «/tpl pick N use», без «/tpl pick» и разбора списка; не вышло — один раз пересобираем список
 var PKC         = null;             // {n, id} — пикап раздевалки, с которого прошлый раз реально открылся диалог (номер N из снимка мода tpl; use ищет пикап по ID из снимка)
 var T_TOTAL_MS  = 30000;            // общий потолок — после него всё снимаем и возвращаемся
@@ -329,6 +331,7 @@ var RX_HEADER = /Пикапы и маркеры рядом:\s*(\d+)/i;
 var RX_NONE   = /Пикапов и маркеров рядом нет|Пикапы: пул не прочитался/i;
 var RX_LINE   = /(\d+)\.\s+ID\s+(\d+)\s+\[модель\s+([^\]]+)\]\s*—\s*(\d+)\s*м/;
 var RX_FAST_BAD = /уже не в зоне стрима|такого номера нет|Списка пикапов ещё нет|use: не вышло|только с пикапами|нет OnTriggerEnter/i;   // мод отказал во «/tpl pick N use»
+var RX_DIST     = /до пикапа ~\s*([\d.,]+)\s*м/;                                     // мод пишет расстояние в ответе на «/tpl pick N use»
 var RX_FAST_ID  = /Пикап №\d+ \(ID (\d+)\)/;
 var RX_TPL_ERR = /Точка:\s*(уже|не удалось)/i;   // «Точка: уже 64 точки…» / «Точка: не удалось прочитать ваши координаты»
 
@@ -345,6 +348,7 @@ function onChat(raw) {
     }
     if (!S) return;
     if (RX_LOGCHAT.test(text)) log('чат: ' + text.slice(0, 160));
+    if (S.step === 'tp' && S.use) { var dm = RX_DIST.exec(text); if (dm) { S.dist = parseFloat(dm[1].replace(',', '.')); log('расстояние до пикапа по ответу мода: ' + S.dist + ' м'); } }
     if (S.step === 'wait' && RX_DONE.test(text)) { S.dressed = true; returnNow('сообщение сервера «Вы переоделись»'); return; }
     if (S.fast && S.step === 'tp') {                                    // быстрый путь: ответ мода на «/tpl pick N use»
         if (RX_FAST_BAD.test(text)) { fastFail('мод: ' + text.slice(0, 90)); return; }
@@ -397,8 +401,15 @@ function fallbackToTp() {
 }
 
 // быстрый путь не сработал (пикап вышел из зоны стрима, номер сдвинулся, диалог не открылся): забываем кэш и идём обычным путём — список, выбор, use
+// вход не открыл диалог, а мы ближе NEAR_MIN_M к пикапу — это не «сервер не принял», а серверное правило «ты ещё на пикапе»: нужно отойти на 2–3,5 м
+function nearWhy() {
+    if (!S || !S.use || typeof S.dist !== 'number' || isNaN(S.dist) || S.dist >= NEAR_MIN_M) return '';
+    return 'слишком близко к пикапу (' + S.dist + ' м): ближе 1.5 м сервер считает, что вы ещё на нём, и повторный вход игнорирует — отойдите на 2–3.5 м';
+}
 function fastFail(why) {
     if (!S || !S.fast || S.step !== 'tp') return;
+    var nw = /не открылся/.test(why) ? nearWhy() : '';
+    if (nw) { fail(nw); endSession(nw, false); return; }                // пикап тот же, дело в расстоянии — список пересобирать бессмысленно
     S.fast = false; S.sel = null; PKC = null;
     log('быстрый путь не сработал (' + why + ') — пересобираю список пикапов');
     clearTimers();
@@ -444,6 +455,7 @@ function pickAndGo() {
     if (S.use && S.fb) t1 = T_USE_FB_MS;
     S.dlgTimer = setTimer(function () {
         if (S.use && S.fb && !S.fbUsed) { fallbackToTp(); return; }       // /dressu: use не сработал — запасной путь
+        var nw = nearWhy(); if (nw) { fail(nw); endSession(nw, true); return; }
         fail('диалог «Раздевалка» не открылся за ' + (t1 / 1000) + ' с' + (S.use ? ' (use: вы дальше ~5 м от пикапа, либо мод tpl без команды use — смотрите чат; старый способ: /dress tp)' : '')); endSession('нет диалога 1', true);
     }, t1);
 }
@@ -693,7 +705,7 @@ function dnAfterToggle(kind, reason, res) {
         return;
     }
     dnLog('не вышло (' + res.why + '), попытка ' + DN.tries + '/' + DN_TRIES);
-    if (DN.tries < DN_TRIES && dnTimeOk(kind)) { dnTimer(function () { dnAttempt(kind, reason); }, DN_RETRY_MS); return; }
+    if (DN.tries < DN_TRIES && dnTimeOk(kind) && !/слишком близко/.test(String(res.why))) { dnTimer(function () { dnAttempt(kind, reason); }, DN_RETRY_MS); return; }
     dnFail(kind, (res.why === 'готово' || !res.why) ? 'скин не сменился — сервер не переодел' : res.why);
 }
 function dnFail(kind, why) {
@@ -863,6 +875,6 @@ onUndo(function () {
 window.Dress = { run: function (n, under, sec, use, fb, cb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, cb); }, busy: function () { return !!S; }, night: function (on) { if (on) return dnStart('api'); dnStop('api'); return ''; }, nightStatus: dnStatusHtml, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v2.5 загружен: /dressnight on|off|status (цикл «Переодевание ночь», кнопка в Telegram → Функции), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
+log('Dress.js v2.6 загружен: /dressnight on|off|status (цикл «Переодевание ночь», кнопка в Telegram → Функции), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
