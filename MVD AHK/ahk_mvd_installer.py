@@ -1091,6 +1091,94 @@ class InstallerAPI:
         _log_to_file('_resolve_loader_names: ни автодетект, ни фоллбэк не прошли проверку — интерфейсы не регистрируем')
         return dd, fd, f_name, d_name, False, 'не удалось определить буквы'
 
+    # ── Буквы Vue-helper-ов в экспортах Index.js ────────────────────────────────
+    # Загрузчики интерфейсов импортируют helper-ы Vue из ./index.js по минифицированным
+    # именам экспорта (o as openBlock, i as renderList ...). Эти буквы меняются при каждой
+    # сборке игры — после обновления игры загрузчики молча ломались. Находим helper-ы по
+    # сигнатурам их кода (внутренности Vue не меняются), а букву берём из export{...}.
+    _VUE_HELPER_PATTERNS = {
+        'Fragment':           r'([\w$]+)\s*=\s*Symbol\.for\("v-fgt"\)',
+        'openBlock':          r'function\s+([\w$]+)\(e=!1\)\{[\w$]+\.push\([\w$]+=e\?null:\[\]\)\}',
+        'createElementBlock': r'function\s+([\w$]+)\(e,t,n,o,r,i\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,i,!0\)\)\}function\s+[\w$]+\(e,t,n,o,r\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,!0\)\)\}',
+        'createBlock':        r'function\s+[\w$]+\(e,t,n,o,r,i\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,i,!0\)\)\}function\s+([\w$]+)\(e,t,n,o,r\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,!0\)\)\}',
+        'createBaseVNode':    r'function\s+[\w$]+\(e,t,n,o,r,i\)\{return [\w$]+\(([\w$]+)\(e,t,n,o,r,i,!0\)\)\}function\s+[\w$]+\(e,t,n,o,r\)',
+        'createVNode':        r'function\s+[\w$]+\(e,t,n,o,r,i\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,i,!0\)\)\}function\s+[\w$]+\(e,t,n,o,r\)\{return [\w$]+\(([\w$]+)\(e,t,n,o,r,!0\)\)\}',
+        'createTextVNode':    r'function\s+([\w$]+)\(e=" ",t=0\)\{return [\w$]+\([\w$]+,null,e,t\)\}',
+        'createCommentVNode': r'function\s+([\w$]+)\(e="",t=!1\)\{return t\?\([\w$]+\(\),[\w$]+\([\w$]+,null,e\)\):[\w$]+\([\w$]+,null,e\)\}',
+        'toDisplayString':    r'([\w$]+)\s*=\s*e=>[\w$]+\(e\)\?e:e==null\?"":',
+        'normalizeClass':     r'function\s+([\w$]+)\(e\)\{let t="";if\([\w$]+\(e\)\)t=e;else if',
+        'normalizeStyle':     r'function\s+([\w$]+)\(e\)\{if\([\w$]+\(e\)\)\{const t=\{\};for\(let n=0;n<e\.length;n\+\+\)',
+        '_export_sfc':        r'([\w$]+)\s*=\s*\(e,t\)=>\{const n=e\.__vccOpts\|\|e;for\(const\[o,r\]of t\)n\[o\]=r;return n\}',
+        'resolveComponent':   r'function\s+([\w$]+)\(e,t\)\{return [\w$]+\([\w$]+,e,!0,t\)\|\|e\}',
+        'withCtx':            r'function\s+([\w$]+)\(e,t=[\w$]+,n\)\{if\(!t\|\|e\._n\)return e;',
+        'renderList':         r'function\s+([\w$]+)\(e,t,n,o\)\{let r;const i=n&&n\[o\];',
+        'renderSlot':         r'function\s+([\w$]+)\(e,t,n=\{\},o,r\)\{',
+        'withDirectives':     r'function\s+([\w$]+)\(e,t\)\{(?:const|let) n=[\w$]+;if\(n===null\)return e;',
+        'vModelText':         r'([\w$]+)\s*=\s*\{created\(e,\{modifiers:\{lazy:t,trim:n,number:o\}\}',
+        'vShow':              r'([\w$]+)\s*=\s*\{beforeMount\(e,\{value:t\},\{transition:n\}\)',
+        'Transition':         r'([\w$]+)\.displayName="Transition"',
+    }
+
+    @classmethod
+    def _detect_vue_aliases(cls, content: str) -> dict:
+        """
+        Возвращает {имя_helper'а: буква_экспорта} для текущей сборки Index.js,
+        например {'renderList': 'q', 'openBlock': 'o', ...}. Что не нашлось — в словаре нет
+        (такой импорт в загрузчике остаётся как есть).
+        """
+        import re
+        m = re.search(r'export\s*\{([^{}]*)\}\s*;?\s*$', content.rstrip(), re.S)
+        if not m:
+            _log_to_file('_detect_vue_aliases: блок export{...} в конце Index.js не найден')
+            return {}
+        local_to_alias = {}
+        for it in m.group(1).split(','):
+            it = it.strip()
+            if not it:
+                continue
+            loc, _, alias = it.partition(' as ')
+            local_to_alias[loc.strip()] = (alias or loc).strip()
+        res = {}
+        for name, pat in cls._VUE_HELPER_PATTERNS.items():
+            mm = re.search(pat, content)
+            if not mm:
+                continue
+            alias = local_to_alias.get(mm.group(1))
+            if alias:
+                res[name] = alias
+        # createElementVNode — синоним createBaseVNode
+        if 'createBaseVNode' in res:
+            res['createElementVNode'] = res['createBaseVNode']
+        _log_to_file(f'_detect_vue_aliases: найдено {len(res)} helper-ов: {res}')
+        return res
+
+    @staticmethod
+    def _patch_loader_imports(text: str, aliases: dict) -> tuple:
+        """
+        Переписывает  import{o as openBlock,i as renderList,...}from"./index.js"  в тексте загрузчика,
+        подставляя актуальные буквы экспорта. Возвращает (новый_текст, [список_замен]).
+        """
+        import re
+        changes = []
+        def repl(m):
+            parts = []
+            for it in m.group(1).split(','):
+                it = it.strip()
+                if not it:
+                    continue
+                if ' as ' in it:
+                    a, n = [x.strip() for x in it.split(' as ', 1)]
+                    cur = aliases.get(n)
+                    if cur and cur != a:
+                        changes.append(f'{n}: {a} -> {cur}')
+                        a = cur
+                    parts.append(f'{a} as {n}')
+                else:
+                    parts.append(it)
+            return 'import{' + ','.join(parts) + '}from"./index.js"'
+        new = re.sub(r'import\s*\{([^{}]*)\}\s*from\s*["\']\./index\.js["\']', repl, text)
+        return new, changes
+
     @staticmethod
     def _build_interfaces_block(ifaces: list, dd_var: str = PC_DD_VAR_FALLBACK, fd_var: str = PC_FD_VAR_FALLBACK,
                                 f_name: str = LOADER_F_FALLBACK, d_name: str = LOADER_D_FALLBACK) -> str:
@@ -1155,13 +1243,34 @@ class InstallerAPI:
         deploy_ui_url = _deploy_ui_url(department)
         all_files = [f for iface in ifaces for f in iface.get("files", [])]
         kind = "загрузчик" if USE_LOADERS else "файл"
+        # Буквы Vue-helper-ов (openBlock, renderList ...) в экспортах Index.js меняются при каждой
+        # сборке игры. Определяем их один раз и подставляем в import{...}from"./index.js" загрузчиков.
+        vue_aliases = {}
+        try:
+            _idx = assets_dir / "Index.js"
+            if _idx.exists():
+                _idx_clean = self._remove_markers(_idx.read_text(encoding='utf-8'))
+                vue_aliases = self._detect_vue_aliases(_idx_clean)
+                print(f'[Installer] Vue-helper-ы Index.js: найдено {len(vue_aliases)}')
+        except Exception as _e:
+            _log_to_file(f'_deploy_custom_ui_files: не удалось определить буквы helper-ов ({_e!r})')
         for filename in all_files:
             url = f"{deploy_ui_url}/{filename}"
             try:
                 resp = requests.get(url, timeout=20)
                 resp.raise_for_status()
                 dest = assets_dir / filename
-                dest.write_bytes(resp.content)
+                content = resp.content
+                if vue_aliases and filename.endswith(".js"):
+                    try:
+                        _txt, _chg = self._patch_loader_imports(content.decode('utf-8'), vue_aliases)
+                        if _chg:
+                            content = _txt.encode('utf-8')
+                            print(f'[Installer] {filename}: исправлены буквы импорта ({"; ".join(_chg)})')
+                            _log_to_file(f'{filename}: patched imports: {_chg}')
+                    except Exception as _e:
+                        _log_to_file(f'{filename}: не удалось поправить импорты ({_e!r})')
+                dest.write_bytes(content)
                 print(f'[Installer] Скопирован {kind} {filename} -> assets/')
             except Exception as e:
                 print(f'[Installer] Не удалось скачать {kind} {filename}: {e}')
