@@ -27,6 +27,7 @@
 //   .measure(p)      — {d, dp, err, h, age, vt, vm}: d — сырая 3D-дистанция, dp — прогноз на момент команды, err — неопределённость
 //   .check(кто, R, cb) — СВЕЖИЙ запрос + вердикт: кто = ID или точный ник; cb({ok, found, p, d, dp, err, age, verdict, why})
 //   .reach(R)        — те, кого сервер, скорее всего, посчитает в радиусе R (вердикт yes/maybe), по текущему снимку, с полями dp/err/verdict
+//   .chatDist(ID, t0, cb) — дистанция до автора сообщения чата: cb({ok, found, est, d}); est=null — измерить нечем
 //   .refresh(cb)     — один свежий запрос: cb(снимок | null)
 //   .diag(cb)        — cb(текст журнала мода)
 //   .start() / .stop() — постоянный опрос раз в 0,5 с (по умолчанию опрос включается сам при вызове list/within/… и гаснет через 15 с без вызовов)
@@ -269,6 +270,19 @@ var API = {
             var m = measure(p, j.me, dataAge());
             if (!m) return cb({ ok: true, found: true, p: p, id: p.id, nick: p.nick, verdict: 'unknown', why: 'нет позиции (своей или игрока)' });
             cb({ ok: true, found: true, p: p, id: p.id, nick: p.nick, d: m.d, dp: m.dp, err: m.err, age: m.age, vt: m.vt, vm: m.vm, verdict: verdictFor(m, r), radius: r });
+        });
+    },
+    // Дистанция до автора сообщения чата: свежий запрос + прогноз (как в measure). cb({ok, found, est, d}); est — null, если измерить нечем
+    chatDist: function (who, t0, cb) {
+        if (typeof t0 === 'function') { cb = t0; t0 = 0; }
+        refresh(function (j) {
+            if (!j) return cb({ ok: false, why: 'мод Near не отвечает' });
+            if (!j.ok) return cb({ ok: false, why: 'мод ещё не готов: ' + (j.stage || 'нет данных') });
+            var p = findWho(j.n || [], who);
+            if (!p || p === 'many') return cb({ ok: true, found: false, est: null });
+            var m = measure(p, j.me, dataAge());
+            if (!m) return cb({ ok: true, found: true, est: null });
+            cb({ ok: true, found: true, est: m.dp, d: m.d, err: m.err, age: m.age });
         });
     },
     within: function (m) { return this.list().filter(function (p) { var d = dist(p); return d != null && d <= m; }); },

@@ -2829,12 +2829,10 @@ try { (function () {
     // ── Расстояние до автора сообщения в Telegram (сообщения игроков и сотрудников фракции) ──
     // Сервер (SendMessageInChat, radius = 30) красит строку по 3D-расстоянию от говорящего до вас в момент рассылки:
     //   < 7,5 м (R/4) — 0xCECECE «рядом» · < 15 м (R/2) — 0x999999 «средний» · до 30 м — 0x6B6B6B «далеко». Это жёсткое знание сервера.
-    // Наш клиент + Near.js: на КАЖДОЕ сообщение — свежий запрос к моду (chatDist: позиция цели сдвигается по скорости на возраст пакета,
-    // ваша — назад на RTT: сервер считал по своим позициям на момент рассылки) и сверка с цветом строки: оценка в своём диапазоне — пишем число;
-    // чуть мимо границы (≤ NEAR_BAND_SLACK м) — пишем границу «≈7.5 м», потому что сервер точно знает, что дальше/ближе не было;
-    // сильно мимо, мод молчит или игрока нет в зоне видимости — пишем диапазон по цвету («до 7.5 м»). Не наш клиент — тоже диапазон по цвету.
+    // Наш клиент + Near.js: на КАЖДОЕ сообщение — свежий запрос к моду (chatDist) и сверка с цветом строки: оценка в своём диапазоне — пишем число.
+    // Всё остальное (не наш клиент, нет мода Near, мод молчит, игрока нет в зоне видимости, оценка не сходится с цветом) — расстояние НЕ пишем вовсе:
+    // ни диапазон по цвету («до 7.5 м»), ни границу («≈7.5 м») — чтобы не путать с измеренным значением.
     const CHAT_R = 30;               // SendMessageInChat(radius = 30.0) на сервере
-    const NEAR_BAND_SLACK = 4;       // на сколько метров оценка может выйти за диапазон цвета, чтобы мы ей ещё верили
     const NEAR_MSG_WAIT = 700;       // ждать мод не дольше (мс)
     let _nearMsgDeadUntil = 0;
     function chatBand(radius) {
@@ -2844,14 +2842,10 @@ try { (function () {
         if (radius === CHAT_RADIUS.FAR) return { lo: h, hi: CHAT_R, txt: h + '–' + CHAT_R + ' м' };
         return null;
     }
-    function nearMsgText(est, band) {   // ' · 📏 4.2 м' | ' · 📏 ≈7.5 м' | ' · 📏 до 7.5 м' | ''
-        if (est != null && isFinite(est)) {
-            if (!band) return ' · 📏 ' + nearFmt(est);
-            if (est >= band.lo && est < band.hi) return ' · 📏 ' + nearFmt(est);
-            const edge = est < band.lo ? band.lo : band.hi;
-            if (Math.abs(est - edge) <= NEAR_BAND_SLACK) return ' · 📏 ≈' + nearFmt(edge);
-        }
-        return band ? ' · 📏 ' + band.txt : '';
+    function nearMsgText(est, band) {   // ' · 📏 4.2 м' | '' — пишем ТОЛЬКО реально измеренное число; граница «7.5»/диапазон по цвету — не расстояние, не пишем
+        if (est == null || !isFinite(est)) return '';                    // не наш клиент / мод молчит / игрока нет в зоне видимости — без расстояния
+        if (band && !(est >= band.lo && est < band.hi)) return '';       // оценка не сходится с цветом строки сервера — не угадываем и не рисуем границу
+        return ' · 📏 ' + nearFmt(est);
     }
     function nearMsgSuffix(id, radius, cb) {   // cb(строка) — ровно один раз; к моменту вызова сообщение уже пришло в чат
         let done = false;
@@ -3872,7 +3866,7 @@ try { (function () {
         if (!once(nick + '|' + text, 2000)) return;                     // дубль строки чата
         const where = radius === CHAT_RADIUS.CLOSE ? '🔈 рядом' : radius === CHAT_RADIUS.MEDIUM ? '🔉 средний' : radius === CHAT_RADIUS.FAR ? '🔊 далеко' : '💬';
         const markup = playerMarkup(id, text);                              // как у сотрудников фракции + внизу «Выдача лицензии» (там же перевыдача)
-        nearMsgSuffix(id, radius, function (distTxt) {   // расстояние до автора: Near.js (наш клиент) + сверка с цветом строки; иначе — диапазон по цвету
+        nearMsgSuffix(id, radius, function (distTxt) {   // расстояние до автора: Near.js (наш клиент) + сверка с цветом строки; не определилось — не пишем
             sendToTelegram('💬 <b>' + esc(text) + '</b>\n👤 ' + esc(nick) + '[' + esc(id) + ']' + (isTarget(id) ? ' 🪪' : '') + ' · ' + where + distTxt + '\n(' + esc(displayName) + ')', false, markup,
                 function (cid, mid) { _playerMsgs[cid + ':' + mid] = { id: id, text: text }; });   // запоминаем сообщение: кнопки переживут «Пауза» / «Движения»
         });
