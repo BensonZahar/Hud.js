@@ -2147,6 +2147,14 @@ function getSkinIdFromStore() {
 // ── Получить позицию персонажа из Vuex store ─────────────────
 function getPlayerPositionFromStore() {
     try {
+        // FIX: store.player.position обновляется только событием клиента UpdatePlayerPosition (живой педер) и
+        // никогда не сбрасывается — на авторизации / коннекте / после /rec там СТАРАЯ позиция. Вне игры → null.
+        const _st = window.App && window.App.$store;
+        if (_st && !_st.getters['player/isPlayerConnected']) return null;
+        try {
+            if (typeof window.getInterfaceStatus === 'function' &&
+                (window.getInterfaceStatus('Authorization') || window.getInterfaceStatus('Connect'))) return null;
+        } catch (e) {}
         // Вариант 1: через window.App (прямой доступ)
         if (window.App && window.App.$store) {
             const pos = window.App.$store.getters["player/position"];
@@ -2693,6 +2701,15 @@ function _dbg3Collect() {
     else if (d.ifacePause)   d.phase = 'paused';
     else                      d.phase = 'unknown';
 
+    // 4б. FIX: player/position в store обновляется ТОЛЬКО событием клиента UpdatePlayerPosition (живой педер) и
+    // нигде не сбрасывается. На авторизации / коннекте / после дисконнекта там лежит ПОСЛЕДНЯЯ позиция из игры.
+    // Поэтому вне игры позицию считаем недоступной (null) и не пишем её в лог / ТГ как текущую.
+    d.posStale = false;
+    if (!d.isPlayerConnected || d.phase === 'auth' || d.phase === 'connect') {
+        d.posStale = true;
+        d.posX = d.posY = d.posZ = d.angle = d.interior = null;
+    }
+
     // 5. Чат
     d.chatOpen = _safe(() => {
         const hud = window.interface('Hud');
@@ -2725,19 +2742,35 @@ function _dbg3UpdateRec(d) {
         _dbg3TgPush(`🔄 [REC] Фаза: <b>${newPhase}</b> (${el}с)`, true);
 
         if (newPhase === 'spawned') {
-            _dbg3Rec.active = false;
-            const pb = _dbg3Rec.posBefore;
-            const pa = { x: d.posX, y: d.posY };
-            let posReport = 'недоступна';
-            if (pb && pa.x !== null) {
-                const dist = Math.round(Math.hypot(pa.x - pb.x, pa.y - pb.y));
-                posReport = dist > _DBG3_POS_EPS
-                    ? `ИЗМЕНИЛАСЬ (Δ${dist}м): (${pb.x},${pb.y}) → (${pa.x},${pa.y})`
-                    : `НЕ изменилась: (${pb.x},${pb.y})`;
-            }
+            // FIX: в момент спавна store ещё держит СТАРУЮ позицию (клиент шлёт её в WebView через
+            // UpdatePositionInWebView только когда новый педер уже живёт и двигается/синхронится).
+            // Раньше тут сразу сравнивали и ставили active=false — свежая позиция приходила позже и терялась.
+            // Теперь не закрываем сессию: ждём, пока позиция реально обновится (или 15с).
+            _dbg3Rec.spawnedAt = Date.now();
+            _dbg3Rec.settling  = true;
             const total = ((Date.now() - _dbg3Rec.startTime) / 1000).toFixed(1);
             _dbg3TgPush(
-                `✅ [REC] Спавн через <b>${total}с</b>\n📍 Позиция ${posReport}\n❤️ HP: ${_dbg3Rec.hpBefore ?? '?'} → ${d.hp ?? '?'}`,
+                `✅ [REC] Спавн через <b>${total}с</b>, жду обновления позиции…\n❤️ HP: ${_dbg3Rec.hpBefore ?? '?'} → ${d.hp ?? '?'}`,
+                true
+            );
+        }
+    }
+
+    // Ожидание свежей позиции после спавна
+    if (_dbg3Rec.active && _dbg3Rec.settling) {
+        const pb = _dbg3Rec.posBefore;
+        const waited = Date.now() - _dbg3Rec.spawnedAt;
+        const hasPos = d.posX !== null && d.posX !== undefined;
+        const dist = (pb && hasPos) ? Math.round(Math.hypot(d.posX - pb.x, d.posY - pb.y)) : null;
+        if (dist !== null && dist > _DBG3_POS_EPS) {
+            _dbg3Rec.active = false; _dbg3Rec.settling = false;
+            _dbg3TgPush(`📍 [REC] Позиция ИЗМЕНИЛАСЬ (Δ${dist}м, через ${(waited/1000).toFixed(1)}с после спавна): (${pb.x},${pb.y}) → (${d.posX},${d.posY})`, true);
+        } else if (waited > 15000) {
+            _dbg3Rec.active = false; _dbg3Rec.settling = false;
+            const where = hasPos ? `(${d.posX},${d.posY})` : 'недоступна';
+            _dbg3TgPush(
+                pb ? `📍 [REC] За 15с после спавна позиция в store не изменилась: ${where} (было (${pb.x},${pb.y})). Либо вернулся на то же место, либо клиент не обновил позицию в WebView`
+                   : `📍 [REC] Позиция до /rec была недоступна, после спавна: ${where}`,
                 true
             );
         }
@@ -2749,7 +2782,7 @@ function _dbg3UpdateRec(d) {
         _dbg3Log(`[REC] ${el}с | фаза=${_dbg3Rec.phase} | spawn=${d.isPlayerConnected} auth=${d.ifaceAuth} conn=${d.ifaceConnect} pos=(${d.posX},${d.posY},${d.posZ})`);
     }
 
-    if (_dbg3Rec.active && Date.now() - _dbg3Rec.startTime > 90000) {
+    if (_dbg3Rec.active && !_dbg3Rec.settling && Date.now() - _dbg3Rec.startTime > 90000) {
         _dbg3Rec.active = false;
         _dbg3TgPush(`⚠️ [REC] Таймаут 90с — спавн не обнаружен`, true);
     }
@@ -2786,11 +2819,16 @@ function _dbg3Tick() {
     const posChanged = _dbg3Last.posX !== undefined && d.posX !== null &&
         (Math.abs((_dbg3Last.posX || 0) - d.posX) > _DBG3_POS_EPS ||
          Math.abs((_dbg3Last.posY || 0) - d.posY) > _DBG3_POS_EPS);
-    _dbg3Watch('posX', '📍 X', d.posX, posChanged);
-    _dbg3Watch('posY', '📍 Y', d.posY, posChanged);
-    _dbg3Watch('posZ', '📍 Z', d.posZ, posChanged);
-    _dbg3Watch('angle', '🧭 Угол', d.angle, false);
-    _dbg3Watch('interior', '🏠 Интерьер', d.interior, true, v => v === null ? '—' : (v ? 'внутри' : 'снаружи'));
+    // FIX: пока позиция устарела (auth/connect/не в игре) — тихо обновляем baseline, в ТГ не пишем
+    if (d.posStale) {
+        _dbg3Last.posX = _dbg3Last.posY = _dbg3Last.posZ = _dbg3Last.angle = _dbg3Last.interior = undefined;
+    } else {
+        _dbg3Watch('posX', '📍 X', d.posX, posChanged);
+        _dbg3Watch('posY', '📍 Y', d.posY, posChanged);
+        _dbg3Watch('posZ', '📍 Z', d.posZ, posChanged);
+        _dbg3Watch('angle', '🧭 Угол', d.angle, false);
+        _dbg3Watch('interior', '🏠 Интерьер', d.interior, true, v => v === null ? '—' : (v ? 'внутри' : 'снаружи'));
+    }
 
     // HP / броня / голод
     // FIX: На авторизации сервер сбрасывает HP→100 — молча обновляем baseline, в ТГ не пишем.
@@ -2845,7 +2883,7 @@ function _dbg3InstallSubs() {
                 const np = nv ? `(${Math.round(nv.x)}, ${Math.round(nv.y)}, ${Math.round(nv.z ?? 0)})` : 'null';
                 const op = ov ? `(${Math.round(ov.x)}, ${Math.round(ov.y)}, ${Math.round(ov.z ?? 0)})` : 'null';
                 _dbg3Log(`[WATCH] Позиция: ${op} → ${np}`);
-                if (_dbg3Rec.active) _dbg3TgPush(`📍 [REC] Позиция: ${op} → ${np}`, true);
+                if (_dbg3Rec.active) _dbg3TgPush(`📍 [REC] Позиция (событие клиента UpdatePlayerPosition): ${op} → ${np}`, true);
             },
             { deep: true }
         ));
