@@ -2731,15 +2731,25 @@ function _dbg3UpdateRec(d) {
     if (!_dbg3Rec.active) return;
 
     let newPhase = _dbg3Rec.phase;
+    // FIX: «спавн» засчитываем только если клиент реально выходил из игры (auth / connect / isPlayerConnected=false).
+    // Иначе после /rec старый педер ещё жив (isPlayerConnected=true) и это ложно считалось спавном.
+    if (d.ifaceAuth || d.ifaceConnect || !d.isPlayerConnected) _dbg3Rec.leftGame = true;
     if (d.ifaceAuth) newPhase = 'auth';
     else if (d.ifaceConnect) newPhase = 'connect';
-    else if (d.isPlayerConnected) newPhase = 'spawned';
+    else if (d.isPlayerConnected) newPhase = _dbg3Rec.leftGame ? 'spawned' : 'still-ingame';
+    else newPhase = 'disconnected';
+
+    // Клиент после /rec так и не отключился — один раз предупреждаем через 10с
+    if (newPhase === 'still-ingame' && !_dbg3Rec.warnedStill && Date.now() - _dbg3Rec.startTime > 10000) {
+        _dbg3Rec.warnedStill = true;
+        _dbg3TgPush(`⚠️ [REC] Прошло ${((Date.now() - _dbg3Rec.startTime) / 1000).toFixed(0)}с, а клиент всё ещё в игре (педер жив, позиция приходит). Дисконнект не произошёл — сервер ещё держит старую сессию`, true);
+    }
 
     if (newPhase !== _dbg3Rec.phase) {
         const el = ((Date.now() - _dbg3Rec.startTime) / 1000).toFixed(1);
         _dbg3Rec.phase = newPhase;
         _dbg3Log(`[REC] Фаза → ${newPhase} (${el}с)`);
-        _dbg3TgPush(`🔄 [REC] Фаза: <b>${newPhase}</b> (${el}с)`, true);
+        if (newPhase !== 'still-ingame') _dbg3TgPush(`🔄 [REC] Фаза: <b>${newPhase}</b> (${el}с)`, true);
 
         if (newPhase === 'spawned') {
             // FIX: в момент спавна store ещё держит СТАРУЮ позицию (клиент шлёт её в WebView через
@@ -2882,6 +2892,9 @@ function _dbg3InstallSubs() {
             (nv, ov) => {
                 const np = nv ? `(${Math.round(nv.x)}, ${Math.round(nv.y)}, ${Math.round(nv.z ?? 0)})` : 'null';
                 const op = ov ? `(${Math.round(ov.x)}, ${Math.round(ov.y)}, ${Math.round(ov.z ?? 0)})` : 'null';
+                // FIX: клиент шлёт UpdatePlayerPosition ~15 раз/с, а setPosition каждый раз создаёт НОВЫЙ объект —
+                // watcher срабатывал с одинаковыми координатами и забивал ТГ. Одинаковые (после округления) пропускаем.
+                if (np === op) return;
                 _dbg3Log(`[WATCH] Позиция: ${op} → ${np}`);
                 if (_dbg3Rec.active) _dbg3TgPush(`📍 [REC] Позиция (событие клиента UpdatePlayerPosition): ${op} → ${np}`, true);
             },
