@@ -341,12 +341,24 @@
     }
     function liveStop() { const L = S.live; if (L) { L.stop = true; liveEnd(L, 'Live остановлен', false); } }
 
-    // Нажатие «📸 Скрин» в меню: спрашиваем «Обычное или Live» отдельным сообщением (после выбора оно удаляется)
-    function choose(chatId) {
+    // Нажатие «📸 Скрин» в меню: спрашиваем «Обычное или Live» В ЭТОМ ЖЕ сообщении (редактируем меню; после выбора или «Назад» меню возвращается).
+    // Нет номера сообщения или Code.js без showControlsMenu — как раньше, отдельным сообщением (оно удаляется после выбора).
+    function backToMenu(chatId, mid) {
+        try { if (typeof showControlsMenu === 'function') { showControlsMenu(chatId, mid); return true; } } catch (e) { debugLog('[SCREEN] меню не вернулось: ' + (e && e.message)); }
+        return false;
+    }
+    function choose(chatId, mid) {
         if (stale()) return;
         const go = function () {
             if (stale()) return;
             if (!oursNow()) return say(chatId, (window.KONSTT_CLIENT && window.KONSTT_CLIENT.denied) ? '🚫 Нет доступа к модам.' : 'Клиент не наш — мода скрина нет.');
+            if (mid && typeof showControlsMenu === 'function') {
+                editMessageText(chatId, mid, '📸 <b>' + displayName + '</b>: что снять?', { inline_keyboard: [
+                    [{ text: '📸 Обычное', callback_data: 'screen_do_shot_' + uniqueId }, { text: '📺 Live', callback_data: 'screen_do_live_' + uniqueId }],
+                    [{ text: '⬅️ Назад', callback_data: 'screen_back_' + uniqueId }]
+                ] });
+                return;
+            }
             tgApi('sendMessage', {
                 chat_id: chatId, text: '📸 <b>' + displayName + '</b>: что снять?', parse_mode: 'HTML', disable_notification: true,
                 reply_markup: { inline_keyboard: [[{ text: '📸 Обычное', callback_data: 'screen_do_shot_' + uniqueId }, { text: '📺 Live', callback_data: 'screen_do_live_' + uniqueId }]] }
@@ -406,7 +418,7 @@
 
     // ── Перехват 2: нажатие кнопки ──
     // Свой чат и свой аккаунт проверяем сами (в обход processUpdates), остальное отдаём Code.js как есть.
-    function actOf(d) { return ['screen_menu_', 'screen_do_shot_', 'screen_do_live_', 'screen_shot_', 'screen_live_', 'screen_stop_', 'screen_re_'].filter(function (p) { return d.indexOf(p) === 0; })[0] || null; }
+    function actOf(d) { return ['screen_menu_', 'screen_do_shot_', 'screen_do_live_', 'screen_shot_', 'screen_live_', 'screen_stop_', 'screen_re_', 'screen_back_'].filter(function (p) { return d.indexOf(p) === 0; })[0] || null; }
     function isMine(u) {
         const cq = u && u.callback_query;
         if (!cq || typeof cq.data !== 'string') return false;
@@ -445,9 +457,11 @@
                         const act = actOf(u.callback_query.data);
                         const cm = u.callback_query.message;
                         if ((act === 'screen_do_shot_' || act === 'screen_do_live_') && cm && cm.message_id) {
-                            tgApi('deleteMessage', { chat_id: cm.chat.id, message_id: cm.message_id });   // вопрос «что снять?» после выбора не нужен
+                            // вопрос «что снять?» после выбора не нужен: меню возвращаем на место; не вышло (старый Code.js) — удаляем вопрос
+                            if (!backToMenu(cm.chat.id, cm.message_id)) tgApi('deleteMessage', { chat_id: cm.chat.id, message_id: cm.message_id });
                         }
-                        if (act === 'screen_menu_') choose(u.callback_query.message.chat.id);
+                        if (act === 'screen_menu_') choose(cm.chat.id, cm && cm.message_id);
+                        else if (act === 'screen_back_') { if (cm && cm.message_id) backToMenu(cm.chat.id, cm.message_id); }
                         else if (act === 'screen_stop_') {
                             if (S.live) liveStop();
                             else {   // Live уже закончен, а кнопка осталась под старым фото — убираем её
