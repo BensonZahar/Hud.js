@@ -14,6 +14,7 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия 3.1: в Telegram после каждого переодевания в ночном режиме — сколько заняло /dressu (надевание в :59 и снятие после PayDay): длительность, время старта и конца с десятыми секунды (МСК), отступ от :00, а при снятии — сколько прошло от строки PayDay.
 // Версия 3.0: пока «Переодевание ночь» включено, строй/сбор/готовность/конф на рации игнорируется полностью (DN_IGNORE_STROY): без реконнекта, без сообщений в Telegram, без озвучки Ozv.js. Code.js не менялся — всё делает хук чата и подмена performStroiReconnect/exitAfterStroiPayDay на время ночного режима.
 // Версия 2.9: «Переодевание ночь» — выбор, что делать после РЕСТАРТА сервера (сообщение «Сервер возобновит работу в течении минуты» или обрыв связи без нашего /rec):
 //   🔐 «auth»   — автовход выключаем, /rec 5: висим на окне авторизации. Зашли (руками или кнопкой «Выйти с автр.») — цикл на паузе, кнопка «Вернуться на место и продолжить»;
@@ -608,6 +609,17 @@ function dnLog(m) { log('[ночь] ' + m); }
 function dnTimer(fn, ms) { var h = setTimeout(function () { if (!_dead && DN.on) { try { fn(); } catch (e) { dnLog('ошибка: ' + (e && e.message)); } } }, ms); DN.timers.push(h); return h; }
 var DN_SERVER_TZ_H = 3;                     // серверное время игры = МСК (UTC+3), не зависит от пояса телефона
 function dnClock(ms) { var d = new Date(ms + DN_SERVER_TZ_H * DN_HOUR); function p(n) { return n < 10 ? '0' + n : '' + n; } return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds()) + ' МСК'; }
+function dnClockT(ms) { var d = new Date(ms + DN_SERVER_TZ_H * DN_HOUR); function p(n) { return n < 10 ? '0' + n : '' + n; } return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds()) + '.' + Math.floor(d.getUTCMilliseconds() / 100); }   // ЧЧ:ММ:СС.д (МСК, десятые секунды)
+function dnSecs(ms) { return (Math.max(0, ms) / 1000).toFixed(1) + ' с'; }
+function dnOff00(ms) { var b = Math.round(ms / DN_HOUR) * DN_HOUR, d = ms - b; return d < 0 ? 'за ' + dnSecs(-d) + ' до :00' : dnSecs(d) + ' после :00'; }   // отступ от ближайшего :00:00
+// строка «сколько заняло» для сообщения в Telegram (kind: 'on' — надеть в :59, 'off' — снять после PayDay)
+function dnTimingText(kind, took, tEnd) {
+    var tBeg = tEnd - took, t = '⏱ <b>Заняло ' + dnSecs(took) + '</b>';
+    if (DN.tries > 1 && DN.opT0) t += ' (попытка ' + DN.tries + '/' + DN_TRIES + ', всего с повторами ' + dnSecs(tEnd - DN.opT0) + ')';
+    t += '\nстарт ' + dnClockT(tBeg) + ' → готово ' + dnClockT(tEnd) + ' МСК\nготово ' + dnOff00(tEnd);
+    if (kind === 'off' && DN.pdAt) t += '\nстрока PayDay в ' + dnClockT(DN.pdAt) + ' (' + dnOff00(DN.pdAt) + '), от неё до готово ' + dnSecs(tEnd - DN.pdAt);
+    return t;
+}
 function dnRand(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
 function dnNextHour(now) { return Math.floor(now / DN_HOUR) * DN_HOUR + DN_HOUR; }
 function dnPick59(now) { var t = Math.floor(now / DN_HOUR) * DN_HOUR + 59 * 60000 + dnRand(DN_SEC_MIN, DN_SEC_MAX) * 1000; if (t <= now + 1000) t += DN_HOUR; return t; }
@@ -685,7 +697,7 @@ function dnStart(src, rmode) {
     PKC = null;                                                         // первый круг — всегда со свежим списком пикапов
     DN.on = true; DN.phase = 'nocol'; DN.uniform = true; DN.cycles = 0; DN.paydays = 0; DN.err = ''; DN.tries = 0;
     DN.pdPending = false; DN.nocolSeen = false; DN.nextAt = 0; DN.fbAt = 0; DN.since = Date.now(); DN.busyN = 0; DN.skinU = null; DN.skinC = null;
-    DN.rs = null; DN.pt = null; DN.ptWait = true; DN.downSince = 0; DN.startReason = 'старт';
+    DN.rs = null; DN.pt = null; DN.ptWait = true; DN.downSince = 0; DN.startReason = 'старт'; DN.opT0 = 0; DN.pdAt = 0;
     if (!dnHookChat()) { DN.on = false; DN.phase = 'off'; return 'нет OnChatAddMessage — бот ещё не запущен?'; }
     if (DN_IGNORE_STROY) dnClearStroy('старт');
     jlPing();
@@ -752,6 +764,7 @@ function dnTick() {
 
 // kind: 'off' — снять форму, 'on' — надеть
 function dnToggle(kind, reason) {
+    DN.opT0 = Date.now();                                               // начало операции (для «всего с повторами»)
     DN.phase = kind === 'off' ? 'undressing' : 'dressing';
     DN.tries = 0; DN.busyN = 0;
     dnAttempt(kind, reason);
@@ -782,10 +795,12 @@ function dnAfterToggle(kind, reason, res) {
         dnLog((kind === 'off' ? 'форма СНЯТА' : 'форма НАДЕТА') + ' за ' + res.ms + ' мс, скин ' + res.skin0 + ' → ' + res.skin1);
         if (kind === 'off') {
             if (!DN_START_RX.test(reason)) { DN.cycles++; }
-            dnTg('👕 <b>Форма снята (' + dnEsc(dnName()) + ')</b> · ' + dnEsc(reason) + '\nСледующее: надеть в ' + dnClock(dnWait59()) + '  ·  круг ' + (DN.cycles + 1));
+            var tOff = dnTimingText('off', res.ms || 0, Date.now());
+            DN.pdAt = 0;
+            dnTg('👕 <b>Форма снята (' + dnEsc(dnName()) + ')</b> · ' + dnEsc(reason) + '\n' + tOff + '\nСледующее: надеть в ' + dnClock(dnWait59()) + '  ·  круг ' + (DN.cycles + 1));
             if (DN.pdPending) DN.pdPending = false;
         } else {
-            dnTg('👔 <b>Форма надета (' + dnEsc(dnName()) + ')</b> · ждём PayDay в :00');
+            dnTg('👔 <b>Форма надета (' + dnEsc(dnName()) + ')</b> · ждём PayDay в :00\n' + dnTimingText('on', res.ms || 0, Date.now()));
             dnWaitPayday();
         }
         return;
@@ -797,12 +812,12 @@ function dnAfterToggle(kind, reason, res) {
 function dnFail(kind, why) {
     dnSyncUniform();
     DN.err = (kind === 'off' ? 'не снял форму' : 'не надел форму') + ': ' + why;
-    dnTg('❗ <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\n' + dnEsc(DN.err) + '\nФорма по скину: ' + (DN.uniform === true ? '👔 надета' : DN.uniform === false ? '👕 снята' : '❓') + '. Цикл продолжается.');
+    dnTg('❗ <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\n' + dnEsc(DN.err) + (DN.opT0 ? '\n⏱ потрачено ' + dnSecs(Date.now() - DN.opT0) + ', попыток ' + DN.tries + '/' + DN_TRIES + ', сейчас ' + dnClockT(Date.now()) + ' МСК' : '') + '\nФорма по скину: ' + (DN.uniform === true ? '👔 надета' : DN.uniform === false ? '👕 снята' : '❓') + '. Цикл продолжается.');
     dnWait59();                                                         // не сняли — в :59 увидим «уже в форме» и дождёмся PayDay; не надели — ждём следующий :59
 }
 
 function dnWait59() {
-    DN.phase = 'wait59';
+    DN.phase = 'wait59'; DN.pdAt = 0;                                   // новый круг — отметка PayDay прошлого часа больше не нужна
     DN.nextAt = dnPick59(Date.now());
     dnLog('жду ' + dnClock(DN.nextAt));
     return DN.nextAt;
@@ -823,6 +838,7 @@ function dnWaitPayday() {
     dnLog('жду PayDay, запасной таймер в ' + dnClock(DN.fbAt));
 }
 function dnOnPayday(src) {
+    if ((DN.phase === 'dressing' || DN.phase === 'wait_payday') && !DN.pdAt) DN.pdAt = Date.now();   // когда пришла строка PayDay (или сработал запасной таймер)
     if (DN.phase === 'dressing') { DN.pdPending = true; dnLog('PayDay пришёл во время надевания — снимем сразу после'); return; }
     if (DN.phase !== 'wait_payday') return;
     DN.fbAt = 0; DN.phase = 'payday'; DN.paydays++;
@@ -1245,6 +1261,6 @@ onUndo(function () {
 window.Dress = { run: function (n, under, sec, use, fb, cb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, cb); }, busy: function () { return !!S; }, night: function (on, rmode) { if (on) return dnStart('api', rmode); dnStop('api'); return ''; }, nightStatus: dnStatusHtml, nightMode: function (m) { m = dnParseMode(m); if (m) { DN.rmode = m; window.__dnRMode = m; } return DN.rmode; }, nightBack: dnRsBack, nightOn: function () { return !!DN.on; }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v3.0 загружен (в ночном режиме строй на рации игнорируется): /dressnight on [auth|return]|off|status|mode|back (цикл «Переодевание ночь», кнопка в Telegram → Функции; после рестарта — авторизация или вход и возврат на место), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
+log('Dress.js v3.1 загружен (в ночном режиме строй на рации игнорируется; в Telegram — сколько заняло надевание/снятие): /dressnight on [auth|return]|off|status|mode|back (цикл «Переодевание ночь», кнопка в Telegram → Функции; после рестарта — авторизация или вход и возврат на место), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
