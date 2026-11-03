@@ -14,6 +14,7 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия 3.0: пока «Переодевание ночь» включено, строй/сбор/готовность/конф на рации игнорируется полностью (DN_IGNORE_STROY): без реконнекта, без сообщений в Telegram, без озвучки Ozv.js. Code.js не менялся — всё делает хук чата и подмена performStroiReconnect/exitAfterStroiPayDay на время ночного режима.
 // Версия 2.9: «Переодевание ночь» — выбор, что делать после РЕСТАРТА сервера (сообщение «Сервер возобновит работу в течении минуты» или обрыв связи без нашего /rec):
 //   🔐 «auth»   — автовход выключаем, /rec 5: висим на окне авторизации. Зашли (руками или кнопкой «Выйти с автр.») — цикл на паузе, кнопка «Вернуться на место и продолжить»;
 //   📍 «return» — автовход включён, /rec 90: выходим сразу и заходим заново, когда сервер уже поднялся; на серверный диалог «Восстановление позиции» отвечаем «Да»;
@@ -619,11 +620,37 @@ function dnSyncUniform() {
     else if (String(c) === String(DN.skinC)) DN.uniform = false;
 }
 
+// ── строй на рации: в ночном режиме не реагируем вообще ──
+var DN_IGNORE_STROY = true;                 // true — пока «Переодевание ночь» включено, строй/сбор/готовность/конф на рации Code.js не видит (ни /rec, ни Telegram, ни озвучки); false — как раньше
+var DN_RX_STROY = /строй|сбор|готовность|конф/;   // те же слова, что в Code.js («Smart Stroi System»)
+function dnIsStroy(raw, color) {
+    var msg = String(raw);
+    var low = (typeof normalizeToCyrillic === 'function' ? String(normalizeToCyrillic(msg)) : msg).toLowerCase();
+    if (!DN_RX_STROY.test(low)) return false;
+    if (typeof isNonRPMessage === 'function' && isNonRPMessage(msg)) return false;      // как в Code.js: не-RP строки не считаем
+    if (typeof getChatRadius === 'function' && typeof CHAT_RADIUS !== 'undefined') return getChatRadius(color) === CHAT_RADIUS.RADIO;
+    return /^\s*\[R\]/i.test(strip(msg));                                              // запасной вариант: рация помечена [R]
+}
+// строй, пойманный ДО включения ночного режима (ждём PayDay, висим на авторизации): снимаем ожидание и все его таймеры
+function dnClearStroy(why) {
+    try {
+        if (typeof resetPayDayFlag !== 'function') return;
+        var waiting = false;
+        try { waiting = (typeof waitingForPayDay !== 'undefined') && !!waitingForPayDay; } catch (e) {}
+        resetPayDayFlag();
+        if (waiting) {
+            dnLog('ожидание PayDay после строя снято (' + why + ')');
+            dnTg('🔕 <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\nСтрой, пойманный до включения, отменён — выхода/реконнекта из-за него не будет.');
+        }
+    } catch (e) { dnLog('dnClearStroy: ' + (e && e.message)); }
+}
+
 function dnHookChat() {
     var cur = window.OnChatAddMessage;
     if (typeof cur !== 'function') return false;
     var wrapped = function (e, c, t) {
         try { if (!_dead && DN.on) dnOnChat(String(e)); } catch (err) { warn('dnOnChat:', err && err.message); }
+        try { if (!_dead && DN.on && DN_IGNORE_STROY && dnIsStroy(e, c)) { dnLog('строй/сбор на рации — игнорирую'); return; } } catch (err) { warn('dnIsStroy:', err && err.message); }
         return cur.apply(this, arguments);
     };
     DN.chatOrig = cur; DN.chatWrap = wrapped;
@@ -660,6 +687,7 @@ function dnStart(src, rmode) {
     DN.pdPending = false; DN.nocolSeen = false; DN.nextAt = 0; DN.fbAt = 0; DN.since = Date.now(); DN.busyN = 0; DN.skinU = null; DN.skinC = null;
     DN.rs = null; DN.pt = null; DN.ptWait = true; DN.downSince = 0; DN.startReason = 'старт';
     if (!dnHookChat()) { DN.on = false; DN.phase = 'off'; return 'нет OnChatAddMessage — бот ещё не запущен?'; }
+    if (DN_IGNORE_STROY) dnClearStroy('старт');
     jlPing();
     DN.tick = setInterval(dnTick, 1000);
     dnLog('=== ВКЛ (' + src + '), после рестарта: ' + DN.rmode + ', скин сейчас: ' + curSkin());
@@ -1152,6 +1180,28 @@ try {
     } else warn('processUpdates не найдена — кнопки «Переодевание ночь» не сработают');
 } catch (e) { warn('processUpdates:', e && e.message); }
 
+// ── страховка: даже если строй-функции Code.js как-то вызовутся, пока ночной режим включён, они ничего не делают ──
+try {
+    if (typeof performStroiReconnect === 'function') {
+        var dnOrigPSR = performStroiReconnect;
+        var dnPatchedPSR = function () {
+            if (!_dead && DN.on && DN_IGNORE_STROY) { dnLog('performStroiReconnect заблокирован (ночной режим)'); return; }
+            return dnOrigPSR.apply(this, arguments);
+        };
+        performStroiReconnect = dnPatchedPSR;
+        onUndo(function () { try { if (performStroiReconnect === dnPatchedPSR) performStroiReconnect = dnOrigPSR; } catch (e) {} });
+    } else warn('performStroiReconnect не найдена — строй игнорируется только хуком чата');
+    if (typeof exitAfterStroiPayDay === 'function') {
+        var dnOrigEAS = exitAfterStroiPayDay;
+        var dnPatchedEAS = function () {
+            if (!_dead && DN.on && DN_IGNORE_STROY) { dnLog('exitAfterStroiPayDay заблокирован (ночной режим)'); dnClearStroy('PayDay'); return; }
+            return dnOrigEAS.apply(this, arguments);
+        };
+        exitAfterStroiPayDay = dnPatchedEAS;
+        onUndo(function () { try { if (exitAfterStroiPayDay === dnPatchedEAS) exitAfterStroiPayDay = dnOrigEAS; } catch (e) {} });
+    } else warn('exitAfterStroiPayDay не найдена — выход после строя не заблокирован');
+} catch (e) { warn('строй:', e && e.message); }
+
 onUndo(function () { try { dnStop('перезагрузка скриптов', true); } catch (e) {} });
 
 // ── команда в игровом чате: /dressnight [on|off|status], /ночь ──
@@ -1195,6 +1245,6 @@ onUndo(function () {
 window.Dress = { run: function (n, under, sec, use, fb, cb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, cb); }, busy: function () { return !!S; }, night: function (on, rmode) { if (on) return dnStart('api', rmode); dnStop('api'); return ''; }, nightStatus: dnStatusHtml, nightMode: function (m) { m = dnParseMode(m); if (m) { DN.rmode = m; window.__dnRMode = m; } return DN.rmode; }, nightBack: dnRsBack, nightOn: function () { return !!DN.on; }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v2.9 загружен: /dressnight on [auth|return]|off|status|mode|back (цикл «Переодевание ночь», кнопка в Telegram → Функции; после рестарта — авторизация или вход и возврат на место), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
+log('Dress.js v3.0 загружен (в ночном режиме строй на рации игнорируется): /dressnight on [auth|return]|off|status|mode|back (цикл «Переодевание ночь», кнопка в Telegram → Функции; после рестарта — авторизация или вход и возврат на место), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
