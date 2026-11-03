@@ -14,6 +14,7 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия 3.2: тип переодевания в «Переодевание ночь» — «обычное» (как раньше: надеть в :59:35–:59:45, снять через 0,3–1,2 с после PayDay) или «моментальное» (надеть впритык к :00 — старт = замеренное время надевания + запас DN_FAST_MARGIN_MS, точным таймером, а не раз в секунду; снять сразу по строке PayDay, без паузы). Выбор: кнопка «⚡ Тип» в меню Telegram и на экране ВКЛ, /dressnight on [auth|return] [fast|normal], /dressnight speed fast|normal.
 // Версия 3.1: в Telegram после каждого переодевания в ночном режиме — сколько заняло /dressu (надевание в :59 и снятие после PayDay): длительность, время старта и конца с десятыми секунды (МСК), отступ от :00, а при снятии — сколько прошло от строки PayDay.
 // Версия 3.0: пока «Переодевание ночь» включено, строй/сбор/готовность/конф на рации игнорируется полностью (DN_IGNORE_STROY): без реконнекта, без сообщений в Telegram, без озвучки Ozv.js. Code.js не менялся — всё делает хук чата и подмена performStroiReconnect/exitAfterStroiPayDay на время ночного режима.
 // Версия 2.9: «Переодевание ночь» — выбор, что делать после РЕСТАРТА сервера (сообщение «Сервер возобновит работу в течении минуты» или обрыв связи без нашего /rec):
@@ -600,7 +601,7 @@ var DN_START_RX = /^(старт|после рестарта|вручную|ре�
 
 var DN = { on: false, phase: 'off', uniform: null, skinU: null, skinC: null, cycles: 0, paydays: 0, nextAt: 0, fbAt: 0, err: '', tries: 0,
            pdPending: false, tick: null, timers: [], chatOrig: null, chatWrap: null, since: 0, busyN: 0,
-           rmode: (window.__dnRMode === 'auth' ? 'auth' : 'return'), rs: null, pt: null, ptWait: false, downSince: 0, dlgOrig: null, dlgWrap: null, startReason: 'старт' };
+           rmode: (window.__dnRMode === 'auth' ? 'auth' : 'return'), speed: (window.__dnSpeed === 'fast' ? 'fast' : 'normal'), onMs: (window.__dnOnMs || []), rs: null, pt: null, ptWait: false, downSince: 0, dlgOrig: null, dlgWrap: null, startReason: 'старт' };
 
 function dnTg(html, silent) { try { if (typeof sendToTelegram === 'function') sendToTelegram(html, silent !== false, null); } catch (e) {} }
 function dnName() { try { return String(typeof displayName !== 'undefined' ? displayName : ''); } catch (e) { return ''; } }
@@ -611,17 +612,36 @@ var DN_SERVER_TZ_H = 3;                     // серверное время и�
 function dnClock(ms) { var d = new Date(ms + DN_SERVER_TZ_H * DN_HOUR); function p(n) { return n < 10 ? '0' + n : '' + n; } return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds()) + ' МСК'; }
 function dnClockT(ms) { var d = new Date(ms + DN_SERVER_TZ_H * DN_HOUR); function p(n) { return n < 10 ? '0' + n : '' + n; } return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds()) + '.' + Math.floor(d.getUTCMilliseconds() / 100); }   // ЧЧ:ММ:СС.д (МСК, десятые секунды)
 function dnSecs(ms) { return (Math.max(0, ms) / 1000).toFixed(1) + ' с'; }
-function dnOff00(ms) { var b = Math.round(ms / DN_HOUR) * DN_HOUR, d = ms - b; return d < 0 ? 'за ' + dnSecs(-d) + ' до :00' : dnSecs(d) + ' после :00'; }   // отступ от ближайшего :00:00
+function dnOff00(ms) { var b = Math.round(ms / DN_HOUR) * DN_HOUR, d = ms - b; if (Math.abs(d) > 600000) return ''; return d < 0 ? 'за ' + dnSecs(-d) + ' до :00' : dnSecs(d) + ' после :00'; }   // отступ от ближайшего :00:00; дальше 10 минут — пустая строка (например, снятие при старте в 23:20 к :00 не относится)
 // строка «сколько заняло» для сообщения в Telegram (kind: 'on' — надеть в :59, 'off' — снять после PayDay)
 function dnTimingText(kind, took, tEnd) {
     var tBeg = tEnd - took, t = '⏱ <b>Заняло ' + dnSecs(took) + '</b>';
     if (DN.tries > 1 && DN.opT0) t += ' (попытка ' + DN.tries + '/' + DN_TRIES + ', всего с повторами ' + dnSecs(tEnd - DN.opT0) + ')';
-    t += '\nстарт ' + dnClockT(tBeg) + ' → готово ' + dnClockT(tEnd) + ' МСК\nготово ' + dnOff00(tEnd);
-    if (kind === 'off' && DN.pdAt) t += '\nстрока PayDay в ' + dnClockT(DN.pdAt) + ' (' + dnOff00(DN.pdAt) + '), от неё до готово ' + dnSecs(tEnd - DN.pdAt);
+    t += '\nстарт ' + dnClockT(tBeg) + ' → готово ' + dnClockT(tEnd) + ' МСК';
+    var o = dnOff00(tEnd);
+    if (o) t += '\nготово ' + o;
+    if (kind === 'off' && DN.pdAt) { var op = dnOff00(DN.pdAt); t += '\nстрока PayDay в ' + dnClockT(DN.pdAt) + (op ? ' (' + op + ')' : '') + ', от неё до готово ' + dnSecs(tEnd - DN.pdAt); }
     return t;
 }
 function dnRand(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
 function dnNextHour(now) { return Math.floor(now / DN_HOUR) * DN_HOUR + DN_HOUR; }
+// ── тип переодевания: «обычное» / «моментальное» ──
+var DN_FAST_MARGIN_MS = 700;                // моментальное: форма должна быть надета за столько мс ДО :00:00 (запас на разброс сети/часов)
+var DN_FAST_DRESS_MS = 2500;                // моментальное: пока нет замеров надевания — считаем, что оно длится столько мс
+var DN_FAST_JITTER_MS = 300;                // моментальное: старт раньше расчётного на случайные 0…N мс (чтобы не бить в одну и ту же миллисекунду)
+var DN_FAST_PD_DELAY_MS = 0;                // моментальное: пауза после строки PayDay перед снятием, мс (0 — сразу)
+function dnParseSpeed(w) {
+    w = String(w || '').toLowerCase();
+    if (/^(fast|instant|моментальное|моментальный|моментально|быстро|быстрое|быстрый|мгновенно|мгн)$/.test(w)) return 'fast';
+    if (/^(normal|usual|обычное|обычный|обычно|норма|стандарт)$/.test(w)) return 'normal';
+    return '';
+}
+function dnSpeedText(m) { return m === 'fast' ? '⚡ моментальное' : '🕐 обычное'; }
+function dnSpeedFlip() { DN.speed = DN.speed === 'fast' ? 'normal' : 'fast'; window.__dnSpeed = DN.speed; dnLog('тип переодевания: ' + DN.speed + (DN.on ? ' (со следующего круга)' : '')); return DN.speed; }
+// сколько мс до :00 надо начать надевание: худшее из последних замеров (или DN_FAST_DRESS_MS) + запас
+function dnFastLead() { var m = DN.onMs && DN.onMs.length ? Math.max.apply(null, DN.onMs) : DN_FAST_DRESS_MS; return m + DN_FAST_MARGIN_MS; }
+function dnPickFast(now) { var t = Math.floor(now / DN_HOUR) * DN_HOUR + DN_HOUR - dnFastLead() - dnRand(0, DN_FAST_JITTER_MS); if (t <= now + 500) t += DN_HOUR; return t; }
+function dnClockAuto(ms) { return DN.speed === 'fast' ? dnClockT(ms) + ' МСК' : dnClock(ms); }   // в моментальном нужны десятые секунды
 function dnPick59(now) { var t = Math.floor(now / DN_HOUR) * DN_HOUR + 59 * 60000 + dnRand(DN_SEC_MIN, DN_SEC_MAX) * 1000; if (t <= now + 1000) t += DN_HOUR; return t; }
 function dnSkinOk(v) { return v !== undefined && v !== null && v !== '?'; }
 // по известным скинам уточняем, в форме ли NPC (если оба скина ещё не известны — верим счётчику)
@@ -688,8 +708,9 @@ function dnOnChat(raw) {
     dnOnPayday('чат: ' + text.slice(0, 80));
 }
 
-function dnStart(src, rmode) {
+function dnStart(src, rmode, speed) {
     if (DN.on) return 'уже включено';
+    if (speed === 'fast' || speed === 'normal') { DN.speed = speed; window.__dnSpeed = speed; }
     var connected = true;
     try { connected = !!window.App.$store.getters['player/isPlayerConnected']; } catch (e) {}
     if (!connected) return 'персонаж не в игре';
@@ -703,7 +724,7 @@ function dnStart(src, rmode) {
     jlPing();
     DN.tick = setInterval(dnTick, 1000);
     dnLog('=== ВКЛ (' + src + '), после рестарта: ' + DN.rmode + ', скин сейчас: ' + curSkin());
-    dnTg('👗 <b>Переодевание ночь — ВКЛ (' + dnEsc(dnName()) + ')</b>\n🌙 /nocol on → снять форму → ждать :59 → надеть → PayDay → снять…\n🔁 После рестарта: ' + dnRModeText(DN.rmode));
+    dnTg('👗 <b>Переодевание ночь — ВКЛ (' + dnEsc(dnName()) + ')</b>\n🌙 /nocol on → снять форму → ждать :59 → надеть → PayDay → снять…\n⏱ Тип: ' + dnSpeedText(DN.speed) + '\n🔁 После рестарта: ' + dnRModeText(DN.rmode));
     chatCmd('/tpl save ' + DN_POINT);                                   // запоминаем место, где стоит NPC (ответ мода разбирает dnRsChat); вернёмся сюда после рестарта
     dnTimer(function () {
         if (!DN.ptWait) return;
@@ -721,7 +742,7 @@ function dnAfterNocol() {
     dnSyncUniform();
     if (DN.uniform === false) {                                         // после рестарта: по скину видно, что форма уже снята — снимать нечего
         dnLog('форма уже снята (скин ' + curSkin() + ') — жду :59');
-        dnTg('👕 <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\nФорма уже снята — следующее: надеть в ' + dnClock(dnWait59()));
+        dnTg('👕 <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\nФорма уже снята — следующее: надеть в ' + dnClockAuto(dnWait59()));
         return;
     }
     if (left < DN_MIN_LEAD_S) {
@@ -792,15 +813,18 @@ function dnAfterToggle(kind, reason, res) {
         if (dnSkinOk(res.skin0) && dnSkinOk(res.skin1)) {
             if (kind === 'off') { DN.skinU = res.skin0; DN.skinC = res.skin1; } else { DN.skinC = res.skin0; DN.skinU = res.skin1; }
         }
+        if (kind === 'on' && typeof res.ms === 'number' && res.ms >= 300 && res.ms <= 15000) {   // замеры надевания — для расчёта старта в «моментальном»
+            DN.onMs = (DN.onMs || []).concat([res.ms]).slice(-5); window.__dnOnMs = DN.onMs;
+        }
         dnLog((kind === 'off' ? 'форма СНЯТА' : 'форма НАДЕТА') + ' за ' + res.ms + ' мс, скин ' + res.skin0 + ' → ' + res.skin1);
         if (kind === 'off') {
             if (!DN_START_RX.test(reason)) { DN.cycles++; }
             var tOff = dnTimingText('off', res.ms || 0, Date.now());
             DN.pdAt = 0;
-            dnTg('👕 <b>Форма снята (' + dnEsc(dnName()) + ')</b> · ' + dnEsc(reason) + '\n' + tOff + '\nСледующее: надеть в ' + dnClock(dnWait59()) + '  ·  круг ' + (DN.cycles + 1));
+            dnTg('👕 <b>Форма снята (' + dnEsc(dnName()) + ')</b> · ' + dnEsc(reason) + ' · ' + dnSpeedText(DN.speed) + '\n' + tOff + '\nСледующее: надеть в ' + dnClockAuto(dnWait59()) + '  ·  круг ' + (DN.cycles + 1));
             if (DN.pdPending) DN.pdPending = false;
         } else {
-            dnTg('👔 <b>Форма надета (' + dnEsc(dnName()) + ')</b> · ждём PayDay в :00\n' + dnTimingText('on', res.ms || 0, Date.now()));
+            dnTg('👔 <b>Форма надета (' + dnEsc(dnName()) + ')</b> · ' + dnSpeedText(DN.speed) + ' · ждём PayDay в :00\n' + dnTimingText('on', res.ms || 0, Date.now()));
             dnWaitPayday();
         }
         return;
@@ -818,8 +842,12 @@ function dnFail(kind, why) {
 
 function dnWait59() {
     DN.phase = 'wait59'; DN.pdAt = 0;                                   // новый круг — отметка PayDay прошлого часа больше не нужна
-    DN.nextAt = dnPick59(Date.now());
-    dnLog('жду ' + dnClock(DN.nextAt));
+    DN.nextAt = DN.speed === 'fast' ? dnPickFast(Date.now()) : dnPick59(Date.now());
+    if (DN.speed === 'fast') {                                          // тик раз в секунду слишком грубый — ставим точный таймер на расчётный момент
+        var at59 = DN.nextAt;
+        dnTimer(function () { if (DN.phase === 'wait59' && DN.nextAt === at59) { DN.nextAt = 0; dnOn59(); } }, Math.max(0, at59 - Date.now()));
+    }
+    dnLog('жду ' + dnClockAuto(DN.nextAt) + ' (' + DN.speed + (DN.speed === 'fast' ? ', запас до :00 ' + dnFastLead() + ' мс' : '') + ')');
     return DN.nextAt;
 }
 function dnOn59() {
@@ -847,7 +875,7 @@ function dnOnPayday(src) {
         dnSyncUniform();
         if (DN.uniform === false) { dnLog('PayDay, но форма уже снята — ничего не делаю'); dnWait59(); return; }
         dnToggle('off', 'PayDay');
-    }, dnRand(DN_PD_DELAY_MIN, DN_PD_DELAY_MAX));
+    }, DN.speed === 'fast' ? DN_FAST_PD_DELAY_MS : dnRand(DN_PD_DELAY_MIN, DN_PD_DELAY_MAX));
 }
 
 // ═════════════════════ рестарт сервера ═════════════════════
@@ -1082,9 +1110,10 @@ function dnStatusHtml() {
     var now = Date.now(), L = [];
     L.push('👗 <b>Переодевание ночь — ' + dnEsc(dnName()) + '</b>');
     L.push('Статус: ' + (DN.on ? '🟢 <b>работает</b>' : '⏹️ выключено'));
+    L.push('Тип: <b>' + dnSpeedText(DN.speed) + '</b>' + (DN.speed === 'fast' ? ' (старт за ' + (dnFastLead() / 1000).toFixed(1) + ' с до :00, снятие сразу по PayDay)' : ''));
     if (DN.on) {
         L.push('Фаза: ' + dnPhaseText());
-        if (DN.phase === 'wait59' && DN.nextAt) { var s = Math.max(0, Math.round((DN.nextAt - now) / 1000)); L.push('Надеть форму в <b>' + dnClock(DN.nextAt) + '</b> (через ' + Math.floor(s / 60) + ' мин ' + (s % 60) + ' с)'); }
+        if (DN.phase === 'wait59' && DN.nextAt) { var s = Math.max(0, Math.round((DN.nextAt - now) / 1000)); L.push('Надеть форму в <b>' + dnClockAuto(DN.nextAt) + '</b> (через ' + Math.floor(s / 60) + ' мин ' + (s % 60) + ' с)'); }
         if (DN.phase === 'wait_payday') L.push('Снять форму сразу после PayDay (запасной таймер ' + dnClock(DN.fbAt) + ')');
         if (DN.rs) L.push('🔄 Рестарт: ' + dnEsc(dnRsText()));
     }
@@ -1101,6 +1130,7 @@ function dnMenuMarkup() {
     var uid = uniqueId;
     return { inline_keyboard: [
         [createButton('🟢 ВКЛ' + (DN.on ? ' ✓' : ''), 'dn_on_' + uid, 'success'), createButton('⏹️ ВЫКЛ' + (!DN.on ? ' ✓' : ''), 'dn_off_' + uid, 'danger')],
+        [createButton('⚡ Тип: ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное'), 'dn_speed_' + uid)],
         [createButton('🔁 После рестарта: ' + (DN.rmode === 'auth' ? '🔐 авторизация' : '📍 вернуться'), 'dn_mode_' + uid)]
     ].concat(DN.rs && DN.rs.step === 'paused' ? [[createButton('📍 Вернуться на место и продолжить', 'dn_back_' + uid, 'success')]] : [], [
         [createButton('🔄 Обновить', 'dn_ref_' + uid)],
@@ -1111,11 +1141,15 @@ function dnMenuMarkup() {
 function dnShowChoice(chatId, messageId) {
     var uid = uniqueId;
     editMessageText(chatId, messageId,
-        '🌙 <b>Переодевание ночь — ' + dnEsc(dnName()) + '</b>\n<b>Что делаем после рестарта сервера?</b>\n\n' +
+        '🌙 <b>Переодевание ночь — ' + dnEsc(dnName()) + '</b>\n<b>Тип переодевания (сейчас: ' + dnSpeedText(DN.speed) + ')</b>\n' +
+        '🕐 <b>Обычное</b> — надеть в :59:' + DN_SEC_MIN + '–:59:' + DN_SEC_MAX + ', снять через ' + (DN_PD_DELAY_MIN / 1000) + '–' + (DN_PD_DELAY_MAX / 1000) + ' с после строки PayDay.\n' +
+        '⚡ <b>Моментальное</b> — надеть впритык к :00 (старт за ~' + (dnFastLead() / 1000).toFixed(1) + ' с до :00, по замеру надевания + запас ' + (DN_FAST_MARGIN_MS / 1000) + ' с), снять сразу по строке PayDay.\n' +
+        'Кнопка ниже переключает тип.\n\n<b>Что делаем после рестарта сервера?</b>\n\n' +
         '🔐 <b>Висим на авторизации</b> — на рестарте выходим на окно входа, автовход выключен. Зайти можно самому или кнопкой «Выйти с автр.»; после входа цикл на паузе.\n\n' +
         '📍 <b>Входим и возвращаемся</b> — заходим сами (автовход), отвечаем «Да» на «Восстановление позиции», телепортируемся туда, где стояли (/tpl go), цикл идёт дальше.\n\n' +
         '<i>Место запоминается в момент нажатия — NPC уже должен стоять у раздевалки (до ~5 м от пикапа). Прошлый выбор: ' + (DN.rmode === 'auth' ? '🔐' : '📍') + '</i>',
         { inline_keyboard: [
+            [createButton('⚡ Тип: ' + (DN.speed === 'fast' ? 'моментальное ✓ (нажать — обычное)' : 'обычное ✓ (нажать — моментальное)'), 'dn_spdc_' + uid)],
             [createButton('🔐 Висеть на авторизации' + (DN.rmode === 'auth' ? ' ✓' : ''), 'dn_goauth_' + uid, 'danger')],
             [createButton('📍 Войти и вернуться' + (DN.rmode !== 'auth' ? ' ✓' : ''), 'dn_goret_' + uid, 'success')],
             [createButton('⬅️ Назад', 'dn_menu_' + uid)]
@@ -1124,7 +1158,7 @@ function dnShowChoice(chatId, messageId) {
 function dnShowMenu(chatId, messageId) { editMessageText(chatId, messageId, dnStatusHtml(), dnMenuMarkup()); }
 
 // ── кнопка в меню «Функции» (как у Code2: вставка строки перед «Вернуться назад») ──
-var DN_ACT = ['dn_menu_', 'dn_on_', 'dn_off_', 'dn_ref_', 'dn_goauth_', 'dn_goret_', 'dn_mode_', 'dn_back_'];
+var DN_ACT = ['dn_menu_', 'dn_on_', 'dn_off_', 'dn_ref_', 'dn_goauth_', 'dn_goret_', 'dn_mode_', 'dn_back_', 'dn_speed_', 'dn_spdc_'];
 function dnActOf(d) { return DN_ACT.filter(function (p) { return typeof d === 'string' && d.indexOf(p) === 0; })[0] || null; }
 function dnMine(u) {
     var cq = u && u.callback_query;
@@ -1181,6 +1215,10 @@ try {
                             } else if (act === 'dn_back_') {
                                 var eb = dnRsBack();
                                 if (eb) dnTg('❌ <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\n' + dnEsc(eb), false);
+                            } else if (act === 'dn_speed_') {
+                                dnSpeedFlip();
+                            } else if (act === 'dn_spdc_') {
+                                dnSpeedFlip(); dnShowChoice(ch, mid); return;                         // переключили тип на экране выбора — остаёмся на нём
                             } else if (act === 'dn_off_') dnStop('выключено из Telegram');
                             dnShowMenu(ch, mid);
                         });
@@ -1224,18 +1262,27 @@ onUndo(function () { try { dnStop('перезагрузка скриптов', t
 function dnCmd(args) {
     var a = (args[0] || 'status').toLowerCase();
     if (a === 'on' || a === 'вкл') {
-        var rm = dnParseMode(args[1]);
-        if (args[1] && !rm) { fail('не понял «' + args[1] + '». После рестарта: auth (висим на авторизации) или return (входим и возвращаемся)'); return; }
-        var er = dnStart('чат', rm); if (er) fail('Переодевание ночь: ' + er); else info('Переодевание ночь: включено, после рестарта — ' + (DN.rmode === 'auth' ? 'авторизация' : 'вернуться на место')); return;
+        var rm = '', sp = '';
+        for (var ai = 1; ai < args.length; ai++) {
+            var m1 = dnParseMode(args[ai]), s1 = dnParseSpeed(args[ai]);
+            if (m1) rm = m1; else if (s1) sp = s1;
+            else { fail('не понял «' + args[ai] + '». После рестарта: auth (висим на авторизации) или return (входим и возвращаемся); тип: normal (обычное) или fast (моментальное)'); return; }
+        }
+        var er = dnStart('чат', rm, sp); if (er) fail('Переодевание ночь: ' + er); else info('Переодевание ночь: включено, тип — ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное') + ', после рестарта — ' + (DN.rmode === 'auth' ? 'авторизация' : 'вернуться на место')); return;
     }
     if (a === 'mode' || a === 'режим' || a === 'рестарт') {
         var mm = dnParseMode(args[1]);
         if (!mm) { info('После рестарта сейчас: ' + (DN.rmode === 'auth' ? 'висим на авторизации' : 'входим и возвращаемся') + '. Сменить: /dressnight mode auth | return'); return; }
         DN.rmode = mm; window.__dnRMode = mm; info('После рестарта: ' + (mm === 'auth' ? 'висим на авторизации' : 'входим и возвращаемся')); return;
     }
+    if (a === 'speed' || a === 'тип' || a === 'скорость') {
+        var sv = dnParseSpeed(args[1]);
+        if (!sv) { info('Тип сейчас: ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное') + '. Сменить: /dressnight speed fast | normal'); return; }
+        DN.speed = sv; window.__dnSpeed = sv; info('Тип переодевания: ' + (sv === 'fast' ? 'моментальное' : 'обычное') + (DN.on ? ' (со следующего круга)' : '')); return;
+    }
     if (a === 'back' || a === 'назад' || a === 'вернуться') { var eb2 = dnRsBack(); if (eb2) fail('Переодевание ночь: ' + eb2); else info('Переодевание ночь: возвращаюсь на место'); return; }
     if (a === 'off' || a === 'выкл' || a === 'stop') { if (DN.on) { dnStop('выключено командой'); info('Переодевание ночь: выключено'); } else info('Переодевание ночь: и так выключено'); return; }
-    info('Переодевание ночь: ' + (DN.on ? (DN.rs ? 'рестарт — ' + dnRsText() : dnPhaseText() + (DN.phase === 'wait59' ? ', надеть в ' + dnClock(DN.nextAt) : '')) + ', кругов ' + DN.cycles : 'выключено') + '; после рестарта: ' + (DN.rmode === 'auth' ? 'авторизация' : 'вернуться'));
+    info('Переодевание ночь: ' + (DN.on ? (DN.rs ? 'рестарт — ' + dnRsText() : dnPhaseText() + (DN.phase === 'wait59' ? ', надеть в ' + dnClockAuto(DN.nextAt) : '')) + ', кругов ' + DN.cycles : 'выключено') + '; тип: ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное') + '; после рестарта: ' + (DN.rmode === 'auth' ? 'авторизация' : 'вернуться'));
 }
 
 var origChatWin = window.sendChatInputCustom;
@@ -1258,9 +1305,9 @@ onUndo(function () {
     try { if (sendChatInput === myChat) sendChatInput = origChatVar || origChatWin; } catch (e) {}
 });
 
-window.Dress = { run: function (n, under, sec, use, fb, cb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, cb); }, busy: function () { return !!S; }, night: function (on, rmode) { if (on) return dnStart('api', rmode); dnStop('api'); return ''; }, nightStatus: dnStatusHtml, nightMode: function (m) { m = dnParseMode(m); if (m) { DN.rmode = m; window.__dnRMode = m; } return DN.rmode; }, nightBack: dnRsBack, nightOn: function () { return !!DN.on; }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
+window.Dress = { run: function (n, under, sec, use, fb, cb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, cb); }, busy: function () { return !!S; }, night: function (on, rmode, speed) { if (on) return dnStart('api', rmode, dnParseSpeed(speed)); dnStop('api'); return ''; }, nightSpeed: function (m) { m = dnParseSpeed(m); if (m) { DN.speed = m; window.__dnSpeed = m; } return DN.speed; }, nightStatus: dnStatusHtml, nightMode: function (m) { m = dnParseMode(m); if (m) { DN.rmode = m; window.__dnRMode = m; } return DN.rmode; }, nightBack: dnRsBack, nightOn: function () { return !!DN.on; }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v3.1 загружен (в ночном режиме строй на рации игнорируется; в Telegram — сколько заняло надевание/снятие): /dressnight on [auth|return]|off|status|mode|back (цикл «Переодевание ночь», кнопка в Telegram → Функции; после рестарта — авторизация или вход и возврат на место), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
+log('Dress.js v3.2 загружен (в ночном режиме строй на рации игнорируется; в Telegram — сколько заняло надевание/снятие): /dressnight on [auth|return] [fast|normal]|off|status|mode|speed|back (цикл «Переодевание ночь», кнопка в Telegram → Функции; после рестарта — авторизация или вход и возврат на место), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
