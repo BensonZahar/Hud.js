@@ -335,7 +335,11 @@ function hassleCleanupHooks() {
     if (typeof window.__voiceCleanup === 'function') {
         try { window.__voiceCleanup(); console.log('[Hassle Cleanup] Voice снят'); } catch(e) {}
     }
-    // Dress (/dress — раздевалка) подклеен после Voice и стоит поверх Near — снимаем его самым первым
+    // Lyashov (/lyashov — ответы «Евгения Ляшова» от нейросети) подклеен после Dress и стоит поверх всех — снимаем его самым первым
+    if (typeof window.__lyashovCleanup === 'function') {
+        try { window.__lyashovCleanup(); console.log('[Hassle Cleanup] Lyashov снят'); } catch(e) {}
+    }
+    // Dress (/dress — раздевалка) подклеен после Voice и стоит поверх Near — снимаем его вторым
     if (typeof window.__dressCleanup === 'function') {
         try { window.__dressCleanup(); console.log('[Hassle Cleanup] Dress снят'); } catch(e) {}
     }
@@ -434,7 +438,7 @@ function syntaxError(text) {
 
 // ============================================================
 // Замена копий скриптов — одной синхронной функцией, чтобы при сбое можно было вернуть ПРЕДЫДУЩУЮ рабочую версию.
-// t = { listText, codeText, code2Text, code3Text, ozvText, nearText, screenText, voiceText, dressText, miniText } (необязательные — null).
+// t = { listText, codeText, code2Text, code3Text, ozvText, nearText, screenText, voiceText, dressText, lyashovText, miniText } (необязательные — null).
 // Возвращает ошибку, если Code.js/Code2/Code3 упали ПОСЛЕ того, как Code.js поставил __botInit (бота можно запустить в базовом режиме),
 // и бросает исключение, если запускать уже нечего.
 // ============================================================
@@ -486,6 +490,12 @@ function applyScriptCopies(t) {
         window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.dressText) + '); } catch (eDress) { console.warn("[DRESS] не запущен:", eDress && eDress.message); }\n';
     }
 
+    // Lyashov.js (/lyashov <вопрос>, /lyashauto, /lyashdiag: ответы «Евгения Ляшова» от нейросети в локальный чат, порт lyashov_ai.pwn) —
+    // подклеиваем после Dress. Для /lyashauto нужен Near.js (позиция). Вложенный eval в try: сломанный Lyashov.js остальное не ломает.
+    if (t.lyashovText) {
+        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.lyashovText) + '); } catch (eLys) { console.warn("[LYASHOV] не запущен:", eLys && eLys.message); }\n';
+    }
+
     // MiniApp/MiniApp.js — общий загрузчик мини-аппов (Stats.js и любые будущие из его списка FILES). Подклеиваем самым последним,
     // поверх Near: сам MiniApp.js докачивает файлы мини-аппов и выполняет их в области видимости Code.js (config, processUpdates, tgApi…).
     // Новые мини-аппы добавляются строкой в FILES на GitHub — этот файл (Load.js) менять не нужно.
@@ -521,7 +531,7 @@ function startBotNow() {
 
 function hassleSameCopies(a, b) {
     if (!a || !b) return false;
-    return ['listText', 'codeText', 'code2Text', 'code3Text', 'ozvText', 'nearText', 'screenText', 'voiceText', 'dressText', 'miniText'].every(k => (a[k] || null) === (b[k] || null));
+    return ['listText', 'codeText', 'code2Text', 'code3Text', 'ozvText', 'nearText', 'screenText', 'voiceText', 'dressText', 'lyashovText', 'miniText'].every(k => (a[k] || null) === (b[k] || null));
 }
 
 // Последовательная загрузка скриптов
@@ -551,12 +561,12 @@ async function initializeScripts() {
         console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
 
         // ── ЭТАП 1: скачиваем всё, старая копия пока работает ──
-        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, Near.js, Screen.js, Voice.js, Dress.js, MiniApp/MiniApp.js (параллельно)...');
+        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, Near.js, Screen.js, Voice.js, Dress.js, Lyashov.js, MiniApp/MiniApp.js (параллельно)...');
         const optional = (name, retries) => fetchRawText(name, retries).catch(e => {
             console.warn(`⚠️ ${name} не загружен (работаем без него):`, e && e.message);
             return null;
         });
-        const [listText, code2Text, codeText, code3Raw, ozvText, nearRaw, screenRaw, voiceRaw, dressRaw, miniRaw] = await Promise.all([
+        const [listText, code2Text, codeText, code3Raw, ozvText, nearRaw, screenRaw, voiceRaw, dressRaw, lyashovRaw, miniRaw] = await Promise.all([
             fetchRawText('List.js'),
             fetchRawText('Code2.js'),
             fetchRawText('Code.js'),
@@ -566,7 +576,8 @@ async function initializeScripts() {
             optional('Screen.js', 2),  // скрин в Telegram (нужен клиент с модом hassle_screen.c) — необязательный
         optional('Voice.js', 2),   // голос в Telegram (нужен клиент с модом hassle_voice.c) — необязательный
         optional('Dress.js', 2),   // /dress — раздевалка через /tpl (нужен клиент с модом hassle_tpl.c) — необязательный, для теста
-            optional('MiniApp/MiniApp.js', 2)   // общий загрузчик мини-аппов (HassleB/MiniApp/MiniApp.js): сам качает мини-аппы из своего списка — необязательный
+            optional('Lyashov.js', 2), // /lyashov — ответы Ляшова от нейросети (порт lyashov_ai.pwn) — необязательный
+        optional('MiniApp/MiniApp.js', 2)   // общий загрузчик мини-аппов (HassleB/MiniApp/MiniApp.js): сам качает мини-аппы из своего списка — необязательный
         ]);
 
         const tDownloaded = Date.now();
@@ -626,6 +637,16 @@ async function initializeScripts() {
             }
         }
 
+        let lyashovText = lyashovRaw;
+        if (lyashovText) {
+            const errL = syntaxError(lyashovText);
+            if (errL) {
+                console.warn('⚠️ Lyashov.js с синтаксической ошибкой — пропущен:', errL.message);
+                loaderNotify(`⚠️ <b>Lyashov.js</b> с синтаксической ошибкой — пропущен (команда /lyashov не работает)\n<code>${String(errL.message).replace(/</g, '&lt;')}</code>`);
+                lyashovText = null;
+            }
+        }
+
         let miniText = miniRaw;
         if (miniText) {
             const errM = syntaxError(miniText);
@@ -647,7 +668,7 @@ async function initializeScripts() {
 
         // ── ЭТАП 2: меняем копии (синхронно, без ожиданий) ──
         // Что именно запускаем (после отсева Code3/Near/Screen/Voice/Dress/MiniApp с синтаксическими ошибками) — запоминаем для отката
-        texts = { listText, codeText, code2Text, code3Text, ozvText, nearText, screenText, voiceText, dressText, miniText };
+        texts = { listText, codeText, code2Text, code3Text, ozvText, nearText, screenText, voiceText, dressText, lyashovText, miniText };
         const tApply0 = Date.now();
         oldCopyReplaced = true;
         const partialErr = applyScriptCopies(texts);
