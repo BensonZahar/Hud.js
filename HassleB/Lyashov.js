@@ -43,9 +43,11 @@ var CFG = {
     endpoint:   'api/v1/chat/completions',           // AI_ENDPOINT
     model:      'nvidia/nemotron-3.5-lightning',     // AI_MODEL
     apiKey:     '',                                  // если шлюз требует ключ
-    maxTokens:  400,                                 // запас на «размышления» модели; ответ всё равно режется до 3 строк
-    timeoutMs:  30000,
-    cooldownMs: 3000,                                // не чаще одного запроса раз в N мс
+    maxTokens:  220,                                 // ответ ≤128 символов — длинный запас не нужен, иначе модель «думает» вслух
+    timeoutMs:  20000,
+    cooldownMs: 1500,                                // не чаще одного запроса раз в N мс
+    retries:    1,                                   // тихих повторов при утечке «размышлений», пустом ответе, сети, 5xx/429
+    noThink:    true,                                // просить шлюз выключить рассуждения (если шлюз не поймёт поля — запрос уйдёт без них)
     npcName:    'Evgeniy_Lyashov',
     actorPos:   { x: -2355.6838, y: 2624.3679, z: 35.8898 },   // LYASHOV_ACTOR_POS
     distance:   5.0,                                 // LYASHOV_DISTANCE
@@ -142,22 +144,36 @@ function extractContent(j) {
 }
 
 // ══════════════════════════ ЗАПРОС К МОДЕЛИ (как SendRequest в pwn) ══════════════════════════
-var busy = false, lastAt = 0, lastInfo = 'запросов ещё не было';
+var busy = false, lastAt = 0, lastInfo = 'запросов ещё не было', pending = null, busyTimer = null;
 
-function buildBody(userText) {
-    return {
+// «Размышления» модели, попавшие в ответ («Here's a thinking process: 1. Analyze User Input…») — не ответ.
+// Признак: латиницы больше, чем кириллицы (Ляшов отвечает по-русски), либо типичные английские обороты рассуждений.
+function looksLikeLeak(t) {
+    var lat = (t.match(/[A-Za-z]/g) || []).length, cyr = (t.match(/[А-Яа-яЁё]/g) || []).length;
+    if (lat > cyr) return true;
+    return /thinking process|analy[sz]e (the )?user|user input|persona of|i need to respond|draft(ing)? (the )?(response|answer)/i.test(t);
+}
+
+function buildBody(userText, extras, strict) {
+    var b = {
         model: CFG.model,
         messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user',   content: userText }
+            { role: 'system', content: (extras ? '/no_think\n' : '') + SYSTEM_PROMPT },
+            { role: 'user',   content: userText + (strict ? '\n(Ответь сразу одной короткой репликой по-русски, без рассуждений и без английского.)' : '') }
         ],
         max_tokens: CFG.maxTokens
     };
+    if (extras) {
+        b.chat_template_kwargs = { enable_thinking: false };   // vLLM / NVIDIA NIM
+        b.reasoning = { enabled: false };                      // OpenRouter-подобные шлюзы
+    }
+    return b;
 }
 
-function request(userText, cb) {
+// Один HTTP-запрос. Результат: {ok,text,lines} или {ok:false,error,status,retryable,empty}
+function once(userText, extras, strict, cb) {
     var url = String(CFG.baseUrl).replace(/\/+$/, '') + '/' + String(CFG.endpoint).replace(/^\/+/, '');
-    var done = false;
+    var done = false, t0 = Date.now();
     function finish(r) { if (done) return; done = true; cb(r); }
     try {
         var x = new XMLHttpRequest();
@@ -166,40 +182,70 @@ function request(userText, cb) {
         x.setRequestHeader('Content-Type', 'application/json');
         if (CFG.apiKey) x.setRequestHeader('Authorization', 'Bearer ' + CFG.apiKey);
         x.onload = function () {
-            lastInfo = 'HTTP ' + x.status + ', ' + (x.responseText || '').length + ' байт';
+            lastInfo = 'HTTP ' + x.status + ', ' + (x.responseText || '').length + ' байт, ' + (Date.now() - t0) + ' мс' + (extras ? '' : ', без доп. полей');
             if (x.status !== 200) {
                 warn('HTTP', x.status, String(x.responseText || '').slice(0, 300));
-                return finish({ ok: false, error: 'HTTP ' + x.status });
+                return finish({ ok: false, error: 'HTTP ' + x.status, status: x.status, retryable: x.status === 429 || x.status >= 500 });
             }
             var j = null;
             try { j = JSON.parse(x.responseText); } catch (e) { warn('ответ не JSON:', String(x.responseText || '').slice(0, 300)); }
             var text = cleanAnswer(j ? extractContent(j) : '');
-            if (!text) return finish({ ok: false, error: 'пустой ответ', empty: true });
+            if (!text) return finish({ ok: false, error: 'пустой ответ', empty: true, retryable: true });
+            if (looksLikeLeak(text)) { warn('в ответе «размышления» модели, отбрасываем:', text.slice(0, 120)); lastInfo += ', утечка размышлений'; return finish({ ok: false, error: 'размышления вместо ответа', leak: true, retryable: true }); }
             finish({ ok: true, text: text, lines: splitLines(text) });
         };
-        x.onerror = function () { lastInfo = 'сеть недоступна / CORS'; warn('XHR ошибка (сеть или CORS) для', url); finish({ ok: false, error: 'сеть' }); };
-        x.ontimeout = function () { lastInfo = 'таймаут'; finish({ ok: false, error: 'таймаут' }); };
-        x.send(JSON.stringify(buildBody(userText)));
+        x.onerror = function () { lastInfo = 'сеть недоступна / CORS'; warn('XHR ошибка (сеть или CORS) для', url); finish({ ok: false, error: 'сеть', retryable: true }); };
+        x.ontimeout = function () { lastInfo = 'таймаут ' + CFG.timeoutMs + ' мс'; finish({ ok: false, error: 'таймаут', retryable: true }); };
+        x.send(JSON.stringify(buildBody(userText, extras, strict)));
     } catch (e) { finish({ ok: false, error: String(e && e.message || e) }); }
 }
 
+// Запрос с авто-повторами: 400/422 → без доп. полей (шлюз их не принял); утечка/пусто/сеть/5xx → до CFG.retries раз, со строгой подсказкой
+function request(userText, cb) {
+    var extras = !!CFG.noThink, tries = 0;
+    (function go() {
+        once(userText, extras, tries > 0, function (r) {
+            if (_dead) return;
+            if (r.ok) return cb(r);
+            if ((r.status === 400 || r.status === 422) && extras) { extras = false; return go(); }
+            if (r.retryable && tries < CFG.retries) { tries++; log('повтор', tries, '←', r.error); return go(); }
+            cb(r);
+        });
+    })();
+}
+
+function release() { busy = false; if (busyTimer) { clearTimeout(busyTimer); busyTimer = null; } }
+
 // Публичный вход: ask(вопрос, ник, cb). Выводит ответ в чат и вызывает cb (необязательно).
+// Пока Ляшов отвечает, последний новый вопрос запоминается и задаётся сразу после ответа (раньше он молча терялся).
 function ask(question, nick, cb) {
     question = String(question === undefined || question === null ? '' : question).trim().slice(0, CFG.maxQuestion);
     if (!question) { if (cb) cb({ ok: false, error: 'пустой вопрос' }); return false; }
     var now = Date.now();
-    if (busy || now - lastAt < CFG.cooldownMs) { if (cb) cb({ ok: false, error: 'занято' }); return false; }
+    if (busy || now - lastAt < CFG.cooldownMs) {
+        pending = { q: question, nick: nick, cb: cb };
+        if (!busy) setTimeout(flush, Math.max(50, CFG.cooldownMs - (now - lastAt)));
+        return 'queued';
+    }
     busy = true; lastAt = now;
+    // страховка: если по какой-то причине ответ не пришёл, флаг «занят» не залипает навсегда
+    busyTimer = setTimeout(function () { busy = false; }, CFG.timeoutMs * (CFG.retries + 1) + 3000);
     var userText = (nick || myNick()) + ' спрашивает: ' + question;
     log('→', CFG.model, '|', userText);
     request(userText, function (r) {
-        busy = false;
+        release();
         if (_dead) return;
         if (r.ok) { say(r.lines); log('←', r.text); }
         else { chatAdd(r.empty ? MSG_EMPTY : MSG_BUSY, CFG.color); log('✗', r.error); }
         if (cb) { try { cb(r); } catch (e) {} }
+        flush();
     });
     return true;
+}
+function flush() {
+    if (_dead || !pending || busy) return;
+    var p = pending; pending = null;
+    ask(p.q, p.nick, p.cb);
 }
 
 // ══════════════════════════ АВТО-РЕЖИМ (OnPlayerText в pwn) ══════════════════════════
@@ -232,7 +278,7 @@ var myChat = function (e) {
         if (m) {
             var q = (m[2] || '').trim();
             if (!q) sys('Использование: /lyashov <вопрос>. Авто-режим: /lyashauto on|off');
-            else if (!ask(q)) sys('Ляшов ещё отвечает, подождите пару секунд.');
+            else if (ask(q) === 'queued') sys('Ляшов ещё отвечает — ваш вопрос в очереди.');
             return;   // команду серверу не отправляем
         }
         m = text.match(/^\/lyashauto(?:\s+(\S+))?\s*$/i);
@@ -268,9 +314,9 @@ onUndo(function () {
     try { if (sendChatInput === myChat) sendChatInput = origChatVar || origChatWin; } catch (e) {}
 });
 
-window.Lyashov = { version: 1, ask: ask, config: CFG, systemPrompt: SYSTEM_PROMPT, buildBody: buildBody, splitLines: splitLines, cleanAnswer: cleanAnswer };
+window.Lyashov = { version: 2, ask: ask, config: CFG, systemPrompt: SYSTEM_PROMPT, buildBody: buildBody, splitLines: splitLines, cleanAnswer: cleanAnswer };
 onUndo(function () { if (window.Lyashov && window.Lyashov.ask === ask) { try { delete window.Lyashov; } catch (e) { window.Lyashov = undefined; } } });
 
-log('Lyashov.js v1 загружен: /lyashov <вопрос>, /lyashauto on|off, /lyashdiag; модель', CFG.model);
+log('Lyashov.js v2 загружен: /lyashov <вопрос>, /lyashauto on|off, /lyashdiag; модель', CFG.model);
 
 })(); } catch (e) { try { console.error('[LYASHOV] ошибка загрузки Lyashov.js:', e); } catch (e2) {} }
