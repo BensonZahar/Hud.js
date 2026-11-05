@@ -1,4 +1,6 @@
-// Lyashov.js v4 — разговорный NPC на нейросети: отвечает как обычный человек и пишет ответ в чат от ВАШЕГО лица.
+// Lyashov.js v5 — разговорный NPC на нейросети: отвечает как обычный игрок SAMP и пишет ответ в чат от ВАШЕГО лица.
+// v5: ответы короткие и «по-самповски» (строчными, без запятых и знаков препинания); если вам написали в нон-рп чат /n —
+//     ответ уходит тоже в /n.
 //
 // Как это работает:
 //   1. Вопрос (ваша команда или реплика другого игрока) уходит в модель вместе с коротким промптом «обычный человек».
@@ -14,6 +16,8 @@
 // Команды в чате (серверу не уходят):
 //   /lyashov <текст>      — ответить на этот текст (синоним /lys), режим — текущий
 //   /lyashthink <текст>   — то же, но один раз в думающем режиме
+//   /lyashn <текст>       — ответить на этот текст в нон-рп чат (/n)
+//   /lyashheard           — последние услышанные строки чата как их видит скрипт (для проверки распознавания /n)
 //   /lyashmode [fast|think] — режим модели (без аргумента — показать); запоминается
 //   /lyashout [say|local] — куда писать ответ: say — в чат игры от вашего лица (по умолчанию), local — только вам
 //   /lyashlisten [on|off] — отвечать самому на реплики игроков рядом («Ник[id]: текст»). Всегда выключен после запуска игры
@@ -56,6 +60,14 @@ var CFG = {
     maxParts:   2,                        // максимум сообщений за один ответ
     sayGapMs:   1000,                     // пауза между частями
     typeMsPerChar: 30, typeMaxMs: 2000,   // «время набора» перед отправкой, чтобы не отвечать мгновенно
+    // ── стиль ответа (как пишет обычный игрок SAMP) ──
+    lowercase:  true,                     // всё строчными
+    keepQuestion: true,                   // оставлять «?» (остальные знаки препинания убираются всегда)
+    maxReplyChars: 60,                    // жёсткий потолок длины ответа
+    // ── нон-рп чат /n ──
+    nonRpEnabled: true,                   // отвечать на реплики из /n (и ответ слать тоже в /n)
+    nonRpPrefix:  '/n ',                  // команда нон-рп чата
+    nonRpColors:  [],                     // цвета строк /n в hex, если у них нет меток ((  )) / [NonRP], напр. ['CCCC99']; узнать цвет: /lyashheard
     // ── режим local (как в pwn) ──
     lineLen: 100, maxLines: 3,
     // ── ответы на реплики других игроков (/lyashlisten) ──
@@ -69,7 +81,7 @@ var CFG = {
 };
 // Параметры режимов модели
 var MODES = {
-    fast:  { label: 'быстрый',  thinking: false, maxTokens: 220,  timeoutMs: 20000 },
+    fast:  { label: 'быстрый',  thinking: false, maxTokens: 120,  timeoutMs: 20000 },
     think: { label: 'думающий', thinking: true,  maxTokens: 1500, timeoutMs: 60000 }
 };
 try {
@@ -83,10 +95,11 @@ try {
 } catch (e) {}
 
 var SYSTEM_PROMPT =
-    'Ты обычный человек, житель города в онлайн-игре, и просто разговариваешь с игроком в чате. ' +
-    'Отвечай естественно и по делу на то, что тебе написали: на вопрос - ответом, на приветствие - приветствием, на шутку - шуткой. ' +
-    'Пиши как живой человек: коротко, одно предложение, без форматирования и списков. ' +
-    'Не рассуждай вслух и не объясняй свой ответ. Пиши на русском. Текст до 80 символов.';
+    'Ты обычный игрок на сервере SAMP и переписываешься с другим игроком в игровом чате. ' +
+    'Отвечай как живой человек в чате: очень коротко, обычно 1-5 слов, не больше 40 символов, простым разговорным языком. ' +
+    'Пиши строчными буквами, БЕЗ запятых, точек, восклицательных знаков, кавычек, тире, смайликов, списков и форматирования. ' +
+    'Отвечай по делу: на вопрос ответом, на приветствие приветствием, на шутку шуткой. Примеры ответов: привет, норм а у тебя, хз, не знаю, ок, да, не, давай. ' +
+    'Не рассуждай вслух и не объясняй свой ответ. Пиши на русском.';
 
 var MSG_BUSY  = '- Не могу сейчас ответить. (' + CFG.npcName + ')';   // только в режиме local; в say ничего от вашего имени не пишем
 var MSG_EMPTY = '- Без понятия. (' + CFG.npcName + ')';
@@ -138,7 +151,22 @@ function cleanAnswer(s) {
     s = s.replace(/\s+/g, ' ').trim();
     s = s.replace(/^(ответ|reply)\s*:\s*/i, '');
     s = s.replace(/^[\s\/\\\-"'«»„“”]+/, '').replace(/["'«»„“”\s]+$/, '');   // кавычки вокруг, тире, слэши в начале
-    return s.trim();
+    return humanize(s.trim());
+}
+
+// Стиль живого игрока SAMP: без запятых и прочих знаков препинания, строчными, коротко
+function humanize(s) {
+    s = String(s || '');
+    s = s.replace(/[.,;:!…]+/g, ' ').replace(/[()\[\]"'«»„“”\\\/|]+/g, ' ').replace(/(^|\s)[-—–]+(?=\s|$)/g, ' ');
+    s = CFG.keepQuestion ? s.replace(/\s*\?[?\s]*/g, '? ') : s.replace(/\?+/g, ' ');
+    s = s.replace(/\s+/g, ' ').trim();
+    if (CFG.lowercase) s = s.toLowerCase();
+    var max = CFG.maxReplyChars;
+    if (max > 0 && s.length > max) {
+        var cut = s.lastIndexOf(' ', max);
+        s = s.slice(0, cut > 10 ? cut : max).trim();
+    }
+    return s;
 }
 
 // Режет по max символов: сначала по концу предложения, потом по запятой/пробелу (как splitSay в Code3.js)
@@ -219,7 +247,7 @@ function sayDrain() {
     var w = floodWait(1);
     if (w > 0) { sayTimer = setTimeout(sayDrain, w + 5); return; }
     var part = sayQ.shift();
-    recentSent.push({ t: Date.now(), text: part });
+    recentSent.push({ t: Date.now(), text: part.replace(/^\/n\s+/i, '') });   // эхо /n приходит уже без команды
     if (recentSent.length > 20) recentSent.shift();
     rawSend(part);
     sayTimer = setTimeout(sayDrain, CFG.sayGapMs);
@@ -315,7 +343,9 @@ function release() { busy = false; if (busyTimer) { clearTimeout(busyTimer); bus
 // Вывод готового ответа: в чат игры от вашего лица (say) или только вам (local)
 function deliver(r) {
     if (out === 'local') { r.lines = splitLines(r.text); sayLocal(r.lines); r.parts = r.lines; return; }
-    var parts = splitSay(r.text, CFG.sayLimit).slice(0, CFG.maxParts);
+    var nonRp = r.channel === 'n', prefix = nonRp ? CFG.nonRpPrefix : '';
+    var parts = splitSay(r.text, CFG.sayLimit - prefix.length).slice(0, CFG.maxParts);
+    if (nonRp) parts = parts.map(function (p) { return prefix + p; });   // ответ в нон-рп чат: «/n текст»
     r.parts = parts;
     var delay = Math.min(CFG.typeMaxMs, r.text.length * CFG.typeMsPerChar);
     setTimeout(function () { if (!_dead) sayEnqueue(parts); }, delay);
@@ -337,13 +367,14 @@ function ask(question, nick, cb, opts) {
     }
     busy = true; lastAt = now;
     busyTimer = setTimeout(function () { busy = false; }, modeFor(m).timeoutMs * (CFG.retries + 1) + 3000);   // флаг «занят» не залипает навсегда
-    var userText = nick ? ('Игрок ' + nick + ' пишет тебе в чате: ' + question) : question;
+    var userText = nick ? ('Игрок ' + nick + ' пишет тебе в ' + (opts.channel === 'n' ? 'нон-рп чате' : 'чате') + ': ' + question) : question;
     log('→', CFG.model, '[' + m + ']', '|', userText);
     if (m === 'think' && !opts.silent) sys('Думаю…');
     request(userText, m, function (r) {
         release();
         if (_dead) return;
-        if (r.ok) { deliver(r); log('←', r.text); }
+        r.channel = opts.channel || null;
+        if (r.ok) { deliver(r); log('←', (r.channel === 'n' ? '[/n] ' : '') + r.text); }
         else {
             // От вашего имени при сбое ничего не пишем — только сообщение вам
             if (out === 'local') chatAdd(r.empty ? MSG_EMPTY : MSG_BUSY, CFG.color);
@@ -365,7 +396,7 @@ function flush() {
 // Обычная речь в чате приходит как «Ник[id]: текст» (так её узнают и Code2.js, и Code.js). Цвета: 0xEEEEEE — своя речь,
 // 0x6B6B6B — далеко, 0x33CC66 — рация; их пропускаем. Свои реплики и эхо наших сообщений игнорируем.
 var listenOn = false, lastListenAt = 0, listenTimes = [], lastSeen = { text: '', t: 0 };
-var lastHeard = 'пока ничего не слышал', hookWrap = null, hookTimer = null;
+var lastHeard = 'пока ничего не слышал', hookWrap = null, hookTimer = null, heard = [];
 
 function colorKey(c) { return String(c === undefined || c === null ? '' : c).replace(/^0x/i, '').replace(/^#/, '').slice(-6).toUpperCase(); }
 function isEcho(text) {
@@ -380,19 +411,47 @@ function onIncoming(msg, color) {
     var clean = String(msg).replace(/\{[0-9a-fA-F]{6,8}\}/g, '').trim(), now = Date.now();
     if (lastSeen.text === clean && now - lastSeen.t < 400) return;      // та же строка дважды (обёртка могла встать в цепочку два раза)
     lastSeen = { text: clean, t: now };
-    var m = clean.match(/^([^\s\[\]:]+)\s*\[(\d+)\]\s*:\s*([\s\S]+)$/);
-    if (!m) return;
-    var nick = m[1], text = m[3].trim(), ck = colorKey(color);
-    if (ck === 'EEEEEE' || ck === '6B6B6B' || ck === '33CC66') return;
+    if (clean.indexOf('[Lyashov]') === 0) return;                      // наши же служебные строки
+    var p = parseIncoming(clean, color);
+    if (heard.length >= 12) heard.shift();
+    if (/\[\d+\]|\(\(/.test(clean)) heard.push({ raw: clean, color: colorKey(color), kind: p ? (p.nonrp ? '/n' : 'ic') : 'не распознано' });
+    if (!p) return;
+    var nick = p.nick, text = p.text, nonrp = p.nonrp, ck = colorKey(color);
+    if (!nonrp && (ck === 'EEEEEE' || ck === '6B6B6B' || ck === '33CC66')) return;   // своя речь / далеко / рация
+    if (nonrp && !CFG.nonRpEnabled) return;
     if (!text || text.charAt(0) === '/') return;
     var me = myNick();
     if (me && nick === me) return;
     if (isEcho(text)) return;
-    lastHeard = nick + ': ' + text;
+    lastHeard = (nonrp ? '[/n] ' : '') + nick + ': ' + text;
     if (now - lastListenAt < CFG.listenCooldownMs) return;
     listenTimes = listenTimes.filter(function (t) { return now - t < 60000; });
     if (listenTimes.length >= CFG.listenPerMin) return;
-    if (ask(text, nick, null, { noQueue: true, silent: true }) === true) { lastListenAt = now; listenTimes.push(now); }
+    if (ask(text, nick, null, { noQueue: true, silent: true, channel: nonrp ? 'n' : null }) === true) { lastListenAt = now; listenTimes.push(now); }
+}
+
+// Разбор строки чата → {nick, id, text, nonrp} или null. Нон-рп (/n) узнаём по метке: обёртка «(( … ))», тег [NonRP]/[N]/[OOC]
+// перед ником или после него, «(( текст ))» после двоеточия, либо по цвету из CFG.nonRpColors.
+var NONRP_TAG = '(?:non\\s*-?\\s*rp|нон\\s*-?\\s*рп|nrp|n|н|ooc|оос)';
+var RE_TAG_LEAD = new RegExp('^[\\[(]\\s*' + NONRP_TAG + '\\s*[\\])]\\s*:?\\s*([\\s\\S]*)$', 'i');
+var RE_TAG_MID  = new RegExp('^[\\[(]\\s*' + NONRP_TAG + '\\s*[\\])]$', 'i');
+function parseIncoming(clean, color) {
+    var s = clean, nonrp = false, w, t;
+    w = s.match(/^\(\(\s*([\s\S]*?)\s*\)\)$/);
+    if (w) { s = w[1]; nonrp = true; }
+    t = s.match(RE_TAG_LEAD);
+    if (t) { s = t[1]; nonrp = true; }
+    var m = s.match(/^([^\s\[\]:]+)\s*\[(\d+)\]\s*([\[(][^\])]{1,12}[\])])?\s*:\s*([\s\S]+)$/);
+    if (!m) return null;
+    if (m[3]) { if (RE_TAG_MID.test(m[3])) nonrp = true; else return null; }
+    var text = m[4].trim();
+    w = text.match(/^\(\(\s*([\s\S]*?)\s*\)\)$/);
+    if (w) { text = w[1].trim(); nonrp = true; }
+    if (!nonrp && CFG.nonRpColors && CFG.nonRpColors.length) {
+        var ck = colorKey(color);
+        for (var i = 0; i < CFG.nonRpColors.length; i++) { if (colorKey(CFG.nonRpColors[i]) === ck) { nonrp = true; break; } }
+    }
+    return { nick: m[1], id: m[2], text: text, nonrp: nonrp };
 }
 // Code.js при запуске бота может заново назначить window.OnChatAddMessage, поэтому пока слушаем — раз в 3 с проверяем обёртку
 function installChatHook() {
@@ -446,12 +505,20 @@ var myChat = function (e) {
     if (!_dead && typeof e === 'string') {
         if (_own) { floodNote(1); return typeof prevChat === 'function' ? prevChat.apply(this, arguments) : undefined; }
         var text = e.trim();
-        var m = text.match(/^\/(lyashov|lys|lyashthink)(?:\s+([\s\S]*))?$/i);
+        var m = text.match(/^\/(lyashov|lys|lyashthink|lyashn)(?:\s+([\s\S]*))?$/i);
         if (m) {
-            var q = (m[2] || '').trim(), think = m[1].toLowerCase() === 'lyashthink';
-            if (!q) sys('Использование: /' + m[1].toLowerCase() + ' <текст>. Режим: /lyashmode fast|think. Вывод: /lyashout say|local');
-            else if (ask(q, null, null, think ? { mode: 'think' } : null) === 'queued') sys('Ещё отвечаю на предыдущее — ваш текст в очереди.');
+            var cmd = m[1].toLowerCase(), q = (m[2] || '').trim(), qopts = {};
+            if (cmd === 'lyashthink') qopts.mode = 'think';
+            if (cmd === 'lyashn') qopts.channel = 'n';
+            if (!q) sys('Использование: /' + cmd + ' <текст>. Режим: /lyashmode fast|think. Вывод: /lyashout say|local');
+            else if (ask(q, null, null, qopts) === 'queued') sys('Ещё отвечаю на предыдущее — ваш текст в очереди.');
             return;   // команду серверу не отправляем
+        }
+        if (/^\/lyashheard\s*$/i.test(text)) {
+            if (!listenOn) sys('Сначала включите /lyashlisten on — без него чат не слушается.');
+            else if (!heard.length) sys('Пока ничего похожего на чат игроков не слышал.');
+            else for (var hi = 0; hi < heard.length; hi++) sys('[' + heard[hi].kind + ' | цвет ' + heard[hi].color + '] ' + heard[hi].raw.slice(0, 90));
+            return;
         }
         m = text.match(/^\/lyashmode(?:\s+(\S+))?\s*$/i);
         if (m) {
@@ -474,7 +541,7 @@ var myChat = function (e) {
             var l = (m[1] || '').toLowerCase();
             if (l === 'on' || l === '1') {
                 if (!setListen(true)) sys('Чат-хук пока не найден (бот ещё запускается?) — повторю проверку сам.');
-                sys('Слушаю чат: отвечаю на реплики игроков рядом' + (out === 'say' ? ' от вашего лица. Выключить: /lyashlisten off' : ' (только вам)'));
+                sys('Слушаю чат: отвечаю на реплики игроков рядом (из /n — тоже в /n)' + (out === 'say' ? ' от вашего лица. Выключить: /lyashlisten off' : ' (только вам)'));
             } else if (l === 'off' || l === '0') { setListen(false); sys('Слушаю чат: выкл'); }
             else if (l) { sys('Использование: /lyashlisten on|off'); return; }
             else sys('Слушаю чат: ' + (listenOn ? 'ВКЛ' : 'выкл') + ' | последняя реплика: ' + lastHeard);
@@ -516,12 +583,12 @@ onUndo(function () {
 });
 
 window.Lyashov = {
-    version: 4, ask: ask, config: CFG, systemPrompt: SYSTEM_PROMPT, buildBody: buildBody,
+    version: 5, ask: ask, parseIncoming: parseIncoming, humanize: humanize, config: CFG, systemPrompt: SYSTEM_PROMPT, buildBody: buildBody,
     setMode: setMode, getMode: function () { return mode; }, setOut: setOut, getOut: function () { return out; },
     setListen: setListen, splitSay: splitSay, splitLines: splitLines, cleanAnswer: cleanAnswer
 };
 onUndo(function () { if (window.Lyashov && window.Lyashov.ask === ask) { try { delete window.Lyashov; } catch (e) { window.Lyashov = undefined; } } });
 
-log('Lyashov.js v4 загружен: /lyashov <текст>, /lyashmode fast|think, /lyashout say|local, /lyashlisten on|off, /lyashdiag; режим', mode, '| вывод', out, '| модель', CFG.model);
+log('Lyashov.js v5 загружен: /lyashov <текст>, /lyashn <текст>, /lyashmode fast|think, /lyashout say|local, /lyashlisten on|off, /lyashdiag; режим', mode, '| вывод', out, '| модель', CFG.model);
 
 })(); } catch (e) { try { console.error('[LYASHOV] ошибка загрузки Lyashov.js:', e); } catch (e2) {} }
