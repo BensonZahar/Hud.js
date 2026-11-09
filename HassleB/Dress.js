@@ -14,6 +14,17 @@
 //   /dress stop     — прервать; если уже телепортировались — вернуться на сохранённое место
 //   /dress status   — на каком шаге сейчас
 //
+// Версия 3.3: «моментальное» теперь действительно моментальное.
+//   (1) «Заряд»: цепочку раздевалки проходим ЗАРАНЕЕ до последнего вопроса «Да/Нет» (надеть — за DN_ARM_LEAD_MS до :00, снять — сразу после надевания), диалог держим открытым,
+//       а в нужный момент уходит ОДИН ответ «Да» — это задержка одного пакета, а не трёх кругов «запрос → ответ». «Вслепую» (без открытого диалога) нельзя:
+//       сервер (include/core/dialog.pwn, OnDialogResponse) принимает ответ только на диалог, который реально показан. Заряд не вышел — идём обычной цепочкой, как раньше.
+//   (2) Баг: если PayDay приходил, пока форма ещё надевалась, флаг pdPending ставился, но тут же сбрасывался и нигде не использовался — снятие шло по запасному таймеру через 30 с. Теперь снимаем сразу после надевания.
+//   (3) FAR_MAX_M 4.5 → 3.8: пикап принимает вход до 5 м, а ответы на диалоги раздевалки сервер принимает только до 4 м (IsPlayerInPickupEx(…, 4.0, …)) — на 4–4,5 м диалог открывался, ответ молча игнорировался.
+//   (4) После смены скина сессия закрывается сразу (раньше ещё +1,2 с «хвоста» на журнал): замеры «заняло» честные, следующий шаг цикла стартует раньше.
+//   (5) Проверка «второй раз сработает»: при ВКЛ сама (надеть → снять), кнопка «🧪 Проверка» в Telegram и /dressnight check; в Telegram — результат и причина, если не вышло.
+//   (6) Часы: по строкам PayDay узнаём, не отстают ли часы телефона от сервера, и в моментальном стартуем раньше на эту разницу (только в сторону «раньше»). Пока ни одного PayDay не сверено — запас +1,5 с (DN_UNLEARNED_EXTRA_MS), как в 3.2.
+//   (8) Снятие по первой строке PayDay: сервер шлёт общую рассылку «Текущее время: ЧЧ:00» ДО личных строк («Зарплата…»), а весь OnPayDay идёт одним тиком, так что «Да» уйдёт раньше и всё равно после проверки формы (DN_EARLY_PAYDAY).
+//   (7) Между двумя входами в пикап — пауза ≥450 мс (USE_GAP_MS): сервер молча игнорирует вход чаще раза в 300 мс и пока не отработал TIMER_250_MS (иначе «снять» сразу после «надеть» мог не открыть диалог).
 // Версия 3.2: тип переодевания в «Переодевание ночь» — «обычное» (как раньше: надеть в :59:35–:59:45, снять через 0,3–1,2 с после PayDay) или «моментальное» (надеть впритык к :00 — старт = замеренное время надевания + запас DN_FAST_MARGIN_MS, точным таймером, а не раз в секунду; снять сразу по строке PayDay, без паузы). Выбор: кнопка «⚡ Тип» в меню Telegram и на экране ВКЛ, /dressnight on [auth|return] [fast|normal], /dressnight speed fast|normal.
 // Версия 3.1: в Telegram после каждого переодевания в ночном режиме — сколько заняло /dressu (надевание в :59 и снятие после PayDay): длительность, время старта и конца с десятыми секунды (МСК), отступ от :00, а при снятии — сколько прошло от строки PayDay.
 // Версия 3.0: пока «Переодевание ночь» включено, строй/сбор/готовность/конф на рации игнорируется полностью (DN_IGNORE_STROY): без реконнекта, без сообщений в Telegram, без озвучки Ozv.js. Code.js не менялся — всё делает хук чата и подмена performStroiReconnect/exitAfterStroiPayDay на время ночного режима.
@@ -84,9 +95,10 @@ var T_DLG1_USE_MS = 4000;           // режим use: диалог-список
 var T_DLG1_UNDER_MS = 3500;         // режим under: диалог-список не открылся за это время — выныриваем сразу
 var TP_FALLBACK = false;            // true — «/dressu» и «Переодевание ночь», если вход без движения не открыл диалог, добирают телепортом на пикап (/tpl save → /tpl pick N → /tpl go). false — телепорта нет вообще: не вышло, значит не вышло (ночной режим сам повторит попытку). Ручной «/dress tp» работает всегда
 var NEAR_MIN_M  = 1.7;              // сервер (TIMER_250_MS в new.pwn) сбрасывает «вы стоите на пикапе» (P_IN_PICKUP) только когда вы дальше 1.5 м от него; пока ближе — повторный вход в тот же пикап молча игнорируется. 1.7 = 1.5 + запас
-var FAR_MAX_M   = 4.5;              // сервер принимает обычный пикап только в радиусе 5 м (IsPlayerInPickup(..., 5.0) в new.pwn); 4.5 — с запасом на неточность позиции
+var FAR_MAX_M   = 3.8;              // вход в пикап сервер принимает до 5 м (IsPlayerInPickup(..., 5.0)), но ответы на диалоги раздевалки — только до 4 м (IsPlayerInPickupEx(..., 4.0, ...) в DIALOG_TEAM_SKIN / DIALOG_TEAM_SKIN_CHANGE): на 4–5 м диалог откроется, а «Далее»/«Да» сервер молча проигнорирует. 3.8 — с запасом на неточность позиции
 var FAST_USE    = true;             // только «Переодевание ночь»: пикап уже известен (стоим у него) — шлём сразу «/tpl pick N use», без «/tpl pick» и разбора списка; не вышло — один раз пересобираем список
 var PKC         = null;             // {n, id} — пикап раздевалки, с которого прошлый раз реально открылся диалог (номер N из снимка мода tpl; use ищет пикап по ID из снимка)
+var ARM_HOLD_MAX_MS = 75000;        // «заряженный» диалог: дольше столько не держим — снимаем («Нет» + «Отмена»), слот диалога на сервере освобождается
 var T_TOTAL_MS  = 30000;            // общий потолок — после него всё снимаем и возвращаемся
 var LOG_NAME    = 'dress';          // файл журнала: HLOG/dress.txt (команда /jlog из мода hassle_jlog.c)
 var LOG_CONSOLE = false;            // true — дублировать журнал и в консоль игры
@@ -258,12 +270,26 @@ function sessDone(sess, ok, why) {                  // колбэк заверш
     if (!sess || sess.cbDone) return;
     sess.cbDone = true;
     if (typeof sess.cb !== 'function') return;
-    try { sess.cb({ ok: !!ok, why: why, skin0: sess.skin0, skin1: curSkin(), ms: Date.now() - sess.t0 }); } catch (e) { warn('cb:', e && e.message); }
+    try { sess.cb({ ok: !!ok, why: why, skin0: sess.skin0, skin1: curSkin(), ms: Date.now() - sess.t0, armed: !!sess.arm && !!sess.tYes, armMs: sess.tArmed ? sess.tArmed - sess.t0 : 0, fireMs: (sess.tYes && sess.tSkin) ? Math.max(0, sess.tSkin - sess.tYes) : 0, dist: sess.dist }); } catch (e) { warn('cb:', e && e.message); }
 }
-function startSession(pickNum, under, holdSec, use, fb, cb) {
+// Сервер не принимает вход в пикап чаще, чем раз в 300 мс (g_pickup_flood в OnPlayerPickUpDynamicPickup), и пока TIMER_250_MS не сбросил P_IN_PICKUP; молча, без ответа.
+// «Заряд» «снять» сразу после «надеть» мог попасть в это окно на быстрой сети — вход терялся и диалог не открывался. Держим паузу между входами.
+var USE_GAP_MS = 450, LAST_USE_AT = 0, USE_DEFER = false;
+function startSession(pickNum, under, holdSec, use, fb, cb, opt) {
+    if (USE_DEFER) { if (typeof cb === 'function') { try { cb({ ok: false, why: 'busy', busy: true }); } catch (e) {} } return; }
+    if (use && !under && !S) {
+        var gapUse = USE_GAP_MS - (Date.now() - LAST_USE_AT);
+        if (gapUse > 0) {
+            USE_DEFER = true;
+            log('пауза ' + gapUse + ' мс перед входом в пикап (сервер игнорирует повторный вход чаще раза в 300 мс)');
+            setTimeout(function () { USE_DEFER = false; if (_dead) return; startSession(pickNum, under, holdSec, use, fb, cb, opt); }, gapUse);
+            return;
+        }
+    }
     if (S) { info('уже выполняется (шаг «' + S.step + '»). Прервать: /dress stop'); if (typeof cb === 'function') { try { cb({ ok: false, why: 'busy', busy: true }); } catch (e) {} } return; }
-    var sess = { cb: cb || null, cbDone: false, dressed: false, skin0: curSkin(), step: (under || use) ? 'list' : 'save', under: !!under, use: !!use, fb: !!use && !!fb && TP_FALLBACK, fbUsed: false, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null };
+    var sess = { cb: cb || null, cbDone: false, dressed: false, skin0: curSkin(), step: (under || use) ? 'list' : 'save', under: !!under, use: !!use, fb: !!use && !!fb && TP_FALLBACK, fbUsed: false, hold: holdSec || UNDER_SEC, pickNum: pickNum || 0, timers: [], list: [], listN: -1, listTimer: null, t0: Date.now(), tYes: 0, teleported: false, diving: false, returned: false, chatOrig: null, chatWrap: null, dlgOrig: null, dlgWrap: null, skinOrig: null, skinWrap: null, skinUnwatch: null, arm: !!(opt && opt.arm), onArmed: (opt && opt.onArmed) || null, armId: null, tArmed: 0, tSkin: 0, released: false, dist: NaN };
     S = sess;
+    if (use && !under) LAST_USE_AT = Date.now();
     if (!hookChat(sess)) { S = null; fail('не нашёл OnChatAddMessage — бот ещё не запущен?'); sessDone(sess, false, 'нет хука чата'); return; }
     if (!hookDialogs(sess)) { unhook(sess); S = null; fail('не нашёл addDialogInQueue — игра ещё не загрузила диалоги'); sessDone(sess, false, 'нет хука диалогов'); return; }
     var skinHooked = hookSkin(sess);
@@ -312,13 +338,14 @@ function returnNow(why) {
     if (cmd === null) log('возврат не нужен (' + why + ')');
     else if (cmd === '') { fail('не удалось отправить команду возврата!'); log('ОШИБКА: команда возврата не отправилась (' + why + ')'); }
     else log('ВОЗВРАТ: ' + cmd + ' (' + why + '), с момента «Да» прошло ' + (sess.tYes ? (t - sess.tYes) : '?') + ' мс, с момента старта ' + (t - sess.t0) + ' мс');
-    setTimer(function () { endSession('готово', false); }, T_TAIL_MS);
+    if (sess.dressed && !sess.tSkin) sess.tSkin = Date.now();
+    setTimer(function () { endSession('готово', false); }, (sess.use && !sess.teleported && !sess.diving) ? 0 : T_TAIL_MS);   // вход без движения: возвращать нечего, «хвост» не нужен — сессия закрывается сразу
     gtAdd(sess.use ? '~g~Dress: ~w~переоделся' : '~g~Dress: ~w~вернулся на место');
 }
 function onSkin(src) {
     if (!S) return;
     if (S.step !== 'wait') { log('смена скина (' + src + ') не в ожидании — шаг «' + S.step + '», игнорирую'); return; }
-    S.dressed = true;
+    S.dressed = true; S.tSkin = Date.now();
     log('скин сменился: ' + src + ', через ' + (S.tYes ? (Date.now() - S.tYes) : '?') + ' мс после «Да»');
     returnNow('скин сменился');
 }
@@ -326,6 +353,8 @@ function onSkin(src) {
 function endSession(why, goBack) {
     var sess = S;
     if (!sess) return;
+    if (sess.step === 'armed' && !_dead && why !== 'рестарт сервера') { releaseArmed(sess, why); return; }   // заряд не использован: сначала освобождаем диалог на сервере
+    if (sess.step === 'armed') { try { blindRelease(sess); } catch (e) {} }                                  // скрипты перезагружаются / рестарт: освободить слот и сразу выйти
     var cmd = null;
     if (goBack && !sess.returned) cmd = sendReturn(sess);             // сначала возврат — потом всё остальное
     clearTimers();
@@ -478,7 +507,7 @@ function pickAndGo() {
     S.dlgTimer = setTimer(function () {
         if (S.use && S.fb && !S.fbUsed) { fallbackToTp(); return; }       // /dressu: use не сработал — запасной путь
         var nw = distWhy(); if (nw) { fail(nw); endSession(nw, true); return; }
-        fail('диалог «Раздевалка» не открылся за ' + (t1 / 1000) + ' с' + (S.use ? ' (use: вы дальше ~5 м от пикапа, либо мод tpl без команды use — смотрите чат; старый способ: /dress tp)' : '')); endSession('нет диалога 1', true);
+        fail('диалог «Раздевалка» не открылся за ' + (t1 / 1000) + ' с' + (S.use ? ' (use: вы дальше ~5 м от пикапа, либо мод tpl без команды use, либо у NPC на сервере уже открыт другой диалог — тогда новый сервер не показывает; смотрите чат; старый способ: /dress tp)' : '')); endSession(S.use ? 'нет диалога 1: вход в пикап не принят сервером или у NPC уже открыт другой диалог' : 'нет диалога 1', true);
     }, t1);
 }
 
@@ -491,7 +520,7 @@ function act(fn) {
 // ───────────────────────── разбор диалогов ─────────────────────────
 // Возвращает true, если диалог — наш и его нужно «съесть» (игре не показывать).
 function onDialog(params, content, priority) {
-    if (!S || (S.step !== 'tp' && S.step !== 'dlg2')) return false;
+    if (!S || (S.step !== 'tp' && S.step !== 'dlg2' && S.step !== 'release')) return false;
     if (!params || typeof params !== 'string') return false;
     var p;
     try { p = JSON.parse(params.trim()); } catch (e) { return false; }
@@ -502,6 +531,7 @@ function onDialog(params, content, priority) {
     var hay = title + ' ' + sub + ' ' + strip(raw);
     if (!TITLE_RX.test(hay)) return false;              // чужой диалог — не трогаем
     log('диалог раздевалки: id=' + id + ' style=' + style + ' «' + title + '» ' + strip(raw).slice(0, 100));
+    if (S.step === 'release') return true;               // снимаем заряд: сервер заново показал список — глотаем, игре не отдаём
 
     if (S.step === 'tp' && (style === 2 || style === 4 || style === 5)) {
         var items = raw.split('<n>').map(strip).filter(function (s) { return s.length > 0; });
@@ -518,13 +548,18 @@ function onDialog(params, content, priority) {
         }
         clearTimers();
         S.step = 'dlg2';
-        setTimer(function () { fail('вопрос «Да/Нет» не пришёл за ' + (T_DLG2_MS / 1000) + ' с'); endSession('нет диалога 2', true); }, T_DLG2_MS);
+        setTimer(function () {
+            var nw2 = distWhy();                                                // «Далее» сервер молча игнорирует, если вы дальше 4 м от пикапа (IsPlayerInPickupEx(..., 4.0, ...)) — это не «нет диалога», а расстояние
+            if (nw2) { fail(nw2); endSession(nw2, true); return; }
+            fail('вопрос «Да/Нет» не пришёл за ' + (T_DLG2_MS / 1000) + ' с'); endSession('нет диалога 2: сервер не показал вопрос «Да/Нет» после «Далее»', true);
+        }, T_DLG2_MS);
         log('диалог 1 (id ' + id + '): пункт ' + (idx + 1) + ' «' + items[idx] + '» → Далее');
         act(function () { respond(id, 1, idx, items[idx]); });                         // «Далее»
         return true;
     }
     if (S.step === 'dlg2' && style === 0) {
         clearTimers();
+        if (S.arm) { holdArmed(id, raw); return true; }  // «заряд»: вопрос «Да/Нет» получен — не отвечаем, держим до команды fireArmed()
         S.step = 'wait';                                // ждём смену скина: по ней сразу возвращаемся (onSkin / «Вы переоделись»), иначе по таймауту
         log('диалог 2 (id ' + id + '): «' + strip(raw).slice(0, 80) + '» → Да');
         act(function () { respond(id, 1, -1, ''); if (S) S.tYes = Date.now(); });     // «Да»
@@ -532,6 +567,41 @@ function onDialog(params, content, priority) {
         return true;
     }
     return false;
+}
+
+// ───────────────────────── «заряд» (v3.3) ─────────────────────────
+// Сервер принимает ответ только на реально открытый диалог (g_player_use_dialog_id в dialog.pwn), поэтому «Да» нельзя отправить без открытого диалога.
+// Зато можно пройти пикап → список → «Переодеться» ЗАРАНЕЕ, оставить открытым вопрос «Да/Нет» (слот диалога на сервере держит его сколько угодно),
+// а в нужный момент отправить один ответ — fireArmed(). Пока диалог открыт, сервер не показывает NPC другие диалоги (ShowDefaultDialog возвращает false) — поэтому держим недолго.
+function holdArmed(id, raw) {
+    var sess = S;
+    sess.step = 'armed'; sess.armId = id; sess.tArmed = Date.now();
+    log('ЗАРЯЖЕНО: вопрос «' + strip(raw).slice(0, 80) + '» (id ' + id + ') открыт и ждёт «Да»; с момента старта ' + (sess.tArmed - sess.t0) + ' мс');
+    setTimer(function () { log('заряд не понадобился за ' + (ARM_HOLD_MAX_MS / 1000) + ' с — снимаем'); endSession('заряд не использован', false); }, ARM_HOLD_MAX_MS);
+    if (typeof sess.onArmed === 'function') { try { sess.onArmed({ ok: true, id: id, ms: sess.tArmed - sess.t0 }); } catch (e) { warn('onArmed:', e && e.message); } }
+}
+function fireArmed() {                                // ОДИН ответ «Да» на заряженный вопрос; результат — через колбэк сессии (по смене скина)
+    var sess = S;
+    if (!sess || sess.step !== 'armed') return false;
+    clearTimers();
+    sess.step = 'wait';
+    sess.tYes = Date.now();
+    log('ВЫСТРЕЛ: «Да», заряд держали ' + (sess.tYes - sess.tArmed) + ' мс');
+    try { respond(sess.armId, 1, -1, ''); }
+    catch (e) { fail('ошибка выстрела: ' + (e && e.message)); endSession('ошибка', false); return true; }
+    if (S === sess && sess.step === 'wait') setTimer(function () { log('скин не сменился за ' + T_SKIN_MS + ' мс после выстрела — завершаем по таймауту'); returnNow('таймаут смены скина'); }, T_SKIN_MS);
+    return true;
+}
+function blindRelease(sess) {                         // «Нет» → сервер заново показывает список → «Отмена» закрывает его; слот диалога освобождён
+    respond(sess.armId, 0, -1, '');
+    respond(sess.armId, 0, -1, '');
+}
+function releaseArmed(sess, why) {
+    log('снимаем заряд (' + why + '): «Нет» + «Отмена»');
+    sess.step = 'release'; sess.released = true;
+    clearTimers();
+    try { blindRelease(sess); } catch (e) { warn('снятие заряда:', e && e.message); }
+    setTimer(function () { endSession('заряд снят: ' + why, false); }, 1200);   // хук диалогов ещё живёт — перехватит повторно показанный список
 }
 
 // ───────────────────────── команда в чате ─────────────────────────
@@ -597,11 +667,11 @@ var DN_GO_TRIES = 5, DN_GO_RETRY_MS = 2000; // попыток «/tpl go» и п�
 var DN_RX_RESTART = /Сервер возобновит работу в течени[еи]\s+минуты/i;      // как в Code.js (AFK-ночь); сервер пишет «в течении»
 var DN_RX_RESTORE = /Восстановление позиции|вернуться на место последнего выхода/i;   // DIALOG_RESTORE_POSITION в new.pwn: «Хотите вернуться на место последнего выхода из игры?» Да/Нет
 var RX_PT_SAVED = new RegExp('Точка\\s*«\\s*' + DN_POINT + '\\s*»\\s*(?:сохранена|обновлена):\\s*(-?[\\d.]+)\\s+(-?[\\d.]+)\\s+(-?[\\d.]+)(?:,\\s*интерьер\\s*(-?\\d+))?', 'i');
-var DN_START_RX = /^(старт|после рестарта|вручную|рестарта не было)$/;   // эти «причины» снятия формы не считаем новым кругом
+var DN_START_RX = /^(старт|после рестарта|вручную|рестарта не было|проверка)$/;   // эти «причины» снятия формы не считаем новым кругом
 
 var DN = { on: false, phase: 'off', uniform: null, skinU: null, skinC: null, cycles: 0, paydays: 0, nextAt: 0, fbAt: 0, err: '', tries: 0,
            pdPending: false, tick: null, timers: [], chatOrig: null, chatWrap: null, since: 0, busyN: 0,
-           rmode: (window.__dnRMode === 'auth' ? 'auth' : 'return'), speed: (window.__dnSpeed === 'fast' ? 'fast' : 'normal'), onMs: (window.__dnOnMs || []), rs: null, pt: null, ptWait: false, downSince: 0, dlgOrig: null, dlgWrap: null, startReason: 'старт' };
+           rmode: (window.__dnRMode === 'auth' ? 'auth' : 'return'), speed: (window.__dnSpeed === 'fast' ? 'fast' : 'normal'), onMs: (window.__dnOnMs || []), arm: null, chk: null, fireMs: (window.__dnFireMs || []), pdOffs: (window.__dnPdOffs || []), rs: null, pt: null, ptWait: false, downSince: 0, dlgOrig: null, dlgWrap: null, startReason: 'старт' };
 
 function dnTg(html, silent) { try { if (typeof sendToTelegram === 'function') sendToTelegram(html, silent !== false, null); } catch (e) {} }
 function dnName() { try { return String(typeof displayName !== 'undefined' ? displayName : ''); } catch (e) { return ''; } }
@@ -614,13 +684,14 @@ function dnClockT(ms) { var d = new Date(ms + DN_SERVER_TZ_H * DN_HOUR); functio
 function dnSecs(ms) { return (Math.max(0, ms) / 1000).toFixed(1) + ' с'; }
 function dnOff00(ms) { var b = Math.round(ms / DN_HOUR) * DN_HOUR, d = ms - b; if (Math.abs(d) > 600000) return ''; return d < 0 ? 'за ' + dnSecs(-d) + ' до :00' : dnSecs(d) + ' после :00'; }   // отступ от ближайшего :00:00; дальше 10 минут — пустая строка (например, снятие при старте в 23:20 к :00 не относится)
 // строка «сколько заняло» для сообщения в Telegram (kind: 'on' — надеть в :59, 'off' — снять после PayDay)
-function dnTimingText(kind, took, tEnd) {
+function dnTimingText(kind, took, tEnd, extra) {
     var tBeg = tEnd - took, t = '⏱ <b>Заняло ' + dnSecs(took) + '</b>';
     if (DN.tries > 1 && DN.opT0) t += ' (попытка ' + DN.tries + '/' + DN_TRIES + ', всего с повторами ' + dnSecs(tEnd - DN.opT0) + ')';
     t += '\nстарт ' + dnClockT(tBeg) + ' → готово ' + dnClockT(tEnd) + ' МСК';
     var o = dnOff00(tEnd);
     if (o) t += '\nготово ' + o;
     if (kind === 'off' && DN.pdAt) { var op = dnOff00(DN.pdAt); t += '\nстрока PayDay в ' + dnClockT(DN.pdAt) + (op ? ' (' + op + ')' : '') + ', от неё до готово ' + dnSecs(tEnd - DN.pdAt); }
+    if (extra) t += '\n' + extra;
     return t;
 }
 function dnRand(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
@@ -630,6 +701,19 @@ var DN_FAST_MARGIN_MS = 700;                // моментальное: фор�
 var DN_FAST_DRESS_MS = 2500;                // моментальное: пока нет замеров надевания — считаем, что оно длится столько мс
 var DN_FAST_JITTER_MS = 300;                // моментальное: старт раньше расчётного на случайные 0…N мс (чтобы не бить в одну и ту же миллисекунду)
 var DN_FAST_PD_DELAY_MS = 0;                // моментальное: пауза после строки PayDay перед снятием, мс (0 — сразу)
+// ── «заряд» (v3.3): только в «моментальном». Цепочку раздевалки проходим заранее до вопроса «Да/Нет», в нужный момент уходит один ответ ──
+var DN_ARM = true;                          // false — как в 3.2 (каждый раз вся цепочка заново)
+var DN_ARM_LEAD_MS = 15000;                 // надеть: заряжаем за столько мс до выстрела (цепочка идёт 1–3 с; запас на повтор)
+var DN_ARM_MARGIN_MS = DN_FAST_MARGIN_MS;     // заряженное надевание: форма должна быть надета за столько мс ДО :00 сверх замеренного «выстрел → смена скина» (тот же запас, что в 3.2 — меньше стала только цепочка)
+var DN_UNLEARNED_EXTRA_MS = 1500;           // пока ни одной строки PayDay не сверено с часами телефона — добавочный запас (телефон может отставать от сервера); после первого PayDay уходит
+var DN_FIRE_DEFAULT_MS = 450;               // пока замеров «выстрел → скин» нет — считаем, что оно длится столько
+var DN_ARM_MIN_LEFT_MS = 4000;              // заряжать имеет смысл, если до выстрела осталось не меньше
+var DN_SELFCHECK = true;                    // при ВКЛ сразу проверить, что переодевание срабатывает и ВТОРОЙ раз (надеть → снять), результат — в Telegram
+var DN_CHECK_MIN_LEFT_S = 150;              // проверка — только если до :59 осталось не меньше
+var DN_EARLY_PAYDAY = true;                 // моментальное: снимать по ПЕРВОЙ строке PayDay — общей рассылке «Текущее время: ЧЧ:00» (OnPayDay шлёт её до личных строк, перед циклом по игрокам), а не по личной «Зарплата: N руб».
+                                            // Безопасно: весь OnPayDay идёт одним тиком сервера (new.pwn, OnPayDay), наше «Да» обработается только после него — форма на момент выплаты уже проверена.
+var RX_PAYDAY_EARLY = /Текущее время:\s*\d{1,2}:00\s*$/;
+var DN_CLOCK_LEARN = true;                  // моментальное: если строки PayDay приходят РАНЬШЕ :00 по часам телефона — стартуем раньше на эту разницу (только «раньше»)
 function dnParseSpeed(w) {
     w = String(w || '').toLowerCase();
     if (/^(fast|instant|моментальное|моментальный|моментально|быстро|быстрое|быстрый|мгновенно|мгн)$/.test(w)) return 'fast';
@@ -639,8 +723,15 @@ function dnParseSpeed(w) {
 function dnSpeedText(m) { return m === 'fast' ? '⚡ моментальное' : '🕐 обычное'; }
 function dnSpeedFlip() { DN.speed = DN.speed === 'fast' ? 'normal' : 'fast'; window.__dnSpeed = DN.speed; dnLog('тип переодевания: ' + DN.speed + (DN.on ? ' (со следующего круга)' : '')); return DN.speed; }
 // сколько мс до :00 надо начать надевание: худшее из последних замеров (или DN_FAST_DRESS_MS) + запас
-function dnFastLead() { var m = DN.onMs && DN.onMs.length ? Math.max.apply(null, DN.onMs) : DN_FAST_DRESS_MS; return m + DN_FAST_MARGIN_MS; }
-function dnPickFast(now) { var t = Math.floor(now / DN_HOUR) * DN_HOUR + DN_HOUR - dnFastLead() - dnRand(0, DN_FAST_JITTER_MS); if (t <= now + 500) t += DN_HOUR; return t; }
+function dnClockAdj() {                      // на сколько мс стартовать раньше из-за часов телефона: строки PayDay приходят раньше :00 по часам телефона → телефон спешит/отстаёт
+    if (!DN_CLOCK_LEARN || !DN.pdOffs || !DN.pdOffs.length) return 0;
+    var m = Math.min.apply(null, DN.pdOffs.slice(-3)), a = 200 - m;              // 200 мс — типичная задержка строки (сервер → телефон)
+    return a > 0 ? Math.min(a, 3000) : 0;
+}
+function dnFastLeadPlain() { var m = DN.onMs && DN.onMs.length ? Math.max.apply(null, DN.onMs) : DN_FAST_DRESS_MS; return m + DN_FAST_MARGIN_MS + dnClockAdj(); }   // обычная цепочка: сколько мс до :00 начать
+function dnArmedLead() { var m = DN.fireMs && DN.fireMs.length ? Math.max.apply(null, DN.fireMs) : DN_FIRE_DEFAULT_MS; return m + DN_ARM_MARGIN_MS + dnClockAdj() + ((DN_CLOCK_LEARN && !(DN.pdOffs && DN.pdOffs.length)) ? DN_UNLEARNED_EXTRA_MS : 0); }                    // заряженный выстрел: сколько мс до :00
+function dnFastLead() { return DN_ARM ? dnArmedLead() : dnFastLeadPlain(); }
+function dnPickFast(now, plain) { var t = Math.floor(now / DN_HOUR) * DN_HOUR + DN_HOUR - (plain ? dnFastLeadPlain() : dnFastLead()) - dnRand(0, DN_FAST_JITTER_MS); if (t <= now + 500) t += DN_HOUR; return t; }
 function dnClockAuto(ms) { return DN.speed === 'fast' ? dnClockT(ms) + ' МСК' : dnClock(ms); }   // в моментальном нужны десятые секунды
 function dnPick59(now) { var t = Math.floor(now / DN_HOUR) * DN_HOUR + 59 * 60000 + dnRand(DN_SEC_MIN, DN_SEC_MAX) * 1000; if (t <= now + 1000) t += DN_HOUR; return t; }
 function dnSkinOk(v) { return v !== undefined && v !== null && v !== '?'; }
@@ -702,9 +793,13 @@ function dnOnChat(raw) {
         DN.nocolSeen = true; dnAfterNocol();
         return;
     }
-    if (!RX_PAYDAY.test(text)) return;
+    var early = DN_EARLY_PAYDAY && DN.speed === 'fast' && RX_PAYDAY_EARLY.test(text);               // первая строка PayDay (общая рассылка) — раньше личных
+    if (!early && !RX_PAYDAY.test(text)) return;
     var m = Date.now() % DN_HOUR;
     if (!(m < 120000 || m >= 3590000)) return;                         // PayDay бывает только возле :00 — случайные совпадения игнорируем
+    if (early && DN.phase !== 'wait_payday' && DN.phase !== 'dressing') return;                      // рассылка нужна только как сигнал PayDay; в другое время ничего не делаем (личная строка придёт следом)
+    if (!early && DN.pdEarlyAt && Date.now() - DN.pdEarlyAt < 10000) { dnLog('личная строка PayDay пришла через ' + (Date.now() - DN.pdEarlyAt) + ' мс после общей «Текущее время»'); DN.pdEarlyAt = 0; }
+    if (early) { DN.pdEarlyAt = Date.now(); }
     dnOnPayday('чат: ' + text.slice(0, 80));
 }
 
@@ -718,7 +813,7 @@ function dnStart(src, rmode, speed) {
     PKC = null;                                                         // первый круг — всегда со свежим списком пикапов
     DN.on = true; DN.phase = 'nocol'; DN.uniform = true; DN.cycles = 0; DN.paydays = 0; DN.err = ''; DN.tries = 0;
     DN.pdPending = false; DN.nocolSeen = false; DN.nextAt = 0; DN.fbAt = 0; DN.since = Date.now(); DN.busyN = 0; DN.skinU = null; DN.skinC = null;
-    DN.rs = null; DN.pt = null; DN.ptWait = true; DN.downSince = 0; DN.startReason = 'старт'; DN.opT0 = 0; DN.pdAt = 0;
+    DN.rs = null; DN.pt = null; DN.ptWait = true; DN.downSince = 0; DN.startReason = 'старт'; DN.opT0 = 0; DN.pdAt = 0; DN.arm = null; DN.chk = null;
     if (!dnHookChat()) { DN.on = false; DN.phase = 'off'; return 'нет OnChatAddMessage — бот ещё не запущен?'; }
     if (DN_IGNORE_STROY) dnClearStroy('старт');
     jlPing();
@@ -743,6 +838,7 @@ function dnAfterNocol() {
     if (DN.uniform === false) {                                         // после рестарта: по скину видно, что форма уже снята — снимать нечего
         dnLog('форма уже снята (скин ' + curSkin() + ') — жду :59');
         dnTg('👕 <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\nФорма уже снята — следующее: надеть в ' + dnClockAuto(dnWait59()));
+        dnAutoCheck();
         return;
     }
     if (left < DN_MIN_LEAD_S) {
@@ -755,6 +851,7 @@ function dnAfterNocol() {
 function dnStop(why, silent) {
     if (!DN.on) return;
     var hadRs = !!DN.rs, offNocol = DN_NOCOL_OFF_ON_STOP && !_dead && dnConnected() !== false;
+    dnArmCancel('выключено'); DN.chk = null;
     DN.on = false; PKC = null;
     if (DN.tick) { clearInterval(DN.tick); DN.tick = null; }
     DN.timers.forEach(function (h) { clearTimeout(h); }); DN.timers = [];
@@ -792,6 +889,13 @@ function dnToggle(kind, reason) {
 }
 function dnAttempt(kind, reason) {
     if (!DN.on || _dead) return;
+    var A = DN.arm;
+    if (A && A.kind === kind) {                                         // есть заряд нужного типа
+        if (A.state === 'ready') { dnFireArmed(kind, reason); return; }
+        if (A.state === 'arming') { A.fireReq = { kind: kind, reason: reason }; dnLog('заряд ещё собирается — выстрел сразу, как будет готов'); return; }
+        return;                                                         // 'firing' — уже стреляем
+    }
+    if (A) dnArmCancel('не тот тип заряда');
     if (S) {                                                            // Dress занят (например, руками запустили /dress) — ждём
         if (++DN.busyN > 30) { dnFail(kind, 'Dress занят дольше 30 с'); return; }
         dnTimer(function () { dnAttempt(kind, reason); }, 1000);
@@ -813,19 +917,25 @@ function dnAfterToggle(kind, reason, res) {
         if (dnSkinOk(res.skin0) && dnSkinOk(res.skin1)) {
             if (kind === 'off') { DN.skinU = res.skin0; DN.skinC = res.skin1; } else { DN.skinC = res.skin0; DN.skinU = res.skin1; }
         }
-        if (kind === 'on' && typeof res.ms === 'number' && res.ms >= 300 && res.ms <= 15000) {   // замеры надевания — для расчёта старта в «моментальном»
+        if (kind === 'on' && res.armed && typeof res.fireMs === 'number' && res.fireMs >= 20 && res.fireMs <= 8000) {   // заряженное надевание: замер «выстрел → скин»
+            DN.fireMs = (DN.fireMs || []).concat([res.fireMs]).slice(-5); window.__dnFireMs = DN.fireMs;
+        } else if (kind === 'on' && !res.armed && typeof res.ms === 'number' && res.ms >= 300 && res.ms <= 15000) {   // замеры надевания — для расчёта старта в «моментальном»
             DN.onMs = (DN.onMs || []).concat([res.ms]).slice(-5); window.__dnOnMs = DN.onMs;
         }
-        dnLog((kind === 'off' ? 'форма СНЯТА' : 'форма НАДЕТА') + ' за ' + res.ms + ' мс, скин ' + res.skin0 + ' → ' + res.skin1);
+        dnLog((kind === 'off' ? 'форма СНЯТА' : 'форма НАДЕТА') + ' за ' + (res.armed ? res.fireMs + ' мс (выстрел; прогрев ' + res.armMs + ' мс)' : res.ms + ' мс') + ', скин ' + res.skin0 + ' → ' + res.skin1);
         if (kind === 'off') {
             if (!DN_START_RX.test(reason)) { DN.cycles++; }
-            var tOff = dnTimingText('off', res.ms || 0, Date.now());
+            var tOff = dnTimingText('off', (res.armed ? res.fireMs : res.ms) || 0, Date.now(), res.armed ? dnArmInfo(res) : '');
             DN.pdAt = 0;
             dnTg('👕 <b>Форма снята (' + dnEsc(dnName()) + ')</b> · ' + dnEsc(reason) + ' · ' + dnSpeedText(DN.speed) + '\n' + tOff + '\nСледующее: надеть в ' + dnClockAuto(dnWait59()) + '  ·  круг ' + (DN.cycles + 1));
             if (DN.pdPending) DN.pdPending = false;
+            if (reason === 'старт') dnAutoCheck();
         } else {
-            dnTg('👔 <b>Форма надета (' + dnEsc(dnName()) + ')</b> · ' + dnSpeedText(DN.speed) + ' · ждём PayDay в :00\n' + dnTimingText('on', res.ms || 0, Date.now()));
+            dnTg('👔 <b>Форма надета (' + dnEsc(dnName()) + ')</b> · ' + dnSpeedText(DN.speed) + ' · ждём PayDay в :00\n' + dnTimingText('on', (res.armed ? res.fireMs : res.ms) || 0, Date.now(), res.armed ? dnArmInfo(res) : ''));
+            var pend = DN.pdPending;                                    // PayDay пришёл, пока надевали (в 3.2 этот флаг терялся — снятие шло по запасному таймеру через 30 с)
             dnWaitPayday();
+            if (pend) { dnLog('PayDay пришёл, пока надевали — снимаю сразу'); dnOnPayday('пришёл во время надевания'); }
+            else if (DN_ARM && DN.speed === 'fast') dnArm('off', 'после надевания', 0);
         }
         return;
     }
@@ -840,12 +950,145 @@ function dnFail(kind, why) {
     dnWait59();                                                         // не сняли — в :59 увидим «уже в форме» и дождёмся PayDay; не надели — ждём следующий :59
 }
 
+// ── «заряд» в цикле (v3.3) ──
+function dnArmInfo(res) { return '🔫 заряд: прогрев ' + dnSecs(res.armMs || 0) + ', выстрел → смена скина ' + dnSecs(res.fireMs || 0); }
+function dnArm(kind, reason, tryN) {
+    if (!DN_ARM || !DN.on || _dead || DN.rs || DN.chk) return;
+    if (DN.arm) { dnLog('заряд уже есть (' + DN.arm.kind + ', ' + DN.arm.state + ') — второй не собираю'); return; }
+    var A = { kind: kind, reason: reason, state: 'arming', t0: Date.now(), tryN: tryN || 0, fireReq: null, tReady: 0, armMs: 0 };
+    DN.arm = A;
+    dnLog('ЗАРЯЖАЮ: ' + (kind === 'off' ? 'снять' : 'надеть') + ' (' + reason + '), попытка ' + (A.tryN + 1));
+    startSession(0, false, 0, true, true, function (res) {
+        if (_dead || !DN.on || DN.rs) { if (DN.arm === A) DN.arm = null; return; }
+        dnArmDone(A, res || {});
+    }, { arm: true, onArmed: function (info) { dnArmReady(A, info); } });
+}
+function dnArmReady(A, info) {
+    if (DN.arm !== A || !DN.on || _dead) { if (S && S.arm && S.step === 'armed') endSession('заряд не нужен', false); return; }
+    A.state = 'ready'; A.tReady = Date.now(); A.armMs = info.ms || 0;
+    dnLog('ЗАРЯЖЕНО (' + (A.kind === 'off' ? 'снять' : 'надеть') + ') за ' + A.armMs + ' мс');
+    if (A.fireReq) { var f = A.fireReq; A.fireReq = null; dnFireArmed(f.kind, f.reason); }
+}
+function dnFireArmed(kind, reason) {
+    var A = DN.arm;
+    if (!A || A.state !== 'ready' || !S || S.step !== 'armed') { DN.arm = null; dnLog('заряда нет (или он уже снят) — обычная цепочка'); dnAttempt(kind, reason); return; }
+    A.state = 'firing'; A.reason = reason; DN.tries++;
+    dnLog((kind === 'off' ? 'ВЫСТРЕЛ: снять' : 'ВЫСТРЕЛ: надеть') + ' (' + reason + '), заряд держали ' + (Date.now() - A.tReady) + ' мс, скин ' + curSkin());
+    if (!fireArmed()) { DN.arm = null; dnLog('выстрел не ушёл — обычная цепочка'); dnAttempt(kind, reason); }
+}
+function dnArmDone(A, res) {                                           // сессия заряда закончилась: после выстрела (итог переодевания) или без него (ошибка / срок / снят)
+    if (DN.arm !== A) return;
+    DN.arm = null;
+    if (A.state === 'firing') { dnAfterToggle(A.kind, A.reason, res); return; }
+    dnLog('заряд не вышел/снят: ' + (res.why || '?') + ' (был «' + A.state + '»)');
+    if (A.fireReq) { dnAttempt(A.fireReq.kind, A.fireReq.reason); return; }          // выстрел уже просили — обычной цепочкой
+    if (A.state === 'arming') dnArmFailed(A, res.why || '?');
+}
+function dnArmFailed(A, why) {
+    var now = Date.now(), end = dnNextHour(now);
+    if (A.kind === 'on' && DN.phase === 'wait59' && DN.nextAt) {
+        var fireAt = DN.nextAt;
+        if (fireAt - now > 6000 && A.tryN < 1) { dnTimer(function () { if (DN.phase === 'wait59' && DN.nextAt === fireAt) dnArm('on', A.reason, A.tryN + 1); }, 1500); return; }   // ещё успеем — вторая попытка
+        if (end - now < 800) { dnLog('заряд не вышел, до :00 уже ' + (end - now) + ' мс — надевать поздно'); return; }
+        var at = Math.max(now + 150, end - dnFastLeadPlain());
+        DN.nextAt = at;
+        dnLog('заряд не вышел — обычная цепочка в ' + dnClockT(at) + ' МСК (запас ' + dnFastLeadPlain() + ' мс)');
+        dnTimer(function () { if (DN.phase === 'wait59' && DN.nextAt === at) { DN.nextAt = 0; dnOn59(); } }, Math.max(0, at - Date.now()));
+    }
+    dnTg('⚠️ <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\nЗаряд (' + (A.kind === 'on' ? 'надеть' : 'снять') + ') не вышел: <code>' + dnEsc(String(why).slice(0, 140)) + '</code>\nПойду обычной цепочкой (медленнее).');
+}
+function dnArmCancel(why) {
+    var A = DN.arm; DN.arm = null;
+    if (S && S.arm && (A || DN.chk)) { dnLog('заряд отменён: ' + why); endSession('заряд отменён: ' + why, false); }
+}
+
+// ── проверка «переодевание срабатывает и второй раз» (v3.3) ──
+function dnChkTimer(C, fn, ms) { return setTimeout(function () { if (!_dead && DN.chk === C) { try { fn(); } catch (e) { dnLog('проверка, ошибка: ' + (e && e.message)); } } }, ms); }
+function dnAutoCheck() {
+    if (!DN_SELFCHECK || DN.startReason !== 'старт') return;
+    dnTimer(function () { var er = dnCheck('при включении'); if (er) dnLog('проверка при включении не запущена: ' + er); }, 1500);
+}
+function dnCheck(src) {
+    if (DN.chk) return 'проверка уже идёт';
+    if (S) return 'Dress занят (шаг «' + S.step + '»)';
+    if (dnConnected() === false) return 'персонаж не в игре';
+    var now = Date.now();
+    if (DN.on) {
+        if (DN.rs) return 'идёт рестарт сервера';
+        if (DN.phase !== 'wait59') return 'сейчас «' + dnPhaseText() + '» — проверка только пока цикл ждёт :59';
+        if (!DN.nextAt || DN.nextAt - now < DN_CHECK_MIN_LEFT_S * 1000) return 'до :59 меньше ' + DN_CHECK_MIN_LEFT_S + ' с — подождите начала часа';
+    } else if (dnNextHour(now) - now < (DN_CHECK_MIN_LEFT_S + 90) * 1000) return 'до :00 меньше ' + (DN_CHECK_MIN_LEFT_S + 90) + ' с — подождите начала часа';
+    var first = DN.on && DN.uniform === true ? 'off' : (DN.on && DN.uniform === false ? 'on' : '');
+    var C = DN.chk = { src: src, t0: now, steps: [], first: first, wasOn: DN.on, uni0: DN.on ? DN.uniform : null };
+    if (DN.on) { DN.phase = 'check'; DN.nextAt = 0; }
+    dnLog('=== ПРОВЕРКА (' + src + '): переодеться два раза подряд (заряд → выстрел)');
+    dnTg('🧪 <b>Проверка переодевания (' + dnEsc(dnName()) + ')</b> — запущена (' + dnEsc(src) + '): переодеваюсь два раза подряд, форма в конце останется как была.', false);
+    dnChkStep(C, 0);
+    return '';
+}
+function dnChkDir(C, i) { return C.first ? (i === 0 ? C.first : (C.first === 'on' ? 'off' : 'on')) : ''; }
+function dnChkStep(C, i) {
+    if (DN.chk !== C) return;
+    if (i >= 2) { dnChkFinish(C); return; }
+    var rec = { i: i, ok: false, why: '', why2: '', armMs: 0, fireMs: 0, plainOk: false, plainMs: 0, dist: NaN }, fired = false;
+    C.steps.push(rec);
+    startSession(0, false, 0, true, true, function (res) {
+        if (DN.chk !== C) return;
+        if (typeof res.dist === 'number' && !isNaN(res.dist)) rec.dist = res.dist;
+        var dir = dnChkDir(C, i);
+        if (res.ok && fired) {
+            rec.ok = true; rec.fireMs = res.fireMs; rec.armMs = res.armMs;
+            if (C.wasOn && dnSkinOk(res.skin0) && dnSkinOk(res.skin1)) { if (dir === 'off') { DN.skinU = res.skin0; DN.skinC = res.skin1; } else if (dir === 'on') { DN.skinC = res.skin0; DN.skinU = res.skin1; } }
+            dnChkTimer(C, function () { dnChkStep(C, i + 1); }, 700); return;
+        }
+        rec.why = res.why || '?';
+        if (fired) { dnChkTimer(C, function () { dnChkStep(C, i + 1); }, 700); return; }                     // выстрел был, а скин не сменился
+        dnChkTimer(C, function () {                                                                           // заряд не вышел — пробуем обычной цепочкой, чтобы отличить «не работает совсем» от «не работает заряд»
+            startSession(0, false, 0, true, true, function (r2) {
+                if (DN.chk !== C) return;
+                if (typeof r2.dist === 'number' && !isNaN(r2.dist)) rec.dist = r2.dist;
+                rec.plainOk = !!r2.ok; rec.plainMs = r2.ms || 0; if (!r2.ok) rec.why2 = r2.why || '?';
+                dnChkTimer(C, function () { dnChkStep(C, i + 1); }, 700);
+            });
+        }, 800);
+    }, { arm: true, onArmed: function (info) { rec.armMs = info.ms; fired = true; fireArmed(); } });
+}
+function dnChkFinish(C) {
+    if (DN.chk !== C) return;
+    DN.chk = null;
+    var okN = 0, L = [], dist = NaN, bad = false, anyPlain = false;
+    C.steps.forEach(function (r, idx) {
+        var dir = dnChkDir(C, idx), name = dir === 'on' ? 'надеть' : dir === 'off' ? 'снять' : 'переодеться';
+        if (!isNaN(r.dist)) dist = r.dist;
+        if (r.ok) { okN++; L.push('✅ ' + (idx + 1) + ') ' + name + ': прогрев ' + dnSecs(r.armMs) + ', выстрел → смена скина ' + dnSecs(r.fireMs)); }
+        else if (r.plainOk) { okN++; anyPlain = true; L.push('⚠️ ' + (idx + 1) + ') ' + name + ': заряд не вышел (<code>' + dnEsc(String(r.why).slice(0, 100)) + '</code>), обычной цепочкой вышло за ' + dnSecs(r.plainMs)); }
+        else { bad = true; L.push('❌ ' + (idx + 1) + ') ' + name + ': <code>' + dnEsc(String(r.why2 || r.why).slice(0, 150)) + '</code>'); }
+    });
+    var head = bad ? '❌ <b>Переодевание сработало не оба раза</b>' : anyPlain ? '⚠️ <b>Переодевается, но заряд не работает — будет обычная цепочка</b>' : '✅ <b>Переодевание срабатывает и второй раз</b>';
+    var msg = '🧪 <b>Проверка переодевания (' + dnEsc(dnName()) + ')</b>\n' + head + '\n' + L.join('\n');
+    if (!isNaN(dist)) msg += '\nДо пикапа ~' + dist + ' м' + ((dist < NEAR_MIN_M || dist > FAR_MAX_M) ? ' — <b>вне допустимых ' + NEAR_MIN_M + '…' + FAR_MAX_M + ' м</b> (ближе 1.5 м сервер игнорирует повторный вход, дальше 4 м — ответы в диалоге)' : ' (норма ' + NEAR_MIN_M + '…' + FAR_MAX_M + ' м)');
+    if (DN.on && C.wasOn) {
+        if (okN % 2 === 1 && (C.uni0 === true || C.uni0 === false)) DN.uniform = !C.uni0;                // нечётное число удачных — форма сменилась
+        dnSyncUniform();
+        msg += '\nФорма сейчас: ' + (DN.uniform === true ? '👔 надета' : DN.uniform === false ? '👕 снята' : '❓') + '. Цикл продолжается.';
+        dnWait59();
+    }
+    dnLog('=== ПРОВЕРКА завершена: удачно ' + okN + '/2' + (bad ? ', есть сбои' : ''));
+    dnTg(msg, false);
+}
+
 function dnWait59() {
     DN.phase = 'wait59'; DN.pdAt = 0;                                   // новый круг — отметка PayDay прошлого часа больше не нужна
-    DN.nextAt = DN.speed === 'fast' ? dnPickFast(Date.now()) : dnPick59(Date.now());
+    var now0 = Date.now(), useArm = false;
+    if (DN.speed === 'fast') {
+        DN.nextAt = dnPickFast(now0);
+        useArm = DN_ARM && (DN.nextAt - now0) >= DN_ARM_MIN_LEFT_MS;
+        if (DN_ARM && !useArm) DN.nextAt = dnPickFast(now0, true);      // заряжать поздно — старт по запасу обычной цепочки
+    } else DN.nextAt = dnPick59(now0);
     if (DN.speed === 'fast') {                                          // тик раз в секунду слишком грубый — ставим точный таймер на расчётный момент
         var at59 = DN.nextAt;
         dnTimer(function () { if (DN.phase === 'wait59' && DN.nextAt === at59) { DN.nextAt = 0; dnOn59(); } }, Math.max(0, at59 - Date.now()));
+        if (useArm) dnTimer(function () { if (DN.phase === 'wait59' && DN.nextAt === at59) dnArm('on', ':59', 0); }, Math.max(0, at59 - now0 - DN_ARM_LEAD_MS));
     }
     dnLog('жду ' + dnClockAuto(DN.nextAt) + ' (' + DN.speed + (DN.speed === 'fast' ? ', запас до :00 ' + dnFastLead() + ' мс' : '') + ')');
     return DN.nextAt;
@@ -853,6 +1096,7 @@ function dnWait59() {
 function dnOn59() {
     dnSyncUniform();
     if (DN.uniform === true) {                                          // уже в форме (в прошлый раз не сняли) — надевать нечего
+        dnArmCancel('уже в форме');
         dnLog(':59 — уже в форме, жду PayDay');
         dnWaitPayday();
         return;
@@ -866,6 +1110,14 @@ function dnWaitPayday() {
     dnLog('жду PayDay, запасной таймер в ' + dnClock(DN.fbAt));
 }
 function dnOnPayday(src) {
+    if (/^чат/.test(String(src)) && DN.on && !DN.rs) {                  // часы: на сколько строка PayDay отстоит от :00 по часам телефона (минус — телефон отстаёт от сервера). Считаем в ЛЮБОЙ фазе, один раз за час
+        var tNow = Date.now(), hrN = Math.round(tNow / DN_HOUR);
+        if (DN.pdOffHr !== hrN) {
+            DN.pdOffHr = hrN;
+            var po = tNow - hrN * DN_HOUR;
+            if (Math.abs(po) < 20000) { DN.pdOffs = (DN.pdOffs || []).concat([po]).slice(-5); window.__dnPdOffs = DN.pdOffs; dnLog('PayDay пришёл на ' + po + ' мс от :00 по часам телефона (поправка старта сейчас ' + dnClockAdj() + ' мс)'); }
+        }
+    }
     if ((DN.phase === 'dressing' || DN.phase === 'wait_payday') && !DN.pdAt) DN.pdAt = Date.now();   // когда пришла строка PayDay (или сработал запасной таймер)
     if (DN.phase === 'dressing') { DN.pdPending = true; dnLog('PayDay пришёл во время надевания — снимем сразу после'); return; }
     if (DN.phase !== 'wait_payday') return;
@@ -988,7 +1240,7 @@ function dnOnRestart(src) {
     if (!DN.on || DN.rs || _dead) return;
     var wasPhase = DN.phase;
     var R = DN.rs = { src: src, t0: Date.now(), step: 'wait', alWas: undefined, sawDown: dnConnected() === false, goTries: 0, goWait: false, goTimer: null, lastRetry: 0, rejoinAt: 0, gaveUp: false, restored: false, mode: DN.rmode };
-    DN.phase = 'restart'; DN.nextAt = 0; DN.fbAt = 0; DN.pdPending = false; DN.downSince = 0;
+    DN.phase = 'restart'; DN.nextAt = 0; DN.fbAt = 0; DN.pdPending = false; DN.downSince = 0; DN.arm = null; DN.chk = null;
     DN.timers.forEach(function (h) { clearTimeout(h); }); DN.timers = [];
     if (S) { try { endSession('рестарт сервера', false); } catch (e) {} }  // идущая сессия переодевания не нужна; колбэк цикла её итог не двигает (DN.rs задан)
     dnLog('РЕСТАРТ (' + src + '), были в фазе «' + wasPhase + '», режим: ' + R.mode);
@@ -1104,7 +1356,7 @@ function dnRsText() {
 }
 
 function dnPhaseText() {
-    return ({ off: 'выключено', nocol: 'включаю /nocol', start: 'старт', undressing: 'снимаю форму', dressing: 'надеваю форму', wait59: 'жду :59', wait_payday: 'жду PayDay', payday: 'PayDay пойман', restart: 'рестарт сервера' })[DN.phase] || DN.phase;
+    return ({ off: 'выключено', nocol: 'включаю /nocol', start: 'старт', undressing: 'снимаю форму', dressing: 'надеваю форму', check: 'проверка переодевания', wait59: 'жду :59', wait_payday: 'жду PayDay', payday: 'PayDay пойман', restart: 'рестарт сервера' })[DN.phase] || DN.phase;
 }
 function dnStatusHtml() {
     var now = Date.now(), L = [];
@@ -1116,6 +1368,8 @@ function dnStatusHtml() {
         if (DN.phase === 'wait59' && DN.nextAt) { var s = Math.max(0, Math.round((DN.nextAt - now) / 1000)); L.push('Надеть форму в <b>' + dnClockAuto(DN.nextAt) + '</b> (через ' + Math.floor(s / 60) + ' мин ' + (s % 60) + ' с)'); }
         if (DN.phase === 'wait_payday') L.push('Снять форму сразу после PayDay (запасной таймер ' + dnClock(DN.fbAt) + ')');
         if (DN.rs) L.push('🔄 Рестарт: ' + dnEsc(dnRsText()));
+        if (DN.arm) L.push('🔫 Заряд (' + (DN.arm.kind === 'on' ? 'надеть' : 'снять') + '): ' + ({ arming: 'собирается', ready: 'готов', firing: 'выстрел' })[DN.arm.state]);
+        if (DN.pdOffs && DN.pdOffs.length) L.push('⏱ PayDay приходит на ' + DN.pdOffs.slice(-3).join(', ') + ' мс от :00 по часам телефона (поправка старта ' + dnClockAdj() + ' мс)');
     }
     L.push('После рестарта: ' + dnRModeText(DN.rmode));
     if (DN.on) L.push('Точка возврата: ' + (DN.pt ? '<code>' + dnEsc(dnPtText()) + '</code>' : '⚠️ не запомнена'));
@@ -1131,6 +1385,7 @@ function dnMenuMarkup() {
     return { inline_keyboard: [
         [createButton('🟢 ВКЛ' + (DN.on ? ' ✓' : ''), 'dn_on_' + uid, 'success'), createButton('⏹️ ВЫКЛ' + (!DN.on ? ' ✓' : ''), 'dn_off_' + uid, 'danger')],
         [createButton('⚡ Тип: ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное'), 'dn_speed_' + uid)],
+        [createButton('🧪 Проверка переодевания', 'dn_chk_' + uid)],
         [createButton('🔁 После рестарта: ' + (DN.rmode === 'auth' ? '🔐 авторизация' : '📍 вернуться'), 'dn_mode_' + uid)]
     ].concat(DN.rs && DN.rs.step === 'paused' ? [[createButton('📍 Вернуться на место и продолжить', 'dn_back_' + uid, 'success')]] : [], [
         [createButton('🔄 Обновить', 'dn_ref_' + uid)],
@@ -1158,7 +1413,7 @@ function dnShowChoice(chatId, messageId) {
 function dnShowMenu(chatId, messageId) { editMessageText(chatId, messageId, dnStatusHtml(), dnMenuMarkup()); }
 
 // ── кнопка в меню «Функции» (как у Code2: вставка строки перед «Вернуться назад») ──
-var DN_ACT = ['dn_menu_', 'dn_on_', 'dn_off_', 'dn_ref_', 'dn_goauth_', 'dn_goret_', 'dn_mode_', 'dn_back_', 'dn_speed_', 'dn_spdc_'];
+var DN_ACT = ['dn_menu_', 'dn_on_', 'dn_off_', 'dn_ref_', 'dn_goauth_', 'dn_goret_', 'dn_mode_', 'dn_back_', 'dn_speed_', 'dn_spdc_', 'dn_chk_'];
 function dnActOf(d) { return DN_ACT.filter(function (p) { return typeof d === 'string' && d.indexOf(p) === 0; })[0] || null; }
 function dnMine(u) {
     var cq = u && u.callback_query;
@@ -1215,6 +1470,9 @@ try {
                             } else if (act === 'dn_back_') {
                                 var eb = dnRsBack();
                                 if (eb) dnTg('❌ <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\n' + dnEsc(eb), false);
+                            } else if (act === 'dn_chk_') {
+                                var ec = dnCheck('Telegram');
+                                if (ec) dnTg('❌ <b>Проверка (' + dnEsc(dnName()) + ')</b>\n' + dnEsc(ec), false);
                             } else if (act === 'dn_speed_') {
                                 dnSpeedFlip();
                             } else if (act === 'dn_spdc_') {
@@ -1280,6 +1538,7 @@ function dnCmd(args) {
         if (!sv) { info('Тип сейчас: ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное') + '. Сменить: /dressnight speed fast | normal'); return; }
         DN.speed = sv; window.__dnSpeed = sv; info('Тип переодевания: ' + (sv === 'fast' ? 'моментальное' : 'обычное') + (DN.on ? ' (со следующего круга)' : '')); return;
     }
+    if (a === 'check' || a === 'test' || a === 'проверка') { var ec2 = dnCheck('чат'); if (ec2) fail('Проверка: ' + ec2); else info('Проверка переодевания запущена — результат в Telegram и в журнале'); return; }
     if (a === 'back' || a === 'назад' || a === 'вернуться') { var eb2 = dnRsBack(); if (eb2) fail('Переодевание ночь: ' + eb2); else info('Переодевание ночь: возвращаюсь на место'); return; }
     if (a === 'off' || a === 'выкл' || a === 'stop') { if (DN.on) { dnStop('выключено командой'); info('Переодевание ночь: выключено'); } else info('Переодевание ночь: и так выключено'); return; }
     info('Переодевание ночь: ' + (DN.on ? (DN.rs ? 'рестарт — ' + dnRsText() : dnPhaseText() + (DN.phase === 'wait59' ? ', надеть в ' + dnClockAuto(DN.nextAt) : '')) + ', кругов ' + DN.cycles : 'выключено') + '; тип: ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное') + '; после рестарта: ' + (DN.rmode === 'auth' ? 'авторизация' : 'вернуться'));
@@ -1305,9 +1564,9 @@ onUndo(function () {
     try { if (sendChatInput === myChat) sendChatInput = origChatVar || origChatWin; } catch (e) {}
 });
 
-window.Dress = { run: function (n, under, sec, use, fb, cb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, cb); }, busy: function () { return !!S; }, night: function (on, rmode, speed) { if (on) return dnStart('api', rmode, dnParseSpeed(speed)); dnStop('api'); return ''; }, nightSpeed: function (m) { m = dnParseSpeed(m); if (m) { DN.speed = m; window.__dnSpeed = m; } return DN.speed; }, nightStatus: dnStatusHtml, nightMode: function (m) { m = dnParseMode(m); if (m) { DN.rmode = m; window.__dnRMode = m; } return DN.rmode; }, nightBack: dnRsBack, nightOn: function () { return !!DN.on; }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
+window.Dress = { run: function (n, under, sec, use, fb, cb) { startSession(n || 0, !!under, sec || 0, !!use, !!fb, cb); }, busy: function () { return !!S; }, night: function (on, rmode, speed) { if (on) return dnStart('api', rmode, dnParseSpeed(speed)); dnStop('api'); return ''; }, nightSpeed: function (m) { m = dnParseSpeed(m); if (m) { DN.speed = m; window.__dnSpeed = m; } return DN.speed; }, nightStatus: dnStatusHtml, nightMode: function (m) { m = dnParseMode(m); if (m) { DN.rmode = m; window.__dnRMode = m; } return DN.rmode; }, nightBack: dnRsBack, nightCheck: dnCheck, nightOn: function () { return !!DN.on; }, stop: function () { if (S) endSession('прервано', true); }, status: statusText };
 onUndo(function () { try { delete window.Dress; } catch (e) { window.Dress = undefined; } });
 
-log('Dress.js v3.2 загружен (в ночном режиме строй на рации игнорируется; в Telegram — сколько заняло надевание/снятие): /dressnight on [auth|return] [fast|normal]|off|status|mode|speed|back (цикл «Переодевание ночь», кнопка в Telegram → Функции; после рестарта — авторизация или вход и возврат на место), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
+log('Dress.js v3.3 загружен (заряд: «Да» одним пакетом; /dressnight check — проверка «второй раз сработает») (в ночном режиме строй на рации игнорируется; в Telegram — сколько заняло надевание/снятие): /dressnight on [auth|return] [fast|normal]|off|status|mode|speed|back (цикл «Переодевание ночь», кнопка в Telegram → Функции; после рестарта — авторизация или вход и возврат на место), /dressu [N] (вход без движения; не сработал — ошибка, телепорт выключен: TP_FALLBACK), /dress [N] [use|tp], /dress [N] under [предел-сек], /dress stop, /dress status, /dress log (use — вход в пикап без движения, нужен мод /tpl с командой «use»; under — с командой «up»; журнал — мод /jlog)');
 
 })(); } catch (e) { try { console.error('[DRESS] ошибка загрузки Dress.js:', e); } catch (e2) {} }
