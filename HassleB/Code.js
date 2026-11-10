@@ -551,6 +551,7 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
     const REC_INFLIGHT_EXTRA_MS = 20000; // запас сверх задержки аргумента /rec: подключение + вход (максимум, потом блокировка снимается сама)
     const REC_DISC_GRACE_MS     = 2000;  // запас на «хвост» сообщений о разрыве после окончания задержки
     const REC_DEFER_MS          = 150;   // задержка перед реальным вызовом (мс)
+    const REC_OFF_GRACE_MS      = 8000;  // «/rec off»: сколько после него глушим «Вы были отключены / Потеряно соединение» (дальше — по окну, см. stroiGoOffline)
 
     // Мод Hassle (libHassleExtended.so): /rec <секунды 5-600> → NetworkClient.OnApplicationQuit (рвёт связь СРАЗУ) →
     // Game.Reset → NetworkClient.DelayedConnect (подключается заново через <секунды>). Без числа 5..600 мод только пишет подсказку.
@@ -566,9 +567,31 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
         _recInFlight = false;
         if (_recWatch) { clearInterval(_recWatch); _recWatch = null; }
     }
+    // Сбрасываем HP-стейт — следующий тик после спавна только запишет baseline; отменяем отложенный таймер урона
+    function _recResetHp() {
+        if (typeof globalState === 'undefined') return;
+        globalState.hpLastValue    = null;
+        globalState._hpGraceUntil  = null;
+        globalState._hpGraceActive = false;
+        if (globalState._dmgTimer) { clearTimeout(globalState._dmgTimer); globalState._dmgTimer = null; }
+        globalState._dmgAccum = null;
+    }
 
     window.sendChatInput = function(cmd) {
         if (__hassleStale()) return typeof _orig === 'function' ? _orig.apply(this, arguments) : undefined;
+        // «/rec off» (нативный мод hassle_rec.c): ТОЛЬКО отключиться от сервера и увести камеру, без переподключения.
+        // Автовход не трогаем. _recInFlight не ставим — «/rec 5», которым потом возвращаемся, не должен глушиться как «повторный».
+        if (typeof cmd === 'string' && /^\/rec\s+off\s*$/i.test(cmd.trim())) {
+            window.__lastRecAt = Date.now();
+            window.__recDisconnectUntil = Math.max(window.__recDisconnectUntil || 0, Date.now() + REC_DEFER_MS + REC_OFF_GRACE_MS);
+            _recResetHp();
+            const _selfOff = this, _argsOff = arguments;
+            setTimeout(function() {   // тот же отложенный вызов, что и у /rec N (см. ниже про дедлок)
+                try { if (typeof _orig === 'function') _orig.apply(_selfOff, _argsOff); }
+                catch (e) { debugLog('[REC] Ошибка при отправке /rec off: ' + e.message); }
+            }, REC_DEFER_MS);
+            return undefined;
+        }
         const recMatch = typeof cmd === 'string' ? cmd.trim().match(/^\/rec(?:\s+(\d{1,3}))?\s*$/i) : null;
         const recSec = recMatch && recMatch[1] ? parseInt(recMatch[1], 10) : NaN;
 
@@ -2927,7 +2950,7 @@ function _dbg3InstallSubs() {
 (function() {
     const _prev = window.sendChatInput;
     window.sendChatInput = function(cmd) {
-        if (typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim()) && _debugStatTimer && !__hassleStale()) {
+        if (typeof cmd === 'string' && /^\/rec\b(?!\s+off\b)/i.test(cmd.trim()) && _debugStatTimer && !__hassleStale()) {
             const pos = getPlayerPositionFromStore();
             const hp  = getPlayerHpFromStore();
             _dbg3Rec = {
@@ -6913,6 +6936,15 @@ function getTimeUntilPayDay() {
     return secondsUntilPayDay * 1000;
 }
 
+// На строе: отключаемся «/rec off» (нативный мод: камера в воздух + разрыв соединения, переподключения нет), автовход не трогаем.
+// holdMs — на сколько мы заведомо оффлайн: пока окно не кончилось, «Вы были отключены / Потеряно соединение» не считаются событием
+// (Code.js → __recOwnDisconnect, Dress.js → подтверждение обрыва). Вернуться — обычным «/rec 5».
+const STROI_FAR_RETURN_MS = 5 * 60 * 1000;   // до PayDay далеко: через сколько возвращаемся
+function stroiGoOffline(holdMs) {
+    window.__recDisconnectUntil = Math.max(window.__recDisconnectUntil || 0, Date.now() + (holdMs || 0) + 5000);
+    sendChatInput("/rec off");
+}
+
 // Улучшенная функция реконнекта при строе
 function performStroiReconnect(msg) {
     const now = new Date();
@@ -6942,26 +6974,25 @@ function performStroiReconnect(msg) {
             debugLog('Автоматический сброс флага PayDay по таймауту');
         }, timeToPayDay + 2 * 60 * 1000);
 
-        // ШАГ 1: Немедленно отключаемся
-        autoLoginConfig.enabled = false;
-        sendChatInput("/rec 5");
+        const timeToReconnect = Math.max(1000, timeToPayDay - 60 * 1000);
+
+        // ШАГ 1: Немедленно отключаемся от сервера (/rec off: камера в воздух + разрыв, без переподключения). Автовход НЕ трогаем.
+        stroiGoOffline(timeToReconnect);
 
         sendToTelegram(
             `📢 <b>Строй обнаружен (${displayName})</b>\n` +
-            `⏰ До PayDay: ${minutesLeft} мин — ждём на авторизации\n` +
-            `🔑 Переподключимся за 60 сек до PayDay` +
+            `⏰ До PayDay: ${minutesLeft} мин — отключились от сервера (/rec off)\n` +
+            `🔑 Переподключимся (/rec 5) за 60 сек до PayDay` +
             msgHtml,
             false, null
         );
 
-        // ШАГ 2: За 60 секунд до PayDay — включаем автовход и /rec 5
-        const timeToReconnect = Math.max(1000, timeToPayDay - 60 * 1000);
-
+        // ШАГ 2: За 60 секунд до PayDay — просто /rec 5 (автовход всё это время не менялся)
         stroiAutoLoginTimer = setTimeout(() => {
-            autoLoginConfig.enabled = true;
+            stroiAutoLoginTimer = null;
             sendChatInput("/rec 5");
             sendToTelegram(
-                `🔄 <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
+                `🔄 <b>Отправлен /rec 5 (${displayName})</b>\n` +
                 `💰 PayDay через ~60 сек — входим в игру`,
                 false, null
             );
@@ -6970,7 +7001,7 @@ function performStroiReconnect(msg) {
     } else {
         // До PayDay далеко — стандартный реконнект
         const actionText = config.autoReconnectEnabled
-            ? `🔄 /rec 5 отправлен — вернёмся через 5 мин`
+            ? `🔌 /rec off — отключились от сервера, вернёмся через 5 мин (/rec 5)`
             : `🚪 /q отправлен`;
 
         sendToTelegram(
@@ -6982,7 +7013,17 @@ function performStroiReconnect(msg) {
         );
 
         setTimeout(() => {
-            performReconnect(5 * 60 * 1000, true); // silent — сообщение уже отправлено выше
+            if (config.autoReconnectEnabled) {
+                // /rec off сейчас, /rec 5 — через 5 мин; автовход не трогаем
+                stroiGoOffline(STROI_FAR_RETURN_MS);
+                if (stroiReconnectTimer) clearTimeout(stroiReconnectTimer);
+                stroiReconnectTimer = setTimeout(() => {
+                    stroiReconnectTimer = null;
+                    sendChatInput("/rec 5");
+                }, STROI_FAR_RETURN_MS);
+            } else {
+                performReconnect(STROI_FAR_RETURN_MS, true); // /q — как раньше
+            }
         }, 30);
     }
 }
@@ -6997,30 +7038,28 @@ function exitAfterStroiPayDay(source) {
     if (stroiKeepAliveTimer) { clearTimeout(stroiKeepAliveTimer); stroiKeepAliveTimer = null; }
     if (stroiAutoLoginTimer) { clearTimeout(stroiAutoLoginTimer); stroiAutoLoginTimer = null; }
 
-    // Немедленно выходим из игры
-    autoLoginConfig.enabled = false;
-    sendChatInput("/rec 5");
+    // Немедленно выходим из игры: /rec off (автовход не трогаем)
+    stroiGoOffline(2 * 60 * 1000);
 
     const exitMinutes = getCurrentMinutes();
     const exitSecs = new Date().getSeconds();
     sendToTelegram(
         `💰 <b>PayDay получен — выходим СРАЗУ! (${displayName})</b>\n` +
         `🕐 Время выхода: ${exitMinutes} мин ${exitSecs} сек\n` +
-        `🔄 Отключён автовход и отправлен /rec 5\n` +
-        `⏰ Вернёмся через 2 минуты`,
+        `🔌 Отправлен /rec off (отключились от сервера)\n` +
+        `⏰ Вернёмся через 2 минуты (/rec 5)`,
         false, null
     );
 
-    // Через 2 минуты включаем автовход и возвращаемся
+    // Через 2 минуты возвращаемся: просто /rec 5
     setTimeout(() => {
-        autoLoginConfig.enabled = true;
         sendChatInput("/rec 5");
 
         resetPayDayFlag(); // Сбрасываем флаг ожидания
 
         sendToTelegram(
             `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
-            `✅ Включён автовход и отправлен /rec 5\n` +
+            `✅ Отправлен /rec 5\n` +
             `📢 Готовы к новым строям`,
             false, null
         );
