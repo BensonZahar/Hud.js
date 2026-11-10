@@ -6014,6 +6014,8 @@ function processUpdates(updates) {
                 showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
             } else if (message.startsWith('prison_reconnect_')) {
                 callbackUniqueId = message.replace('prison_reconnect_', '');
+            } else if (message.startsWith('prison_off_')) {
+                callbackUniqueId = message.replace('prison_off_', '');
             } else if (message.startsWith('prison_quit_')) {
                 callbackUniqueId = message.replace('prison_quit_', '');
             } else if (message.startsWith('local_account_info_')) {
@@ -6502,12 +6504,17 @@ function processUpdates(updates) {
                 globalState.welcomeShowSettings = false;
                 sendWelcomeMessage(true);
             } else if (message.startsWith('prison_reconnect_')) {
-                // Кнопка "Выйти с автр." — включаем автовход и делаем /rec 5
-                autoLoginConfig.enabled = true;
-                debugLog(`[PRISON] "Выйти с автр." нажата — включаем автовход, отправляем /rec 5`);
-                sendToTelegram(`🔓 <b>Автовход включён (${displayName})</b>\nПодключаемся к серверу...`, false, null);
+                // Кнопка "Зайти" — /rec 5, автовход как был
+                debugLog(`[PRISON] "Зайти" нажата — отправляем /rec 5`);
+                sendToTelegram(HB_ON_TEXT(displayName), false, null);
                 deleteMessage(chatId, messageId);
-                sendChatInput("/rec 5");
+                hbComeBack();
+            } else if (message.startsWith('prison_off_')) {
+                // Кнопка "Отключиться" (после досрочного освобождения) — /rec off, автовход не трогаем
+                debugLog(`[PRISON] "Отключиться" нажата — отправляем /rec off`);
+                sendToTelegram(HB_OFF_TEXT(displayName), false, null);
+                deleteMessage(chatId, messageId);
+                hbGoOffline();
             } else if (message.startsWith('prison_quit_')) {
                 // Кнопка "Выйти с игры" — /q
                 debugLog(`[PRISON] "Выйти с игры" нажата — отправляем /q`);
@@ -7317,22 +7324,21 @@ function initializeChatMonitor() {
             globalState.prisonTimeRequested = false;
 
             if (RECONNECT_ENABLED_DEFAULT) {
-                // Отключаем автовход, делаем /rec 5, ждём команды из Telegram
-                autoLoginConfig.enabled = false;
-                debugLog(`[PRISON] Автовход отключён. Отправляем /rec 5 и ждём выбора из Telegram`);
+                // Просто отключаемся (/rec off: камера в воздух + разрыв, без переподключения), автовход не трогаем, ждём выбора из Telegram
+                debugLog(`[PRISON] Отключаемся (/rec off) и ждём выбора из Telegram`);
                 const prisonExitButtons = {
                     inline_keyboard: [[
-                        createButton('🔓 Выйти с автр.', `prison_reconnect_${uniqueId}`, 'success'),
+                        createButton('✅ Зайти', `prison_reconnect_${uniqueId}`, 'success'),
                         createButton('🚪 Выйти с игры', `prison_quit_${uniqueId}`, 'danger')
                     ]]
                 };
                 sendToTelegram(
                     `✅ <b>Срок отсижен! (${displayName})</b>\n` +
-                    `⏸ Автовход отключён — висим на авторизации.\n` +
+                    `🔌 Отключились от сервера (/rec off), автовход не менялся.\n` +
                     `Выберите действие:`,
                     false, prisonExitButtons
                 );
-                sendChatInput("/rec 5");
+                hbGoOffline();
             } else {
                 sendToTelegram(`✅ <b>Срок отсижен! Выходим из игры (${displayName})</b>`, false, null);
                 sendChatInput("/q");
@@ -7358,7 +7364,7 @@ function initializeChatMonitor() {
                     `🔓 <b>Вас выпустили из тюрьмы! (${displayName})</b>\n${unjailWho}\n<code>${_unjPlain.replace(/</g, '&lt;')}</code>`,
                     false,
                     { inline_keyboard: [[
-                        createButton('🔓 Выйти с автр.', `prison_reconnect_${uniqueId}`, 'success'),
+                        createButton('🔌 Отключиться', `prison_off_${uniqueId}`, 'danger'),
                         createButton('🚪 Выйти с игры', `prison_quit_${uniqueId}`, 'danger')
                     ]] }
                 );
