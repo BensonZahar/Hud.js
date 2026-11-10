@@ -27,12 +27,13 @@
 //   (7) Между двумя входами в пикап — пауза ≥450 мс (USE_GAP_MS): сервер молча игнорирует вход чаще раза в 300 мс и пока не отработал TIMER_250_MS (иначе «снять» сразу после «надеть» мог не открыть диалог).
 // Версия 3.2: тип переодевания в «Переодевание ночь» — «обычное» (как раньше: надеть в :59:35–:59:45, снять через 0,3–1,2 с после PayDay) или «моментальное» (надеть впритык к :00 — старт = замеренное время надевания + запас DN_FAST_MARGIN_MS, точным таймером, а не раз в секунду; снять сразу по строке PayDay, без паузы). Выбор: кнопка «⚡ Тип» в меню Telegram и на экране ВКЛ, /dressnight on [auth|return] [fast|normal], /dressnight speed fast|normal.
 // Версия 3.1: в Telegram после каждого переодевания в ночном режиме — сколько заняло /dressu (надевание в :59 и снятие после PayDay): длительность, время старта и конца с десятыми секунды (МСК), отступ от :00, а при снятии — сколько прошло от строки PayDay.
+// Версия 3.3: режим «auth» заменён на «off» — после рестарта просто отключаемся («/rec off»: камера в воздух + разрыв, без переподключения), автовход НЕ трогаем и на окно авторизации не идём. Вернуться — «/rec 5» (кнопка «🔌 Зайти» в Telegram или руками): после входа цикл на паузе, кнопка «Вернуться на место и продолжить». Слова auth/авт/login принимаются как раньше (= off).
 // Версия 3.0: пока «Переодевание ночь» включено, строй/сбор/готовность/конф на рации игнорируется полностью (DN_IGNORE_STROY): без реконнекта, без сообщений в Telegram, без озвучки Ozv.js. Code.js не менялся — всё делает хук чата и подмена performStroiReconnect/exitAfterStroiPayDay на время ночного режима.
 // Версия 2.9: «Переодевание ночь» — выбор, что делать после РЕСТАРТА сервера (сообщение «Сервер возобновит работу в течении минуты» или обрыв связи без нашего /rec):
 //   🔐 «auth»   — автовход выключаем, /rec 5: висим на окне авторизации. Зашли (руками или кнопкой «Выйти с автр.») — цикл на паузе, кнопка «Вернуться на место и продолжить»;
 //   📍 «return» — автовход включён, /rec 90: выходим сразу и заходим заново, когда сервер уже поднялся; на серверный диалог «Восстановление позиции» отвечаем «Да»;
 //                 после входа /tpl go dressnight (место и интерьер запоминаются при нажатии «ВКЛ») и цикл продолжается с нужного места.
-//   Выбор — при нажатии «ВКЛ» в Telegram (или /dressnight on auth|return); сменить можно кнопкой «После рестарта» в меню или /dressnight mode auth|return. Нужен мод /tpl (save/go), APK пересобирать не надо.
+//   Выбор — при нажатии «ВКЛ» в Telegram (или /dressnight on off|return); сменить можно кнопкой «После рестарта» в меню или /dressnight mode off|return. Нужен мод /tpl (save/go), APK пересобирать не надо.
 // Версия 2.8: диагностика расстояния до пикапа точная — «слишком близко» теперь говорит, на сколько метров отойти (стойте на NEAR_MIN_M…FAR_MAX_M м, без телепортов), добавлено «слишком далеко» (сервер принимает вход только до ~5 м); при обеих причинах ночной режим не тратит повторные попытки.
 // Версия 2.7: исправлен баг «список пикапов не пришёл» через 2,5 с: мод отвечает синхронно, таймер списка заводился ПОСЛЕ уже прошедшего списка и убивал живую сессию — из-за него настоящая причина (диалог не открылся) терялась.
 // Версия 2.6: диагностика «слишком близко к пикапу» (сервер игнорирует повторный вход, пока вы ближе 1.5 м; работает на 1.5…4 м) — сообщение вместо молчаливой неудачи.
@@ -657,6 +658,7 @@ var RX_NOCOL  = /Коллизия/;
 // ── рестарт сервера ──
 var DN_POINT = 'dressnight';                // имя точки в «/tpl save»: место, где стоит NPC (файл HLOG/tpl_points.txt переживает перезапуск игры)
 var DN_REJOIN_S = 90;                       // режим «return»: «/rec N» — отключаемся сразу и подключаемся заново через N с (сервер обещает вернуться «в течение минуты»)
+var DN_OFF_HOLD_MS = 15 * 60 * 1000;           // режим «off»: столько Code.js не считает обрыв связи событием (мы отключились сами)
 var DN_REJOIN_RETRY_S = 60;                 // не зашли: раз в столько секунд повторяем «/rec 5» (пока он не «в полёте» — Code.js такой повтор глушит сам)
 var DN_REJOIN_GIVEUP_S = 900;               // через столько секунд без входа пишем в Telegram (но пытаться не бросаем)
 var DN_FALSE_ALARM_S = 150;                 // объявление было, а связь не пропала столько секунд — рестарта не было, цикл продолжаем
@@ -671,7 +673,7 @@ var DN_START_RX = /^(старт|после рестарта|вручную|ре�
 
 var DN = { on: false, phase: 'off', uniform: null, skinU: null, skinC: null, cycles: 0, paydays: 0, nextAt: 0, fbAt: 0, err: '', tries: 0,
            pdPending: false, tick: null, timers: [], chatOrig: null, chatWrap: null, since: 0, busyN: 0,
-           rmode: (window.__dnRMode === 'auth' ? 'auth' : 'return'), speed: (window.__dnSpeed === 'fast' ? 'fast' : 'normal'), onMs: (window.__dnOnMs || []), arm: null, chk: null, fireMs: (window.__dnFireMs || []), pdOffs: (window.__dnPdOffs || []), rs: null, pt: null, ptWait: false, downSince: 0, dlgOrig: null, dlgWrap: null, startReason: 'старт' };
+           rmode: ((window.__dnRMode === 'off' || window.__dnRMode === 'auth') ? 'off' : 'return'), speed: (window.__dnSpeed === 'fast' ? 'fast' : 'normal'), onMs: (window.__dnOnMs || []), arm: null, chk: null, fireMs: (window.__dnFireMs || []), pdOffs: (window.__dnPdOffs || []), rs: null, pt: null, ptWait: false, downSince: 0, dlgOrig: null, dlgWrap: null, startReason: 'старт' };
 
 function dnTg(html, silent) { try { if (typeof sendToTelegram === 'function') sendToTelegram(html, silent !== false, null); } catch (e) {} }
 function dnName() { try { return String(typeof displayName !== 'undefined' ? displayName : ''); } catch (e) { return ''; } }
@@ -809,7 +811,7 @@ function dnStart(src, rmode, speed) {
     var connected = true;
     try { connected = !!window.App.$store.getters['player/isPlayerConnected']; } catch (e) {}
     if (!connected) return 'персонаж не в игре';
-    if (rmode === 'auth' || rmode === 'return') { DN.rmode = rmode; window.__dnRMode = rmode; }
+    if (rmode === 'off' || rmode === 'return') { DN.rmode = rmode; window.__dnRMode = rmode; }
     PKC = null;                                                         // первый круг — всегда со свежим списком пикапов
     DN.on = true; DN.phase = 'nocol'; DN.uniform = true; DN.cycles = 0; DN.paydays = 0; DN.err = ''; DN.tries = 0;
     DN.pdPending = false; DN.nocolSeen = false; DN.nextAt = 0; DN.fbAt = 0; DN.since = Date.now(); DN.busyN = 0; DN.skinU = null; DN.skinC = null;
@@ -1133,16 +1135,16 @@ function dnOnPayday(src) {
 // ═════════════════════ рестарт сервера ═════════════════════
 // Что считаем рестартом: чат-сообщение «Сервер возобновит работу в течении минуты» (его же ждёт Code.js для AFK-ночи)
 // или обрыв связи без нашего /rec дольше DN_DROP_CONFIRM_MS. Что делаем — решает человек при включении (DN.rmode):
-//   'auth'   — автовход выключаем, «/rec 5» → висим на окне авторизации. Зашли — цикл на паузе, кнопка «Вернуться на место и продолжить».
+//   'off'    — просто отключаемся («/rec off»), автовход не трогаем. Вернуться — «/rec 5» (кнопка «🔌 Зайти» или руками); зашли — цикл на паузе, кнопка «Вернуться на место и продолжить».
 //   'return' — автовход включён, «/rec 90» → заходим заново, когда сервер поднялся. Сервер при входе в течение 5 минут после выхода спрашивает
 //              «Восстановление позиции» (new.pwn, DIALOG_RESTORE_POSITION) — отвечаем «Да» (вернёт на последнее место на улице), затем «/tpl go dressnight»
 //              (точка с интерьером, запомнена при ВКЛ) и цикл продолжается. Состояние «форма надета/снята» сверяем по скину.
 // Сам рестарт, вход и диалог идут без участия остального кода: пока DN.rs задан, цикл (:59 / PayDay / переодевание) стоит.
 function dnConnected() { try { return !!window.App.$store.getters['player/isPlayerConnected']; } catch (e) { return null; } }
-function dnRModeText(m) { return m === 'auth' ? '🔐 висим на авторизации (без автовхода)' : '📍 входим сами и возвращаемся на место'; }
+function dnRModeText(m) { return m === 'off' ? '🔌 просто отключаемся (/rec off)' : '📍 входим сами и возвращаемся на место'; }
 function dnParseMode(w) {
     w = String(w || '').toLowerCase();
-    if (/^(auth|авторизация|автор|авт|login|stay)$/.test(w)) return 'auth';
+    if (/^(off|auth|отключение|отключиться|откл|выход|авторизация|автор|авт|login|stay)$/.test(w)) return 'off';
     if (/^(return|ret|вернуться|возврат|вход|войти|зайти|tp)$/.test(w)) return 'return';
     return '';
 }
@@ -1167,6 +1169,13 @@ function dnAlRestore() {
     if (!R || R.alWas === undefined) return;
     var was = R.alWas; R.alWas = undefined;
     try { if (typeof autoLoginConfig !== 'undefined' && !!autoLoginConfig.enabled !== was) autoLoginConfig.enabled = was; } catch (e) {}
+}
+function dnRsOffButtons() {
+    var uid = uniqueId;
+    return { inline_keyboard: [
+        [createButton('🔌 Зайти (/rec 5)', 'dn_rec_' + uid, 'success')],
+        [createButton('⏹️ Выключить', 'dn_off_' + uid, 'danger')]
+    ] };
 }
 function dnRsButtons() {
     var uid = uniqueId;
@@ -1244,15 +1253,14 @@ function dnOnRestart(src) {
     DN.timers.forEach(function (h) { clearTimeout(h); }); DN.timers = [];
     if (S) { try { endSession('рестарт сервера', false); } catch (e) {} }  // идущая сессия переодевания не нужна; колбэк цикла её итог не двигает (DN.rs задан)
     dnLog('РЕСТАРТ (' + src + '), были в фазе «' + wasPhase + '», режим: ' + R.mode);
-    if (R.mode === 'auth') dnRsAuth(); else dnRsReturn();
+    if (R.mode === 'off') dnRsOff(); else dnRsReturn();
 }
-function dnRsAuth() {
-    var R = DN.rs, ok = dnAl(false);
-    R.step = 'auth';
-    chatCmd('/rec 5');
-    dnTg('🔐 <b>Рестарт сервера — висим на авторизации (' + dnEsc(dnName()) + ')</b>\nПричина: ' + dnEsc(R.src) + '\n' +
-        (ok ? 'Автовход выключен, отправлен /rec 5.' : '⚠️ autoLoginConfig не найден — автовход НЕ выключен, возможно зайдём сами.') +
-        '\nЗайти: вручную или кнопкой «✅ Выйти с автр.». После входа цикл встанет на паузу — вернуться на место можно кнопкой.', false);
+function dnRsOff() {
+    var R = DN.rs;
+    R.step = 'off';
+    window.__recDisconnectUntil = Math.max(window.__recDisconnectUntil || 0, Date.now() + DN_OFF_HOLD_MS);   // Code.js: обрыв связи — наш, не реагируем
+    chatCmd('/rec off');                                                                                  // автовход не трогаем (dnAl не зовём)
+    dnTgBtn('🔌 <b>Рестарт сервера — отключились (' + dnEsc(dnName()) + ')</b>\nПричина: ' + dnEsc(R.src) + '\nОтправлен /rec off: камера в воздухе, соединение разорвано, автовход не менялся.\nЗайти: кнопкой «🔌 Зайти» (/rec 5) или руками. После входа цикл встанет на паузу — вернуться на место можно кнопкой.', dnRsOffButtons(), false);
 }
 function dnRsReturn() {
     var R = DN.rs, ok = dnAl(true), viaMsg = R.src === 'сообщение сервера';
@@ -1268,7 +1276,7 @@ function dnRsTick(now, c) {
     var R = DN.rs;
     if (!R) return;
     if (c === false) R.sawDown = true;
-    if ((R.step === 'wait' || R.step === 'auth') && c === true && R.sawDown) { dnRsSpawned(); return; }
+    if ((R.step === 'wait' || R.step === 'off') && c === true && R.sawDown) { dnRsSpawned(); return; }
     if (R.step !== 'wait') return;
     if (!R.sawDown && now - R.t0 > DN_FALSE_ALARM_S * 1000) { dnRsResume('рестарта не было', '⚠️ Объявление было, а связь не пропала за ' + DN_FALSE_ALARM_S + ' с — считаю, что рестарта не было.'); return; }
     if (c === false && now >= R.rejoinAt + 40000 && now - R.lastRetry >= DN_REJOIN_RETRY_S * 1000) {
@@ -1282,8 +1290,7 @@ function dnRsTick(now, c) {
 function dnRsSpawned() {
     var R = DN.rs, took = Math.round((Date.now() - R.t0) / 1000);
     dnLog('в игре после рестарта, прошло ' + took + ' с' + (R.restored ? ', позиция восстановлена сервером' : ''));
-    if (R.step === 'auth') {
-        dnAlRestore();
+    if (R.step === 'off') {
         R.step = 'paused';
         dnTgBtn('🎮 <b>Зашли в игру после рестарта (' + dnEsc(dnName()) + ')</b>\nЦикл «Переодевание ночь» на паузе. Вернуться на место (' + dnEsc(dnPtText()) + ') и продолжить?', dnRsButtons());
         return;
@@ -1352,7 +1359,7 @@ function dnRsText() {
     var R = DN.rs;
     if (!R) return '';
     var s = Math.round((Date.now() - R.t0) / 1000);
-    return ({ wait: 'ждём вход после рестарта', auth: 'висим на авторизации', tp: 'в игре — возвращаемся на точку', paused: 'пауза, ждём кнопку «Вернуться на место и продолжить»' })[R.step] + ' (' + s + ' с)';
+    return ({ wait: 'ждём вход после рестарта', off: 'отключились (/rec off), ждём вход', tp: 'в игре — возвращаемся на точку', paused: 'пауза, ждём кнопку «Вернуться на место и продолжить»' })[R.step] + ' (' + s + ' с)';
 }
 
 function dnPhaseText() {
@@ -1386,8 +1393,8 @@ function dnMenuMarkup() {
         [createButton('🟢 ВКЛ' + (DN.on ? ' ✓' : ''), 'dn_on_' + uid, 'success'), createButton('⏹️ ВЫКЛ' + (!DN.on ? ' ✓' : ''), 'dn_off_' + uid, 'danger')],
         [createButton('⚡ Тип: ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное'), 'dn_speed_' + uid)],
         [createButton('🧪 Проверка переодевания', 'dn_chk_' + uid)],
-        [createButton('🔁 После рестарта: ' + (DN.rmode === 'auth' ? '🔐 авторизация' : '📍 вернуться'), 'dn_mode_' + uid)]
-    ].concat(DN.rs && DN.rs.step === 'paused' ? [[createButton('📍 Вернуться на место и продолжить', 'dn_back_' + uid, 'success')]] : [], [
+        [createButton('🔁 После рестарта: ' + (DN.rmode === 'off' ? '🔌 отключиться' : '📍 вернуться'), 'dn_mode_' + uid)]
+    ].concat(DN.rs && DN.rs.step === 'paused' ? [[createButton('📍 Вернуться на место и продолжить', 'dn_back_' + uid, 'success')]] : [], DN.rs && DN.rs.step === 'off' ? [[createButton('🔌 Зайти (/rec 5)', 'dn_rec_' + uid, 'success')]] : [], [
         [createButton('🔄 Обновить', 'dn_ref_' + uid)],
         [createButton('⬅️ Вернуться назад', 'show_functions_' + uid)]
     ]) };
@@ -1400,20 +1407,20 @@ function dnShowChoice(chatId, messageId) {
         '🕐 <b>Обычное</b> — надеть в :59:' + DN_SEC_MIN + '–:59:' + DN_SEC_MAX + ', снять через ' + (DN_PD_DELAY_MIN / 1000) + '–' + (DN_PD_DELAY_MAX / 1000) + ' с после строки PayDay.\n' +
         '⚡ <b>Моментальное</b> — надеть впритык к :00 (старт за ~' + (dnFastLead() / 1000).toFixed(1) + ' с до :00, по замеру надевания + запас ' + (DN_FAST_MARGIN_MS / 1000) + ' с), снять сразу по строке PayDay.\n' +
         'Кнопка ниже переключает тип.\n\n<b>Что делаем после рестарта сервера?</b>\n\n' +
-        '🔐 <b>Висим на авторизации</b> — на рестарте выходим на окно входа, автовход выключен. Зайти можно самому или кнопкой «Выйти с автр.»; после входа цикл на паузе.\n\n' +
+        '🔌 <b>Просто отключаемся</b> — на рестарте шлём /rec off (камера в воздух + разрыв), автовход не трогаем. Зайти — кнопкой «Зайти» (/rec 5) или руками; после входа цикл на паузе.\n\n' +
         '📍 <b>Входим и возвращаемся</b> — заходим сами (автовход), отвечаем «Да» на «Восстановление позиции», телепортируемся туда, где стояли (/tpl go), цикл идёт дальше.\n\n' +
-        '<i>Место запоминается в момент нажатия — NPC уже должен стоять у раздевалки (до ~5 м от пикапа). Прошлый выбор: ' + (DN.rmode === 'auth' ? '🔐' : '📍') + '</i>',
+        '<i>Место запоминается в момент нажатия — NPC уже должен стоять у раздевалки (до ~5 м от пикапа). Прошлый выбор: ' + (DN.rmode === 'off' ? '🔌' : '📍') + '</i>',
         { inline_keyboard: [
             [createButton('⚡ Тип: ' + (DN.speed === 'fast' ? 'моментальное ✓ (нажать — обычное)' : 'обычное ✓ (нажать — моментальное)'), 'dn_spdc_' + uid)],
-            [createButton('🔐 Висеть на авторизации' + (DN.rmode === 'auth' ? ' ✓' : ''), 'dn_goauth_' + uid, 'danger')],
-            [createButton('📍 Войти и вернуться' + (DN.rmode !== 'auth' ? ' ✓' : ''), 'dn_goret_' + uid, 'success')],
+            [createButton('🔌 Просто отключиться' + (DN.rmode === 'off' ? ' ✓' : ''), 'dn_goauth_' + uid, 'danger')],
+            [createButton('📍 Войти и вернуться' + (DN.rmode !== 'off' ? ' ✓' : ''), 'dn_goret_' + uid, 'success')],
             [createButton('⬅️ Назад', 'dn_menu_' + uid)]
         ] });
 }
 function dnShowMenu(chatId, messageId) { editMessageText(chatId, messageId, dnStatusHtml(), dnMenuMarkup()); }
 
 // ── кнопка в меню «Функции» (как у Code2: вставка строки перед «Вернуться назад») ──
-var DN_ACT = ['dn_menu_', 'dn_on_', 'dn_off_', 'dn_ref_', 'dn_goauth_', 'dn_goret_', 'dn_mode_', 'dn_back_', 'dn_speed_', 'dn_spdc_', 'dn_chk_'];
+var DN_ACT = ['dn_menu_', 'dn_on_', 'dn_off_', 'dn_ref_', 'dn_goauth_', 'dn_goret_', 'dn_rec_', 'dn_mode_', 'dn_back_', 'dn_speed_', 'dn_spdc_', 'dn_chk_'];
 function dnActOf(d) { return DN_ACT.filter(function (p) { return typeof d === 'string' && d.indexOf(p) === 0; })[0] || null; }
 function dnMine(u) {
     var cq = u && u.callback_query;
@@ -1462,11 +1469,13 @@ try {
                             if (act === 'dn_on_') {
                                 if (!DN.on) { dnShowChoice(ch, mid); return; }                        // выбор «что после рестарта» — до запуска
                             } else if (act === 'dn_goauth_' || act === 'dn_goret_') {
-                                var er = DN.on ? '' : dnStart('Telegram', act === 'dn_goauth_' ? 'auth' : 'return');
+                                var er = DN.on ? '' : dnStart('Telegram', act === 'dn_goauth_' ? 'off' : 'return');
                                 if (er) dnTg('❌ <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\n' + dnEsc(er), false);
                             } else if (act === 'dn_mode_') {
-                                DN.rmode = DN.rmode === 'auth' ? 'return' : 'auth'; window.__dnRMode = DN.rmode;
+                                DN.rmode = DN.rmode === 'off' ? 'return' : 'off'; window.__dnRMode = DN.rmode;
                                 dnLog('после рестарта: ' + DN.rmode + (DN.on ? ' (на лету)' : ''));
+                            } else if (act === 'dn_rec_') {
+                                if (DN.rs && DN.rs.step === 'off') { dnLog('вход по кнопке: /rec 5'); chatCmd('/rec 5'); }
                             } else if (act === 'dn_back_') {
                                 var eb = dnRsBack();
                                 if (eb) dnTg('❌ <b>Переодевание ночь (' + dnEsc(dnName()) + ')</b>\n' + dnEsc(eb), false);
@@ -1524,14 +1533,14 @@ function dnCmd(args) {
         for (var ai = 1; ai < args.length; ai++) {
             var m1 = dnParseMode(args[ai]), s1 = dnParseSpeed(args[ai]);
             if (m1) rm = m1; else if (s1) sp = s1;
-            else { fail('не понял «' + args[ai] + '». После рестарта: auth (висим на авторизации) или return (входим и возвращаемся); тип: normal (обычное) или fast (моментальное)'); return; }
+            else { fail('не понял «' + args[ai] + '». После рестарта: off (просто отключаемся) или return (входим и возвращаемся); тип: normal (обычное) или fast (моментальное)'); return; }
         }
-        var er = dnStart('чат', rm, sp); if (er) fail('Переодевание ночь: ' + er); else info('Переодевание ночь: включено, тип — ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное') + ', после рестарта — ' + (DN.rmode === 'auth' ? 'авторизация' : 'вернуться на место')); return;
+        var er = dnStart('чат', rm, sp); if (er) fail('Переодевание ночь: ' + er); else info('Переодевание ночь: включено, тип — ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное') + ', после рестарта — ' + (DN.rmode === 'off' ? 'отключиться' : 'вернуться на место')); return;
     }
     if (a === 'mode' || a === 'режим' || a === 'рестарт') {
         var mm = dnParseMode(args[1]);
-        if (!mm) { info('После рестарта сейчас: ' + (DN.rmode === 'auth' ? 'висим на авторизации' : 'входим и возвращаемся') + '. Сменить: /dressnight mode auth | return'); return; }
-        DN.rmode = mm; window.__dnRMode = mm; info('После рестарта: ' + (mm === 'auth' ? 'висим на авторизации' : 'входим и возвращаемся')); return;
+        if (!mm) { info('После рестарта сейчас: ' + (DN.rmode === 'off' ? 'просто отключаемся (/rec off)' : 'входим и возвращаемся') + '. Сменить: /dressnight mode off | return'); return; }
+        DN.rmode = mm; window.__dnRMode = mm; info('После рестарта: ' + (mm === 'off' ? 'просто отключаемся (/rec off)' : 'входим и возвращаемся')); return;
     }
     if (a === 'speed' || a === 'тип' || a === 'скорость') {
         var sv = dnParseSpeed(args[1]);
@@ -1541,7 +1550,7 @@ function dnCmd(args) {
     if (a === 'check' || a === 'test' || a === 'проверка') { var ec2 = dnCheck('чат'); if (ec2) fail('Проверка: ' + ec2); else info('Проверка переодевания запущена — результат в Telegram и в журнале'); return; }
     if (a === 'back' || a === 'назад' || a === 'вернуться') { var eb2 = dnRsBack(); if (eb2) fail('Переодевание ночь: ' + eb2); else info('Переодевание ночь: возвращаюсь на место'); return; }
     if (a === 'off' || a === 'выкл' || a === 'stop') { if (DN.on) { dnStop('выключено командой'); info('Переодевание ночь: выключено'); } else info('Переодевание ночь: и так выключено'); return; }
-    info('Переодевание ночь: ' + (DN.on ? (DN.rs ? 'рестарт — ' + dnRsText() : dnPhaseText() + (DN.phase === 'wait59' ? ', надеть в ' + dnClockAuto(DN.nextAt) : '')) + ', кругов ' + DN.cycles : 'выключено') + '; тип: ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное') + '; после рестарта: ' + (DN.rmode === 'auth' ? 'авторизация' : 'вернуться'));
+    info('Переодевание ночь: ' + (DN.on ? (DN.rs ? 'рестарт — ' + dnRsText() : dnPhaseText() + (DN.phase === 'wait59' ? ', надеть в ' + dnClockAuto(DN.nextAt) : '')) + ', кругов ' + DN.cycles : 'выключено') + '; тип: ' + (DN.speed === 'fast' ? 'моментальное' : 'обычное') + '; после рестарта: ' + (DN.rmode === 'off' ? 'отключиться' : 'вернуться'));
 }
 
 var origChatWin = window.sendChatInputCustom;
