@@ -1329,11 +1329,10 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
             sendToTelegram(`${isOn ? '⏸️' : '▶️'} <b>Пауза ${isOn ? 'ВКЛ' : 'ВЫКЛ'} (${displayName})</b>`, true, null);
             break;
         case 'toggle_autologin':
-            // Глобальное переключение автовхода: 'on' = включить + /rec 5, 'off' = выключить + /rec 5
-            autoLoginConfig.enabled = isOn;
-            try { sendChatInput("/rec 5"); } catch(e) { debugLog('[GLOBAL] Ошибка /rec 5: ' + e.message); }
-            showScreenNotification("Hassle", `[Global] Автовход ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
-            sendToTelegram(`${isOn ? '✅' : '🚫'} <b>Автовход ${isOn ? 'ВКЛ' : 'ВЫКЛ'} (${displayName})</b>`, true, null);
+            // Глобальное переключение связи: 'on' = зайти (/rec 5), 'off' = отключиться (/rec off); автовход не трогаем
+            try { if (isOn) hbComeBack(); else hbGoOffline(); } catch(e) { debugLog('[GLOBAL] Ошибка /rec: ' + e.message); }
+            showScreenNotification("Hassle", `[Global] ${isOn ? 'Зашли (/rec 5)' : 'Отключились (/rec off)'}`);
+            sendToTelegram(`${isOn ? '✅' : '🔌'} <b>${isOn ? 'Заходим (/rec 5)' : 'Отключились (/rec off)'} (${displayName})</b>`, true, null);
             break;
         case 'toggle_otygrovka':
             // Глобальное переключение отыгровки: 'on' = включить, 'off' = выключить
@@ -4872,6 +4871,30 @@ function showControlsMenu(chatId, messageId) {
 }
 
 // ── Единое меню всех функций (заменяет showLocalFunctionsMenu + showGlobalFunctionsMenu) ──
+// ── Кнопка «Отключиться» / «Зайти» (раньше «Уйти на автр.» / «Выйти с автр.») ──────────────────────────
+// Раньше «Уйти на автр.» выключала автовход и слала /rec 5 — висели на окне авторизации. Теперь просто отключаемся:
+// «/rec off» (нативный мод hassle_rec.c: камера в воздух + разрыв связи, без переподключения), автовход НЕ трогаем.
+// «Зайти» — обычный «/rec 5» (автовход как был). Состояние «отключили кнопкой» = метка времени + реальная связь.
+function hbOfflineByButton() {
+    if (!window.__hbOffAt) return false;
+    if (Date.now() - window.__hbOffAt < 4000) return true;            // сразу после /rec off связь ещё «живая» (отложенный вызов)
+    let c = null;
+    try { c = !!window.App.$store.getters['player/isPlayerConnected']; } catch (e) {}
+    if (c === true) { window.__hbOffAt = 0; return false; }            // снова в игре — метку снимаем
+    return true;
+}
+function hbGoOffline() {
+    window.__hbOffAt = Date.now();
+    window.__recDisconnectUntil = Math.max(window.__recDisconnectUntil || 0, Date.now() + 15 * 60 * 1000);   // обрыв связи — наш, не реагируем
+    sendChatInput("/rec off");
+}
+function hbComeBack() {
+    window.__hbOffAt = 0;
+    sendChatInput("/rec 5");
+}
+const HB_OFF_TEXT = (name) => `🔌 <b>Отключились от сервера (${name})</b>\n/rec off: камера в воздухе, переподключения нет, автовход не менялся.\nЗайти — кнопка «✅ Зайти» (/rec 5).`;
+const HB_ON_TEXT  = (name) => `✅ <b>Заходим на сервер (${name})</b>\nОтправлен /rec 5, автовход как был.`;
+
 function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
     const uid = uniqueIdParam || uniqueId;
     if (!config.accountInfo.nickname) {
@@ -4879,12 +4902,12 @@ function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
         return;
     }
     const isPaused = !!window.getInterfaceStatus("PauseMenu");
-    const isAutoLoginDisabled = !autoLoginConfig.enabled;
+    const isAutoLoginDisabled = hbOfflineByButton();
     // Пауза: выйти с паузы = зелёный (success), уйти на паузу = красный (danger)
     const pauseLabel     = isPaused            ? "▶️ Выйти с паузы" : "⏸️ Уйти на паузу";
     const pauseStyle     = isPaused            ? 'success' : 'danger';
-    // Авторизация: выйти с автр. = зелёный (success), уйти на автр. = красный (danger)
-    const autoLoginLabel = isAutoLoginDisabled  ? "✅ Выйти с автр." : "🚫 Уйти на автр.";
+    // Связь: «Зайти» = зелёный (success), «Отключиться» (/rec off) = красный (danger)
+    const autoLoginLabel = isAutoLoginDisabled  ? "✅ Зайти" : "🔌 Отключиться";
     const autoLoginStyle = isAutoLoginDisabled  ? 'success' : 'danger';
     // КАЧ/ЗП: ВКЛ = зелёный, ВЫКЛ = красный
     const kacStyle       = config.kacAutoReply ? 'success' : 'danger';
@@ -5404,13 +5427,13 @@ function hideControlsMenu(chatId, messageId) {
 // Возвращает разметку кнопок для уведомлений (Ответить, Движения, Пауза, Авторизация)
 function getNotificationReplyMarkup() {
     const isPaused = !!window.getInterfaceStatus("PauseMenu");
-    const isAutoLoginDisabled = !autoLoginConfig.enabled;
+    const isAutoLoginDisabled = hbOfflineByButton();
     const pauseBtn = isPaused
         ? createButton("▶️ Выйти с паузы", `pause_exit_${uniqueId}`, 'success')
         : createButton("⏸️ Уйти на паузу", `pause_enter_${uniqueId}`, 'danger');
     const autoLoginBtn = isAutoLoginDisabled
-        ? createButton("✅ Выйти с автр.", `autologin_on_${uniqueId}`, 'success')
-        : createButton("🚫 Уйти на автр.", `autologin_off_${uniqueId}`, 'danger');
+        ? createButton("✅ Зайти", `autologin_on_${uniqueId}`, 'success')
+        : createButton("🔌 Отключиться", `autologin_off_${uniqueId}`, 'danger');
     return {
         inline_keyboard: [
             [
@@ -6066,19 +6089,18 @@ function processUpdates(updates) {
                     }
                     showFunctionsMenu(chatId, messageId, callbackUniqueId);
                 } else if (_funcKey === 'autologin') {
-                    if (autoLoginConfig.enabled) {
-                        autoLoginConfig.enabled = false;
-                        sendChatInput("/rec 5");
-                        sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                    // «Отключиться» (/rec off) ↔ «Зайти» (/rec 5); автовход не трогаем
+                    if (!hbOfflineByButton()) {
+                        hbGoOffline();
+                        sendToTelegram(HB_OFF_TEXT(displayName), false, null);
                         // Для всех аккаунтов — рассылаем broadcast
                         if (_scope === 'global') {
                             handleGlobalBroadcastCommand('toggle_autologin', 'off'); // применяем у себя (бот не получает свои собственные сообщения)
                             broadcastGlobalCommand('toggle_autologin', 'off');
                         }
                     } else {
-                        autoLoginConfig.enabled = true;
-                        sendChatInput("/rec 5");
-                        sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                        hbComeBack();
+                        sendToTelegram(HB_ON_TEXT(displayName), false, null);
                         // Для всех аккаунтов — рассылаем broadcast
                         if (_scope === 'global') {
                             handleGlobalBroadcastCommand('toggle_autologin', 'on'); // применяем у себя (бот не получает свои собственные сообщения)
@@ -6302,16 +6324,14 @@ function processUpdates(updates) {
                 }
                 editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
             } else if (message.startsWith("autologin_off_")) {
-                // Уйти на авторизацию (отключить автовход + /rec 5)
-                autoLoginConfig.enabled = false;
-                sendChatInput("/rec 5");
-                sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                // Отключиться от сервера (/rec off), автовход не трогаем
+                hbGoOffline();
+                sendToTelegram(HB_OFF_TEXT(displayName), false, null);
                 editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
             } else if (message.startsWith("autologin_on_")) {
-                // Вернуться с авторизации (включить автовход + /rec 5)
-                autoLoginConfig.enabled = true;
-                sendChatInput("/rec 5");
-                sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                // Зайти обратно (/rec 5), автовход как был
+                hbComeBack();
+                sendToTelegram(HB_ON_TEXT(displayName), false, null);
                 editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
             } else if (message.startsWith("show_local_soob_options_")) {
                 showLocalSoobOptionsMenu(chatId, messageId);
@@ -6388,15 +6408,13 @@ function processUpdates(updates) {
                 }
                 showFunctionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith("local_autologin_toggle_")) {
-                // legacy — переключение автовхода (теперь через func_action_autologin_)
-                if (autoLoginConfig.enabled) {
-                    autoLoginConfig.enabled = false;
-                    sendChatInput("/rec 5");
-                    sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                // legacy — переключение связи (теперь через func_action_autologin_): отключиться / зайти
+                if (!hbOfflineByButton()) {
+                    hbGoOffline();
+                    sendToTelegram(HB_OFF_TEXT(displayName), false, null);
                 } else {
-                    autoLoginConfig.enabled = true;
-                    sendChatInput("/rec 5");
-                    sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                    hbComeBack();
+                    sendToTelegram(HB_ON_TEXT(displayName), false, null);
                 }
                 showFunctionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith('show_notif_scope_select_')) {

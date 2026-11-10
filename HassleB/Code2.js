@@ -2436,10 +2436,10 @@ showFunctionsMenu = function (chatId, messageId, uniqueIdParam) {
         return;
     }
     const isPaused = !!window.getInterfaceStatus("PauseMenu");
-    const isAutoLoginDisabled = !autoLoginConfig.enabled;
+    const isAutoLoginDisabled = hbOfflineByButton();
     const pauseLabel     = isPaused ? "▶️ Выйти с паузы" : "⏸️ Уйти на паузу";
     const pauseStyle     = isPaused ? 'success' : 'danger';
-    const autoLoginLabel = isAutoLoginDisabled ? "✅ Выйти с автр." : "🚫 Уйти на автр.";
+    const autoLoginLabel = isAutoLoginDisabled ? "✅ Зайти" : "🔌 Отключиться";
     const autoLoginStyle = isAutoLoginDisabled ? 'success' : 'danger';
     const kacStyle       = config.kacAutoReply ? 'success' : 'danger';
     const afkActive      = !!(config.afkCycle && config.afkCycle.active);
