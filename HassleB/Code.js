@@ -1341,6 +1341,7 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
             if (!isOn) {
                 if (globalState.otygrovkaTrackInterval) { clearInterval(globalState.otygrovkaTrackInterval); globalState.otygrovkaTrackInterval = null; }
                 if (globalState.otygrovkaExitTimer)     { clearTimeout(globalState.otygrovkaExitTimer);      globalState.otygrovkaExitTimer = null; }
+                otygrovkaReturnIfOffline();   // были отключены в ожидании :59:20 — заходим обратно
             }
             showScreenNotification("Hassle", `[Global] Отыгровка ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
             sendToTelegram(`🎭 <b>Отыгровка 27 мин ${isOn ? 'ВКЛ' : 'ВЫКЛ'} (${displayName})</b>`, true, null);
@@ -4556,17 +4557,20 @@ function handleCycleEnd() {
     }
 }
 function handleNoneReconnectEnd() {
-    autoLoginConfig.enabled = false;
-    sendChatInput("/rec 5");
-    sendToTelegram(`🔄 <b>None: Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
     const timePassed = Date.now() - config.afkCycle.startTime;
     const timeToReconnect = 59 * 60 * 1000 - timePassed;
     if (timeToReconnect > 0) {
+        // просто отключаемся (/rec off), автовход не трогаем; зайдём по таймеру
+        hbGoOffline();
+        sendToTelegram(`🔌 <b>None: отключились (/rec off) (${displayName})</b>` + getAFKStatusText());
         setTimeout(() => {
-            autoLoginConfig.enabled = true;
-            sendChatInput("/rec 5");
-            sendToTelegram(`🔄 <b>None: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+            hbComeBack();
+            sendToTelegram(`🔄 <b>None: отправлен /rec 5 (${displayName})</b>`);
         }, timeToReconnect);
+    } else {
+        // ждать уже нечего — обычный реконнект
+        hbComeBack();
+        sendToTelegram(`🔄 <b>None: отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
     }
 }
 function startPausePhase() {
@@ -4741,8 +4745,8 @@ function startOtygrovkaTracking(initialMinutes) {
 }
 
 // ── Запланировать выход и реконнект ──────────────────────────────────────
-// ШАГ 1 (сейчас):    autoLogin ВЫКЛ + /rec 5 → висим на авторизации
-// ШАГ 2 (в :59:20):  autoLogin ВКЛ  + /rec 5 → заходим, ловим PayDay в :00
+// ШАГ 1 (сейчас):    /rec off → просто отключаемся (автовход не трогаем)
+// ШАГ 2 (в :59:20):  /rec 5   → заходим, ловим PayDay в :00
 function scheduleOtygrovkaExit() {
     if (globalState.otygrovkaExitTimer) return; // Уже запланирован
 
@@ -4750,9 +4754,9 @@ function scheduleOtygrovkaExit() {
     const min = now.getMinutes();
     const sec = now.getSeconds();
 
-    // ШАГ 1 — немедленно выходим на авторизацию
-    autoLoginConfig.enabled = false;
-    sendChatInput('/rec 5');
+    // ШАГ 1 — немедленно отключаемся (/rec off)
+    window.__otyOffline = true;
+    hbGoOffline();
 
     // Секунды до :59:20 текущего (или следующего) часа
     let secsUntilReconnect = (59 - min) * 60 + (20 - sec);
@@ -4766,13 +4770,13 @@ function scheduleOtygrovkaExit() {
     const reconnTime = new Date(Date.now() + secsUntilReconnect * 1000);
     const reconnStr  = `${String(reconnTime.getHours()).padStart(2,'0')}:59:20`;
 
-    debugLog(`[OTYGROVKA] 27 мин выполнено (${totalMin}:${String(totalSecR).padStart(2,'0')}). autoLogin ВЫКЛ, /rec 5. Реконнект в ${reconnStr} через ${secsUntilReconnect} сек`);
+    debugLog(`[OTYGROVKA] 27 мин выполнено (${totalMin}:${String(totalSecR).padStart(2,'0')}). /rec off. Реконнект в ${reconnStr} через ${secsUntilReconnect} сек`);
 
     sendToTelegram(
         `🎭 <b>Отыгровка 27 мин — ${displayName}</b>\n` +
         `✅ <b>${totalMin} мин ${totalSecR} сек отыграно!</b>\n` +
-        `🔴 Автовход ВЫКЛ — висим на авторизации\n` +
-        `⏰ Включим автовход и зайдём в <b>${reconnStr}</b>\n` +
+        `🔌 Отключились (/rec off)\n` +
+        `⏰ Зайдём (/rec 5) в <b>${reconnStr}</b>\n` +
         `🕐 Через ${Math.floor(secsUntilReconnect/60)} мин ${secsUntilReconnect%60} сек`,
         false, null
     );
@@ -4788,13 +4792,13 @@ function scheduleOtygrovkaExit() {
 function otygrovkaDoReconnect() {
     if (!globalState.otygrovkaAuto) return;
 
-    autoLoginConfig.enabled = true;
-    sendChatInput('/rec 5');
+    window.__otyOffline = false;
+    hbComeBack();
 
-    debugLog('[OTYGROVKA] :59:20 — autoLogin ВКЛ, /rec 5 — заходим для PayDay в :00');
+    debugLog('[OTYGROVKA] :59:20 — /rec 5 — заходим для PayDay в :00');
     sendToTelegram(
         `🎭 <b>Отыгровка — заходим для PayDay (${displayName})</b>\n` +
-        `🟢 Автовход ВКЛ + /rec 5\n` +
+        `🟢 /rec 5\n` +
         `💰 Ловим PayDay в :00 → новый цикл`,
         false, null
     );
@@ -4891,6 +4895,13 @@ function hbGoOffline() {
 function hbComeBack() {
     window.__hbOffAt = 0;
     sendChatInput("/rec 5");
+}
+// Отыгровка остановлена (кнопка / глобальная команда), пока мы отключены в ожидании :59:20 — таймер выхода сбрасывается, поэтому зайти нужно самим
+function otygrovkaReturnIfOffline() {
+    if (!window.__otyOffline) return false;
+    window.__otyOffline = false;
+    hbComeBack();
+    return true;
 }
 const HB_OFF_TEXT = (name) => `🔌 <b>Отключились от сервера (${name})</b>\n/rec off: камера в воздухе, переподключения нет, автовход не менялся.\nЗайти — кнопка «✅ Зайти» (/rec 5).`;
 const HB_ON_TEXT  = (name) => `✅ <b>Заходим на сервер (${name})</b>\nОтправлен /rec 5, автовход как был.`;
@@ -5373,11 +5384,11 @@ function showOtygrovkaMenu(chatId, messageId) {
     let statusText;
     if (isAuto) {
         if (globalState.otygrovkaExitTimer) {
-            // Фаза 2: висим на авторизации, ждём :59:20
+            // Фаза 2: отключены (/rec off), ждём :59:20
             statusText =
-                `\nСтатус: 🟡 <b>Ждём :59:20</b> — на авторизации` +
+                `\nСтатус: 🟡 <b>Ждём :59:20</b> — отключены (/rec off)` +
                 `\n📊 ${totalMin} мин ${totalSecR} сек отыграно ✅` +
-                `\n🔴 Автовход ВЫКЛ — зайдём в :59:20`;
+                `\n🔌 Зайдём (/rec 5) в :59:20`;
         } else if (globalState.otygrovkaTrackInterval) {
             // Фаза 1: трекинг идёт
             statusText =
@@ -6541,9 +6552,9 @@ function processUpdates(updates) {
                 globalState.otygrovkaMode = false;
                 window._awaitC60Dialog    = false;
                 stopOtygrovkaTracking();
-                // Восстанавливаем автовход если отыгровка его отключила
-                autoLoginConfig.enabled = true;
-                sendToTelegram(`⏹️ <b>Отыгровка остановлена (${displayName})</b>\n🟢 Автовход восстановлен`, false, null);
+                // Если отыгровка отключила нас в ожидании :59:20 — заходим обратно (/rec 5)
+                const _otyBack = otygrovkaReturnIfOffline();
+                sendToTelegram(`⏹️ <b>Отыгровка остановлена (${displayName})</b>` + (_otyBack ? '\n🟢 Заходим обратно (/rec 5)' : ''), false, null);
                 showOtygrovkaMenu(chatId, messageId);
             } else if (message.startsWith('local_account_info_')) {
                 // Одно объединённое сообщение — тот же формат что и в welcome-сообщении
@@ -7188,13 +7199,11 @@ function initializeChatMonitor() {
             if (config.afkCycle.reconnectEnabled) {
                 let restartMessage = `⚡ <b>Автоматически отправлено действие по рестарту (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
                 if (config.afkCycle.restartAction === 'rec') {
-                    autoLoginConfig.enabled = false;
-                    sendChatInput("/rec 5");
-                    restartMessage = `🔄 <b>Отключен автовход и отправлен /rec 5 (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+                    hbGoOffline();   // просто отключаемся (/rec off), автовход не трогаем
+                    restartMessage = `🔌 <b>Отключились (/rec off) (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу. Зайдём через 5 минут (/rec 5)`;
                     setTimeout(() => {
-                        autoLoginConfig.enabled = true;
-                        sendChatInput("/rec 5");
-                        sendToTelegram(`🔄 <b>Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+                        hbComeBack();
+                        sendToTelegram(`🔄 <b>Отправлен /rec 5 (${displayName})</b>`);
                     }, 5 * 60 * 1000);
                 } else {
                     sendChatInput("/q");
@@ -7714,13 +7723,11 @@ function initializeChatMonitor() {
 // START RECONNECT MODULE //
 function performReconnect(delay, silent = false) {
     if (config.autoReconnectEnabled) {
-        autoLoginConfig.enabled = false;
-        sendChatInput("/rec 5");
-        if (!silent) sendToTelegram(`🔄 <b>Отключен автовход и отправлен /rec 5 (${displayName})</b>`);
+        hbGoOffline();   // просто отключаемся (/rec off), автовход не трогаем; зайдём через delay
+        if (!silent) sendToTelegram(`🔌 <b>Отключились (/rec off), зайдём через ${Math.round(delay / 1000)} с (${displayName})</b>`);
         setTimeout(() => {
-            autoLoginConfig.enabled = true;
-            sendChatInput("/rec 5");
-            if (!silent) sendToTelegram(`🔄 <b>Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+            hbComeBack();
+            if (!silent) sendToTelegram(`🔄 <b>Отправлен /rec 5 (${displayName})</b>`);
         }, delay);
     } else {
         sendChatInput("/q");
