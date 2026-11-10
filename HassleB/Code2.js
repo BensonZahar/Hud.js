@@ -570,7 +570,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             /(аккаунт[^.]{0,80}(заблокирован|забанен)|(заблокирован|забанен)[^.]{0,80}аккаунт|ip[-\s]?адрес[^.]{0,40}заблокирован)/i.test(_dlgAllText) &&
             Date.now() - (window.__banNotifiedAt || 0) > 60000) {
             window.__banNotifiedAt = Date.now();
-            window.__afterAuthDialog = true; // следующее «Вы были отключены от сервера» — следствие бана, второе уведомление не нужно
+            window.__afterAuthDialog = true; window.__afterAuthDialogAt = Date.now(); // следующее «Вы были отключены от сервера» — следствие бана, второе уведомление не нужно
             debugLog('[DLG] Обнаружена блокировка аккаунта');
             // Текст диалога из new.pwn (LOGIN_STATE_CHECK_BAN): «Этот аккаунт заблокирован[ на N дней]», «Ник администратора: …», «Причина блокировки: …», «Дата и время: …»
             const _banPlain = String(contentText || info || '');
@@ -597,7 +597,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             );
         }
         if (_dlgAllText.includes('авторизац') || _dlgAllText.includes('отключены от сервера')) {
-            window.__afterAuthDialog = true;
+            window.__afterAuthDialog = true; window.__afterAuthDialogAt = Date.now();
             debugLog('[DLG] Диалог авторизации/отключения — флаг __afterAuthDialog установлен');
         }
 

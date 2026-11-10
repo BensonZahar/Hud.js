@@ -557,15 +557,51 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
     // Game.Reset → NetworkClient.DelayedConnect (подключается заново через <секунды>). Без числа 5..600 мод только пишет подсказку.
     // Пока идёт задержка, мы сами оффлайн, поэтому любые «Потеряно соединение / Вы были отключены» в этом окне — следствие нашего /rec.
     // Окно считается по времени (а не одноразовым флагом): если мод сообщений не прислал, флаг не «залипает» и не съедает настоящий разрыв позже.
-    window.__recDisconnectUntil = 0;
-    window.__recOwnDisconnect = function() { return Date.now() < (window.__recDisconnectUntil || 0); };
+    window.__recDisconnectUntil = window.__recDisconnectUntil || 0;   // не обнуляем при повторном eval: окно «мы сами оффлайн» не должно теряться
+    // Состояние нашего «/rec N». «Мы сами оффлайн» — пока реконнект НЕ завершён (клиент не вернулся в игру), а не только по таймеру:
+    // подключение + вход после задержки идут дольше, чем recSec+2с, и «хвост» самого реконнекта («Потеряно соединение»,
+    // «Вы были отключены») раньше прилетал уже после окна и уходил в Telegram как настоящий обрыв.
+    // Настоящий обрыв ПОСЛЕ завершённого реконнекта (вернулись в игру) по-прежнему сообщается.
+    const REC_UP_TAIL_MS = 3000;   // после подтверждённого возврата в игру: хвост старой сессии, пока стор ещё показывает «в игре»
+    let _recId = 0;
+    window.__recState = window.__recState || { id: 0, active: false, startedAt: 0, sec: 0, upAt: 0, suppressed: [] };
+    // note — подпись события: если передана и обрыв признан «нашим», событие пишется в журнал (Dress.js зовёт без аргумента, просто спрашивает)
+    window.__recOwnDisconnect = function(note) {
+        const now = Date.now();
+        const st = window.__recState || {};
+        let why = '';
+        if (now < (window.__recDisconnectUntil || 0)) why = 'окно по времени';
+        else if (st.active) why = 'реконнект ещё идёт';
+        else if (st.upAt && now - st.upAt < REC_UP_TAIL_MS && _recStoreConnected() === true) why = 'хвост после возврата в игру';
+        if (why && note) {
+            try {
+                (st.suppressed = st.suppressed || []).push({ t: now, note: String(note).slice(0, 60), why: why });
+                if (st.suppressed.length > 10) st.suppressed.shift();
+                debugLog('[REC] «' + note + '» подавлено (' + why + '), ' + Math.round((now - (window.__lastRecAt || now)) / 1000) + ' с после /rec');
+            } catch (e) {}
+        }
+        return !!why;
+    };
+    // « · N с после /rec» для настоящих уведомлений об обрыве: сразу видно, рядом ли он с реконнектом
+    window.__recAgoText = function() {
+        const a = window.__lastRecAt || 0;
+        if (!a) return '';
+        const sec = Math.round((Date.now() - a) / 1000);
+        return sec >= 0 && sec <= 120 ? ' · ' + sec + ' с после /rec' : '';
+    };
 
     function _recStoreConnected() {
         try { return !!window.App.$store.getters['player/isPlayerConnected']; } catch (e) { return null; }
     }
-    function _recRelease() {
+    // reason: 'up' — вернулись в игру (реконнект завершён), иначе — снято по таймауту (вернуться не удалось/не увидели)
+    function _recRelease(reason) {
         _recInFlight = false;
         if (_recWatch) { clearInterval(_recWatch); _recWatch = null; }
+        const st = window.__recState;
+        if (st && st.id === _recId) {   // только своя сессия (при нескольких слоях обёртки после повторных eval)
+            st.active = false;
+            if (reason === 'up') st.upAt = Date.now();
+        }
     }
     // Сбрасываем HP-стейт — следующий тик после спавна только запишет baseline; отменяем отложенный таймер урона
     function _recResetHp() {
@@ -610,6 +646,8 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
         window.__hbOffAt = 0; window.__hbOffSawDown = false;   // любой /rec N (кнопка, команда, Dress.js) = возвращаемся: метка «отключили кнопкой» снимается
         window.__lastRecAt = Date.now();   // для подавления «кика» сразу после нашего /rec
         window.__recDisconnectUntil = Date.now() + REC_DEFER_MS + recSec * 1000 + REC_DISC_GRACE_MS;
+        _recId = (window.__recSeq = (window.__recSeq || 0) + 1);
+        window.__recState = { id: _recId, active: true, startedAt: Date.now(), sec: recSec, upAt: 0, suppressed: [] };
 
         // Сбрасываем HP-стейт — следующий тик после спавна только запишет baseline
         if (typeof globalState !== 'undefined') {
@@ -644,7 +682,8 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
             _recWatch = setInterval(function() {
                 const c = _recStoreConnected();
                 if (c === false) _sawDown = true;
-                if ((_sawDown && c === true) || Date.now() > _until) _recRelease();
+                const _up = _sawDown && c === true;
+                if (_up || Date.now() > _until) _recRelease(_up ? 'up' : 'timeout');
             }, 1000);
         }, REC_DEFER_MS);
 
@@ -7589,8 +7628,8 @@ function initializeChatMonitor() {
         // Новые проверки сообщений в чате
         if (/Потеряно\s+соединение/i.test(msg)) { // клиент (index3.js, CONNECTION_LOST) ловит «Потеряно»
             debugLog('Обнаружено потеря соединения!');
-            if (!(window.__recOwnDisconnect && window.__recOwnDisconnect())) {
-                sendToTelegram(`❌ Потеряно соединение с сервером (${displayName})`, false, null);
+            if (!(window.__recOwnDisconnect && window.__recOwnDisconnect('Потеряно соединение'))) {
+                sendToTelegram(`❌ Потеряно соединение с сервером (${displayName})${window.__recAgoText ? window.__recAgoText() : ''}`, false, null);
             } else {
                 debugLog('Потеря соединения — следствие нашего /rec, уведомление подавлено');
             }
@@ -7633,6 +7672,7 @@ function initializeChatMonitor() {
         if (lowerCaseMessage.includes("подождите") && /[c\u0441]екунд/.test(lowerCaseMessage) && lowerCaseMessage.includes("входом на сервер")) {
             debugLog('Обнаружен rate-limit сервера (15 секунд)!');
             window.__afterRateLimit = true; // Флаг: следующий disconnect — следствие rate-limit, подавить его
+            window.__afterRateLimitAt = Date.now();
             const rateLimitMarkup = {
                 inline_keyboard: [
                     [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
@@ -7648,7 +7688,11 @@ function initializeChatMonitor() {
         // Вы были отключены от сервера (цвет BEBEBE)
         if (msg.includes("Вы были отключены от сервера")) {
             debugLog('Обнаружено отключение от сервера!');
-            if (!(window.__recOwnDisconnect && window.__recOwnDisconnect())) {
+            if (!(window.__recOwnDisconnect && window.__recOwnDisconnect('Вы были отключены'))) {
+                // Флаги «следствие rate-limit / диалога авторизации» живут 30 с: раньше, если само отключение съедало окно /rec,
+                // флаг оставался true и глотал СЛЕДУЮЩИЙ, настоящий обрыв
+                if (window.__afterRateLimit && Date.now() - (window.__afterRateLimitAt || 0) > 30000) window.__afterRateLimit = false;
+                if (window.__afterAuthDialog && Date.now() - (window.__afterAuthDialogAt || 0) > 30000) window.__afterAuthDialog = false;
                 if (window.__afterRateLimit) {
                     // Это отключение — прямое следствие rate-limit, уже уведомили выше
                     debugLog('Отключение после rate-limit — повторное уведомление подавлено');
@@ -7671,10 +7715,13 @@ function initializeChatMonitor() {
                     // Если в строке есть причина (например «…для освобождения резервного слота администрации.») — показываем её
                     const _discPlain = msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim();
                     const _discExtra = _discPlain.length > 40 ? `\n<code>${_discPlain.replace(/</g, '&lt;').slice(0, 300)}</code>` : '';
-                    sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>${_discExtra}`, false, disconnectMarkup);
+                    sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>${window.__recAgoText ? window.__recAgoText() : ''}${_discExtra}`, false, disconnectMarkup);
                 }
             } else {
                 debugLog('Отключение — следствие нашего /rec, уведомление подавлено');
+                // это отключение «съело» флаги rate-limit / диалога авторизации — снимаем, чтобы они не проглотили следующий настоящий обрыв
+                window.__afterRateLimit = false;
+                window.__afterAuthDialog = false;
             }
         }
         // Проверка неактивности — только по тексту (цвет может прийти как undefined у системных сообщений)
