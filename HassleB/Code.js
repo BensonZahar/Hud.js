@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗ'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: ПОКОЛЕНИЕ КОПИИ СКРИПТА (защита от дублей /reload)║
@@ -607,6 +607,7 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
         }
 
         _recInFlight = true;
+        window.__hbOffAt = 0; window.__hbOffSawDown = false;   // любой /rec N (кнопка, команда, Dress.js) = возвращаемся: метка «отключили кнопкой» снимается
         window.__lastRecAt = Date.now();   // для подавления «кика» сразу после нашего /rec
         window.__recDisconnectUntil = Date.now() + REC_DEFER_MS + recSec * 1000 + REC_DISC_GRACE_MS;
 
@@ -4881,19 +4882,30 @@ function showControlsMenu(chatId, messageId) {
 // «Зайти» — обычный «/rec 5» (автовход как был). Состояние «отключили кнопкой» = метка времени + реальная связь.
 function hbOfflineByButton() {
     if (!window.__hbOffAt) return false;
-    if (Date.now() - window.__hbOffAt < 4000) return true;            // сразу после /rec off связь ещё «живая» (отложенный вызов)
+    if (Date.now() - window.__hbOffAt > 6 * 60 * 60 * 1000) { window.__hbOffAt = 0; window.__hbOffSawDown = false; return false; }   // страховка от «залипшей» метки
+    // После /rec off флаг игры player/isPlayerConnected может остаться true (Game.Reset не вызывается) — по нему «вернулись» НЕ судим.
+    // Метку снимает только: наш «Зайти» / любой /rec N (см. обёртку sendChatInput) / настоящий перезаход (флаг ушёл в false и снова true).
     let c = null;
     try { c = !!window.App.$store.getters['player/isPlayerConnected']; } catch (e) {}
-    if (c === true) { window.__hbOffAt = 0; return false; }            // снова в игре — метку снимаем
+    if (c === false) window.__hbOffSawDown = true;
+    if (window.__hbOffSawDown && c === true) { window.__hbOffAt = 0; window.__hbOffSawDown = false; return false; }
     return true;
 }
 function hbGoOffline() {
     window.__hbOffAt = Date.now();
+    window.__hbOffSawDown = false;
     window.__recDisconnectUntil = Math.max(window.__recDisconnectUntil || 0, Date.now() + 15 * 60 * 1000);   // обрыв связи — наш, не реагируем
+    // лёгкий дозор: ловим перезаход (false → true), даже если никто не открывал меню
+    if (window.__hbOffTimer) clearInterval(window.__hbOffTimer);
+    window.__hbOffTimer = setInterval(function () {
+        if (!window.__hbOffAt) { clearInterval(window.__hbOffTimer); window.__hbOffTimer = null; return; }
+        hbOfflineByButton();
+    }, 2000);
     sendChatInput("/rec off");
 }
 function hbComeBack() {
     window.__hbOffAt = 0;
+    window.__hbOffSawDown = false;
     sendChatInput("/rec 5");
 }
 // Отыгровка остановлена (кнопка / глобальная команда), пока мы отключены в ожидании :59:20 — таймер выхода сбрасывается, поэтому зайти нужно самим
