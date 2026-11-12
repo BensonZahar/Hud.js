@@ -2455,6 +2455,7 @@ showFunctionsMenu = function (chatId, messageId, uniqueIdParam) {
             [createButton(`🏛 Увед. о собесе ${config.sobesNotifications ? '🟢' : '🔴'}`, `sobes_scope_${uid}`, sobesStyle)],
             [createButton("📝 Написать в чат", `request_chat_message_${uid}`)],
             [createButton(pauseLabel, `func_select_pause_${uid}`, pauseStyle), createButton(autoLoginLabel, `func_select_autologin_${uid}`, autoLoginStyle)],
+            [createButton(`🔑 Автовход ${autoLoginConfig.enabled ? '🟢' : '🔴'}`, `func_select_alogin_${uid}`, autoLoginConfig.enabled ? 'success' : 'danger')],
             [createButton("⬅️ Вернуться назад", `show_controls_${uid}`)]
         ]
     };
