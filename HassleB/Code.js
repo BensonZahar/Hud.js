@@ -1379,6 +1379,12 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
             showScreenNotification("Hassle", `[Global] ${isOn ? 'Зашли (/rec 5)' : 'Отключились (/rec off)'}`);
             sendToTelegram(`${isOn ? '✅' : '🔌'} <b>${isOn ? 'Заходим (/rec 5)' : 'Отключились (/rec off)'} (${displayName})</b>`, true, null);
             break;
+        case 'toggle_alogin':
+            // Глобальное переключение автовхода (ввод пароля): 'on' = включить, 'off' = выключить
+            try { setAutoLogin(isOn); } catch(e) { debugLog('[GLOBAL] Ошибка переключения автовхода: ' + e.message); }
+            showScreenNotification("Hassle", `[Global] Автовход ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            sendToTelegram(HB_AL_TEXT(displayName, isOn), true, null);
+            break;
         case 'toggle_otygrovka':
             // Глобальное переключение отыгровки: 'on' = включить, 'off' = выключить
             globalState.otygrovkaAuto = isOn;
@@ -4962,6 +4968,23 @@ function otygrovkaReturnIfOffline() {
 const HB_OFF_TEXT = (name) => `🔌 <b>Отключились от сервера (${name})</b>\n/rec off: камера в воздухе, переподключения нет, автовход не менялся.\nЗайти — кнопка «✅ Зайти» (/rec 5).`;
 const HB_ON_TEXT  = (name) => `✅ <b>Заходим на сервер (${name})</b>\nОтправлен /rec 5, автовход как был.`;
 
+// ── Кнопка «🔑 Автовход» ВКЛ/ВЫКЛ ────────────────────────────────────────────────────────────────
+// Переключает сам автовход (ввод пароля на окне авторизации), связь с сервером НЕ трогает.
+// ВЫКЛ: окно авторизации открывается как обычно и ждёт ручного ввода. Если окно уже было спрятано автовходом — показываем его.
+// ВКЛ: автовход снова вводит пароль (если окно входа уже открыто — сработает сразу, см. _alOnEnabled).
+function setAutoLogin(on) {
+    on = !!on;
+    autoLoginConfig.enabled = on;
+    if (!on) {
+        // автовход мог уже спрятать окно и ждать ответа — возвращаем окно, иначе его придётся ждать до REVEAL_MS
+        try { if (typeof _alIsHidden === 'function' && _alIsHidden()) { _AL.manualWindow = true; _alShowUI(); } } catch (e) {}
+    }
+    debugLog('[AUTOLOGIN] Автовход ' + (on ? 'ВКЛЮЧЁН' : 'ОТКЛЮЧЁН') + ' кнопкой');
+}
+const HB_AL_TEXT = (name, on) => on
+    ? `🔑 <b>Автовход ВКЛ (${name})</b>\nПароль на окне авторизации будет вводиться автоматически.`
+    : `🔑 <b>Автовход ВЫКЛ (${name})</b>\nОкно авторизации откроется как обычно — вход вручную. Включить обратно — кнопка «🔑 Автовход».`;
+
 function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
     const uid = uniqueIdParam || uniqueId;
     if (!config.accountInfo.nickname) {
@@ -4996,6 +5019,8 @@ function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
             [createButton("📝 Написать в чат",                                                `request_chat_message_${uid}`)],
             // Пауза и Авторизация — через скоуп-меню (для этого / для всех)
             [createButton(pauseLabel, `func_select_pause_${uid}`, pauseStyle), createButton(autoLoginLabel, `func_select_autologin_${uid}`, autoLoginStyle)],
+            // Автовход (сам вход по паролю) — отдельный переключатель: ВКЛ = зелёный, ВЫКЛ = красный
+            [createButton(`🔑 Автовход ${autoLoginConfig.enabled ? '🟢' : '🔴'}`, `func_select_alogin_${uid}`, autoLoginConfig.enabled ? 'success' : 'danger')],
             [createButton("⬅️ Вернуться назад", `show_controls_${uid}`)]
         ]
     };
@@ -5016,6 +5041,7 @@ function showFuncScopeMenu(chatId, messageId, funcKey, uniqueIdParam) {
         chat:      ['local'],
         pause:     ['local', 'global'],  // Пауза — и для этого, и для всех
         autologin: ['local', 'global'],  // Авторизация — и для этого, и для всех
+        alogin:    ['local', 'global'],  // Автовход ВКЛ/ВЫКЛ — и для этого, и для всех
     };
     const scopes = FUNC_SCOPES[funcKey];
     if (!scopes) return;
@@ -6176,6 +6202,14 @@ function processUpdates(updates) {
                             broadcastGlobalCommand('toggle_autologin', 'on');
                         }
                     }
+                    showFunctionsMenu(chatId, messageId, callbackUniqueId);
+                } else if (_funcKey === 'alogin') {
+                    // Кнопка «🔑 Автовход»: ВКЛ ↔ ВЫКЛ автоматического ввода пароля (autoLoginConfig.enabled)
+                    const _alNew = autoLoginConfig.enabled ? 'off' : 'on';
+                    setAutoLogin(_alNew === 'on');
+                    sendToTelegram(HB_AL_TEXT(displayName, _alNew === 'on'), false, null);
+                    // Для всех аккаунтов — рассылаем broadcast
+                    if (_scope === 'global') broadcastGlobalCommand('toggle_alogin', _alNew);   // себя уже переключили выше
                     showFunctionsMenu(chatId, messageId, callbackUniqueId);
                 }
             // ── Legacy редиректы (старые кнопки из истории чата) ──────────────────
