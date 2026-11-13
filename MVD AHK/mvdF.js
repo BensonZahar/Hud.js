@@ -2800,14 +2800,14 @@ window.sendChatInputCustom = e => {
             showMvdMainMenuPage(args[1]);
         };
 
-        // Если данные уже загружены — открываем меню МГНОВЕННО
-        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
-            openMenu();
-        } else if (typeof window._mvdLoadPlayerProfile === 'function') {
-            // Первый раз — загружаем профиль, потом открываем
-            window._mvdLoadPlayerProfile(openMenu);
-        } else {
-            openMenu();
+        // FIX: меню открываем ВСЕГДА мгновенно — списку диалога 677 профиль не нужен.
+        // Профиль (ник/звание) догружаем фоном, не чаще раза в 30 с, чтобы не долбить сервер при неудаче.
+        openMenu();
+        if (!window._mvdProfileChecked && !(window._mvdFirstName && window._mvdLastName && window._mvdRank)
+            && typeof window._mvdLoadPlayerProfile === 'function'
+            && Date.now() - (window.__mvdProfileTryAt || 0) > 30000) {
+            window.__mvdProfileTryAt = Date.now();
+            setTimeout(function() { window._mvdLoadPlayerProfile(); }, 300);
         }
     } else {
         snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
@@ -4374,12 +4374,12 @@ function silentReadProfile(cb) {
     });
     var wrapper = function(name) {
         var r = origInterface.apply(this, arguments);
-        if (!r && name === 'MainMenu' && !settled) return sink;
+        if (name === 'MainMenu' && !settled) return sink; // FIX: закрытый MainMenu тоже возвращает объект (!r было всегда false → ответ шёл мимо и ждали таймаут)
         return r;
     };
 
     window.interface = wrapper;
-    timer = setTimeout(function() { finish(null); }, 4000);
+    timer = setTimeout(function() { finish(null); }, 2000);
     try {
         // Сервер при совпадении вкладки возвращает false без данных —
         // поэтому сначала сброс «текущей вкладки», затем запрос Statistics.
