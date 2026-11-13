@@ -1,819 +1,654 @@
-// Load.js - Улучшенный загрузчик с поддержкой конфигураций
+// ═══════════════════════════════════════════════════════════════════════
+// ⚠️ ЧТО ЭТО ЗА ФАЙЛ
+// ═══════════════════════════════════════════════════════════════════════
+// LoadPravo.js — ЗАГРУЗЧИК ПОМОЩНИКА ДЛЯ ТЕСТИРОВАНИЯ ПРАВО И ФУНКЦИЙ
+// ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ. Версия: beta 1.0.
+//
+// Это НЕ обычный пользовательский скрипт/мод для рядовых игроков.
+// Файл встраивается установщиком AHK ПРАВО в Index.js игры. При запуске
+// он подтягивает основной скрипт pravo.js с GitHub, подставляет в него
+// настройки, выбранные в установщике (хоткеи, биндинги меню, таймеры
+// после отыгровок, авто-снаряжение и т.д.), и выполняет его.
+//
+// Этот код используется исключительно на закрытых тестовых серверах
+// для тестирования интерфейса ПРАВО (тюрьмы) и функций разработчиков
+// игры — на обычных (боевых) серверах игры этот функционал недоступен
+// и никак не влияет на игровой процесс других игроков. Это beta-версия
+// (1.0) — возможны баги и незавершённые функции.
+// ═══════════════════════════════════════════════════════════════════════
+
+(function() {
+// ═══════════ AHK DIAG — поиск причины вылета с ScriptLoader (extreme) ═══════════
+// Меняйте флаги по одному и проверяйте: открыть серверный диалог (например /c 60).
+//   muteConsole : true  → глушит ВСЕ console.* (в т.ч. из fkonst.js и pravo.js)  — тест №1
+//   skipFkonst  : true  → fkonst.js не грузится ([DLG]/[TS]/[GT] хуки на диалоги) — тест №2
+//   skipPravo   : true  → pravo.js не грузится (остаётся только LoadPravo)        — тест №3
+// Когда причина найдена — верните всё в false (или удалите этот блок).
+var AHK_DIAG = { muteConsole: true, skipFkonst: false, skipPravo: false };
+if (AHK_DIAG.muteConsole) {
+    ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir', 'table'].forEach(function(k) {
+        try { console[k] = function() {}; } catch (e) {}
+    });
+}
+// ═══════════ END AHK DIAG ═══════════
+// ── Универсальный матчер хоткеев (по физической клавише e.code, не зависит от раскладки) ──
+var _HK_ALIAS = {up:'arrowup',down:'arrowdown',left:'arrowleft',right:'arrowright',esc:'escape'};
+var _HK_PUNCT = {'-':'minus','=':'equal','[':'bracketleft',']':'bracketright',';':'semicolon',"'":'quote',',':'comma','.':'period','/':'slash','\\':'backslash','`':'backquote'};
+var _HK_BTN = {0:'mouseleft',1:'mousemiddle',2:'mouseright',3:'mouseback',4:'mouseforward'};
+var _hkCache = {};
+function _hkParse(combo) {
+    if (!combo) return null;
+    if (_hkCache[combo]) return _hkCache[combo];
+    var s = String(combo).trim(), parts = s.toLowerCase().split('+').map(function(x){ return x.trim(); }), main = '';
+    if (s.charAt(s.length - 1) === '+') { main = '+'; parts = parts.filter(Boolean); }
+    var h = { alt: parts.indexOf('alt') !== -1, ctrl: parts.indexOf('ctrl') !== -1, shift: parts.indexOf('shift') !== -1, main: main };
+    if (!h.main) { for (var i = 0; i < parts.length; i++) { if (parts[i] !== 'alt' && parts[i] !== 'ctrl' && parts[i] !== 'shift') { h.main = parts[i]; break; } } }
+    return (_hkCache[combo] = h);
+}
+function _hkMainMatch(e, m) {
+    var t = e.type;
+    if (t === 'wheel') return m === (e.deltaY < 0 ? 'wheelup' : 'wheeldown');
+    if (t === 'mousedown' || t === 'mouseup') return m === _HK_BTN[e.button];
+    var code = String(e.code || '').toLowerCase(), key = String(e.key || '').toLowerCase();
+    if (!code || code === 'unidentified') return key === m || key === (_HK_ALIAS[m] || m);
+    if (/^[a-z]$/.test(m))  return code === 'key' + m;
+    if (/^[0-9]$/.test(m))  return code === 'digit' + m;
+    if (m === 'enter')      return code === 'enter' || code === 'numpadenter';
+    if (_HK_ALIAS[m])       return code === _HK_ALIAS[m];
+    if (_HK_PUNCT[m])       return code === _HK_PUNCT[m];
+    return code === m || key === m;   // F1-F24, Numpad*, Space, Tab, Home, Minus, Comma ... (+ старые сохранённые значения)
+}
+function _hkMatch(e, combo) {
+    var h = _hkParse(combo);
+    if (!h || !h.main) return false;
+    if (h.alt !== !!e.altKey || h.ctrl !== !!e.ctrlKey || h.shift !== !!e.shiftKey) return false;
+    return _hkMainMatch(e, h.main);
+}
+// Печатаем в чате/поле ввода — «голые» клавиши не должны срабатывать как бинд
+function _hkTyping(e) {
+    var t = e.target; if (!t || !t.tagName) return false;
+    var editable = t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
+    return editable && !e.altKey && !e.ctrlKey;
+}
+function _matchesCombo(e, combo) { return _hkMatch(e, combo); }
+
+
+// ==================== СТАРТОВОЕ УВЕДОМЛЕНИЕ AHK ====================
+// Показывается при каждом запуске игры — даже если ник не в списке доступа.
+// Подтверждает игроку что AHK установлен и загружен.
+(function _showAhkLoaded() {
+    function _tryShow() {
+        try {
+            var gt = window.interface && window.interface('GameText');
+            if (gt && typeof gt.add === 'function') {
+                // Тип 3 = нижний GameText (как в /me, /do)
+                // ~n~ = перенос строки, ~g~ = зелёный цвет
+                gt.add('[3, "АНК <span style=\\"color:#CCFF00\\">ПРАВИТЕЛЬСТВО</span>&nbsp;by konstt~n~~g~Запущен", 5000, 0, 0, false, false, 2.0]');
+                console.log('[AHK] ✅ Стартовое уведомление показано');
+                return true;
+            }
+        } catch(e) {}
+        return false;
+    }
+
+    // Интерфейс GameText может ещё не быть готов — опрашиваем каждые 500 мс, до 30 сек
+    if (!_tryShow()) {
+        var _att = 0;
+        var _tmr = setInterval(function() {
+            _att++;
+            if (_tryShow() || _att >= 60) {
+                clearInterval(_tmr);
+            }
+        }, 500);
+    }
+})();
+// ==================== КОНЕЦ СТАРТОВОГО УВЕДОМЛЕНИЯ ====================
+
+const CALLSIGN = "";
+const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
+const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК (пусто = отключено)
+const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневная» которые скрыты: ["greeting","checkDocuments",...]
+const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
+const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
+const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с: ["greeting","fine","wantedFine",...]
+
+// ── Авто-снаряжение (авто при открытии службы) ─────────────────
+const AUTO_GRAB = false;              // Включить авто-снаряжение
+const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
+const AUTO_GRAB_THR_762    = 60;     // Добирать 7.62x39 если меньше N штук
+const AUTO_GRAB_THR_545    = 60;     // Добирать 5.45x39 если меньше N штук
+const AUTO_GRAB_MENU_MEDKIT      = -1; // Позиция Аптечки в меню (-1 = без изменений)
+const AUTO_GRAB_MENU_PAINKILLERS = -1; // Обезболивающее
+const AUTO_GRAB_MENU_BATON       = -1; // Дубинка
+const AUTO_GRAB_MENU_VEST        = -1; // Бронежилет
+const AUTO_GRAB_MENU_TASER       = -1; // Тазер
+const AUTO_GRAB_MENU_DEAGLE      = -1; // Desert Eagle
+const AUTO_GRAB_MENU_AKM         = -1; // АКМ
+const AUTO_GRAB_MENU_AKS74U      = -1; // АКС-74У
+const AUTO_GRAB_MENU_AMMO_MAGNUM = -1; // Патроны .44
+const AUTO_GRAB_MENU_AMMO_762    = -1; // Патроны 7.62
+const AUTO_GRAB_MENU_AMMO_545    = -1; // Патроны 5.45
+const AUTO_GRAB_MENU_SHIELD      = -1; // Щит
+const AUTO_GRAB_SKIP = []; // Предметы которые НЕ брать: ["medkit","painkiller","baton","vest","taser","deagle","magnum","akm","ammo762","aks74u","ammo545"]
+// ── END Авто-снаряжение ─────────────────────────────────────────
+
+// ── Авто-перевыдача лицензии (только для Лицензёра / Правительство) ────────
+const AUTO_REISSUE_LIC = false;  // Включить: установщик меняет на true
+const REISSUE_KEY = "Alt+R";    // Хоткей авто-перевыдачи: установщик заменяет значение
+// ── END Авто-перевыдача ──────────────────────────────────────────
+
+// ── Быстрая выдача лицензии (только для Лицензёра / Правительство) ──────────
+const GIVELIC_KEY = "";  // Хоткей прямого открытия диалога /givelic: установщик заменяет значение
+// ── END Быстрая выдача ───────────────────────────────────────────
+
+// ── Помощник лицензёра (флаг — патчится установщиком) ──────────
+const LICENSOR_HELPER_ENABLED = false;  // установщик меняет на true если помощник включён
+// ── END Помощник лицензёра ───────────────────────────────────────
+
+// Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
-const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
-const accountNumber = ''; // НОМЕР АККАУНТА — устанавливается установщиком автоматически
-const accountToken = '';  // ТОКЕН БОТА — берётся установщиком из локального хранилища на ПК (не хранится в List.js)
-const accountPassword = '';  // ОБЩИЙ ПАРОЛЬ автовхода — подставляет установщик из локального хранилища на ПК (не хранится в List.js)
-const nickPasswords = {};    // ПАРОЛИ ДЛЯ ОТДЕЛЬНЫХ НИКОВ {ник: пароль} — подставляет установщик; приоритетнее общего
+const folder = 'PRAVO AHK';
+const filename = 'pravo.js';
+const fkonstFilename = 'fkonst.js'; // общий хелпер: /are, /are_s, замена стиля одежды
+const fkonstFolder = 'MVD AHK';   // fkonst.js хранится в MVD AHK (общий для всех структур)
 
-// ============================================================
-// СНИМОК «ЧИСТЫХ» ФУНКЦИЙ ИГРЫ (делается один раз, до первого запуска скриптов).
-// Code.js / Code2.js оборачивают window.sendChatInput (4 слоя за одну загрузку), setPlayerSkinId, onUpdatePlayersList,
-// setCursorStatus и др. Раньше при каждом /reload поверх старых обёрток ложились новые: слои копились, и каждое сообщение
-// чата проходило через всё больше цепочек. Все эти функции игра определяет ОДИН раз в index.js (проверено по клиентским
-// файлам), поэтому перед перезагрузкой их безопасно вернуть к исходному виду — скрипты обернут их заново один раз.
-// Имя, которого в снимке нет (игра ещё не определила), не трогаем.
-// ============================================================
-const HASSLE_GAME_FNS = [
-    'sendChatInput', 'openInterface', 'closeInterface', 'interface', 'getInterfaceStatus',
-    'setCursorStatus', 'setDrawLabelStatus', 'setChatIsInactive', 'onChatMessageAction', 'hideKeyboard',
-    'addDialogInQueue', 'setPlayerSkinId', 'onUpdatePlayersList', 'onScreenControlTouchStart'
-];
-// Функции, которых в игре нет — их создают сами скрипты (цепочка «Custom» строится от прошлой копии)
-// (sendClientEventCustom не здесь: его возврат уже сделан отдельно выше вместе с глобальной sendClientEvent)
-const HASSLE_OWN_FNS = ['sendChatInputCustom'];
-(function hassleSnapshotGameFns() {
-    const snap = (window.__hasslePristine = window.__hasslePristine || {});
-    HASSLE_GAME_FNS.concat(HASSLE_OWN_FNS).forEach(n => {
-        if (!(n in snap) && typeof window[n] === 'function') snap[n] = window[n];
+// Функция загрузчика с retry. onSuccess — опциональный колбэк после успешного eval
+function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onSuccess) {
+    const path = folder ? `${encodeURIComponent(folder)}/` : '';
+    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url + '?_=' + Date.now(), true);
+    xhr.onload = function() {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            let scriptText = xhr.responseText;
+            // ── Патчим AUTO_GRAB и AUTO_GRAB_SKIP (var, не const) ──
+            if (AUTO_GRAB) {
+                scriptText = scriptText.replace(/var AUTO_GRAB = false;/, 'var AUTO_GRAB = true;');
+                scriptText = scriptText.replace(
+                    'window.AUTO_GRAB = AUTO_GRAB;',
+                    'window.AUTO_GRAB = true;'
+                );
+                scriptText = scriptText.replace(/const AMMO_THRESHOLD = \{[^}]+\}/,
+                    `const AMMO_THRESHOLD = { MAGNUM: ${AUTO_GRAB_THR_MAGNUM}, AK762: ${AUTO_GRAB_THR_762}, AKS545: ${AUTO_GRAB_THR_545} }`);
+                const menuPatch = {
+                    PAINKILLERS: AUTO_GRAB_MENU_PAINKILLERS, MEDKIT: AUTO_GRAB_MENU_MEDKIT,
+                    BATON: AUTO_GRAB_MENU_BATON, VEST: AUTO_GRAB_MENU_VEST,
+                    TASER: AUTO_GRAB_MENU_TASER, DEAGLE: AUTO_GRAB_MENU_DEAGLE,
+                    AKM: AUTO_GRAB_MENU_AKM, AKS74U: AUTO_GRAB_MENU_AKS74U,
+                    AMMO_MAGNUM: AUTO_GRAB_MENU_AMMO_MAGNUM, AMMO_762: AUTO_GRAB_MENU_AMMO_762, AMMO_545: AUTO_GRAB_MENU_AMMO_545,
+                    SHIELD: AUTO_GRAB_MENU_SHIELD
+                };
+                // Патчим позиции ТОЛЬКО внутри блока const MENU = { ... }
+                // чтобы не задеть одноимённые ключи в const ITEM = { ... }
+                scriptText = scriptText.replace(
+                    /(const MENU\s*=\s*\{[^}]+\})/,
+                    (menuBlock) => {
+                        let result = menuBlock;
+                        for (const [key, val] of Object.entries(menuPatch)) {
+                            if (val >= 0) result = result.replace(new RegExp(`(${key}:\\s*)\\d+`), `$1${val}`);
+                        }
+                        return result;
+                    }
+                );
+                if (AUTO_GRAB_SKIP.length > 0) {
+                    const skipJson = JSON.stringify(AUTO_GRAB_SKIP);
+                    scriptText = scriptText.replace(/var AUTO_GRAB_SKIP = \[\];/, `var AUTO_GRAB_SKIP = ${skipJson};`);
+                }
+            }
+            // ── Патчим MENU_KEY (var, не const) ──
+            scriptText = scriptText.replace(/var MENU_KEY = "Alt\+0";/, `var MENU_KEY = "${MENU_KEY}";`);
+            // ── Патчим MENU_HIDDEN_ITEMS (var, не const) ──
+            if (MENU_HIDDEN_ITEMS.length > 0) {
+                const hiddenJson = JSON.stringify(MENU_HIDDEN_ITEMS);
+                scriptText = scriptText.replace(/var MENU_HIDDEN_ITEMS = \[\];/, `var MENU_HIDDEN_ITEMS = ${hiddenJson};`);
+            }
+            // ── Патчим MENU_BINDS (var, не const) ──
+            if (Object.keys(MENU_BINDS).length > 0) {
+                const bindsJson = JSON.stringify(MENU_BINDS);
+                scriptText = scriptText.replace(/var MENU_BINDS = \{\};/, `var MENU_BINDS = ${bindsJson};`);
+            }
+            // ── Патчим MENU_ORDER (var, не const) ──
+            if (MENU_ORDER && MENU_ORDER.length > 0) {
+                const orderJson = JSON.stringify(MENU_ORDER);
+                scriptText = scriptText.replace(/var MENU_ORDER = \[\];/, `var MENU_ORDER = ${orderJson};`);
+            }
+            // ── Патчим MENU_TIMER_ITEMS (var, не const) ──
+            if (MENU_TIMER_ITEMS && MENU_TIMER_ITEMS.length > 0) {
+                const timerJson = JSON.stringify(MENU_TIMER_ITEMS);
+                scriptText = scriptText.replace(/var MENU_TIMER_ITEMS = \[\];/, `var MENU_TIMER_ITEMS = ${timerJson};`);
+            }
+            // ── Патчим AUTO_REISSUE_LIC (авто-перевыдача лицензии) ──────────────────
+            if (AUTO_REISSUE_LIC) {
+                scriptText = scriptText.replace(/var AUTO_REISSUE_LIC = false;/, 'var AUTO_REISSUE_LIC = true;');
+                scriptText = scriptText.replace(
+                    'window.AUTO_REISSUE_LIC = AUTO_REISSUE_LIC;',
+                    'window.AUTO_REISSUE_LIC = true;'
+                );
+            }
+            // ── Патчим REISSUE_KEY (хоткей авто-перевыдачи) ─────────────────────────
+            if (REISSUE_KEY) {
+                scriptText = scriptText.replace(/var REISSUE_KEY = "Alt\+R";/, `var REISSUE_KEY = "${REISSUE_KEY}";`);
+                scriptText = scriptText.replace(
+                    'window.REISSUE_KEY = REISSUE_KEY;',
+                    `window.REISSUE_KEY = "${REISSUE_KEY}";`
+                );
+            }
+            // ── Патчим GIVELIC_KEY (хоткей прямого открытия диалога /givelic) ──────────
+            if (GIVELIC_KEY) {
+                scriptText = scriptText.replace(/var GIVELIC_KEY = "";/, `var GIVELIC_KEY = "${GIVELIC_KEY}";`);
+            }
+            // ── Патчим LICENSOR_HELPER_ENABLED (флаг помощника лицензёра) ────────────
+            if (LICENSOR_HELPER_ENABLED) {
+                scriptText = scriptText.replace(/var LICENSOR_HELPER_ENABLED = false;/, 'var LICENSOR_HELPER_ENABLED = true;');
+                scriptText = scriptText.replace(
+                    'window.LICENSOR_HELPER_ENABLED = LICENSOR_HELPER_ENABLED;',
+                    'window.LICENSOR_HELPER_ENABLED = true;'
+                );
+            }
+            // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
+            // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
+            // перезаписываем их сразу после eval.
+            eval(scriptText);
+            // Прокидываем LICENSOR_HELPER_ENABLED в window после eval
+            window.LICENSOR_HELPER_ENABLED = LICENSOR_HELPER_ENABLED;
+            if (typeof onSuccess === 'function') onSuccess();
+            // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
+            // Вызывается mvdF при action === 'wantedFine'.
+            // Открываем LawsHelper в режиме 'wanted' — только таб РОЗЫСК.
+            var _origShowUk = window.showUkInputDialog;
+            window.showUkInputDialog = function(targetId) {
+                window._duranWantedTargetId = (targetId !== undefined) ? targetId : -1;
+                window._duranOpenMode = 'wanted';
+                window.openInterface('Zkm');
+            };
+            window._origShowUkInputDialog = _origShowUk;
+            // ── Перехват window.showKoapTypeMenu (ШТРАФ) ─────────────────────
+            // Вызывается mvdF при action === 'fine'.
+            // Открываем LawsHelper в режиме 'fine' — только таб ШТРАФЫ.
+            var _origShowKoap = window.showKoapTypeMenu;
+            window.showKoapTypeMenu = function(targetId) {
+                window._duranFineTargetId = (targetId !== undefined) ? targetId : -1;
+                window._duranOpenMode = 'fine';
+                window.openInterface('Zkm');
+            };
+            window._origShowKoapTypeMenu = _origShowKoap;
+            // ── END перехваты ─────────────────────────────────────────────────
+            // Явно устанавливаем window.AUTO_GRAB после eval
+            if (AUTO_GRAB) window.AUTO_GRAB = true;
+            console.log(`[PRAVO] Скрипт ${filename} загружен и выполнен успешно`);
+        } else {
+            console.error(`[PRAVO] HTTP error! status: ${xhr.status} для ${url}`);
+            if (retries > 0) {
+                console.log(`[PRAVO] Повторная попытка... Осталось попыток: ${retries - 1}`);
+                setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1), 2000);
+            } else {
+                console.error(`[PRAVO] Не удалось загрузить скрипт AHK ${filename} после всех попыток`);
+            }
+        }
+    };
+    xhr.onerror = function() {
+        console.error(`[PRAVO] Ошибка сети при загрузке скрипта ${filename} с ${url}`);
+        if (retries > 0) {
+            console.log(`[PRAVO] Повторная попытка... Осталось попыток: ${retries - 1}`);
+            setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1), 2000);
+        } else {
+            console.error(`[PRAVO] Не удалось загрузить скрипт AHK ${filename} после всех попыток`);
+        }
+    };
+    xhr.send();
+}
+
+// ── АВТО-ВВОД ПАРОЛЯ (мгновенный, без показа окна авторизации) ─────────
+// Как работает:
+//  1. Перехватываем window.openInterface: в момент, когда сервер открывает
+//     "Authorization" со страницей "auth", СРАЗУ (синхронно, до отрисовки)
+//     прячем окно (visibility:hidden) и шлём на сервер OnAuthorizationStart
+//     с паролем — ровно то же, что делает кнопка «Войти» (Login.play()).
+//  2. Окно прячется ТОЛЬКО через visibility — анимации появления идут под
+//     скрытием и к моменту показа уже закончены, поэтому окно возвращается
+//     мгновенно, без повторного fade.
+//  3. Ошибка пароля / окно кода 2FA приходят с сервера как вызов методов
+//     Login.setError / Login.setStage. Мы оборачиваем их: окно показывается
+//     СИНХРОННО ПЕРЕД тем, как Vue отрисует ошибку, и текст ошибки
+//     появляется точно так же, как в оригинале.
+//  4. Если сервер после нашей отправки просто переоткрыл окно авторизации —
+//     оно показывается сразу (без скрытия и без повторной отправки).
+//  5. Запасные пути: MutationObserver по ошибке/полю пароля и таймер
+//     AUTO_PASSWORD_REVEAL_MS. После ошибки повторов нет (RETRY_BLOCK_MS).
+if (AUTO_PASSWORD) {
+    (function setupAutoPassword() {
+        var AUTO_PASSWORD_REVEAL_MS = 8000;   // не дождались закрытия окна — показать его
+        var RETRY_BLOCK_MS          = 60000;  // после ошибки пароля авто-вход отключён на это время
+        var MIN_GAP_MS              = 3000;   // защита от спама попытками
+        var REOPEN_FAIL_MS          = 20000;  // окно переоткрыто так быстро после отправки — вход не прошёл
+        var HIDE_CLASS = 'pravo-autologin';
+
+        var sent = false, blockUntil = 0, lastSend = 0, revealTimer = null, errObs = null, hideToken = 0;
+        // ── Курсор ──────────────────────────────────────────────────────────
+        // Пока идёт авто-вход, курсор не нужен ни окну авторизации, ни экрану загрузки,
+        // который сервер открывает сразу после верного пароля (Authorization:ShowLoading →
+        // SHOW_INTERFACE "Loading" "[3000]"). Игра включает курсор в showInterface() через
+        // setCursorStatus(<имя интерфейса>, true), поэтому гасим эти вызовы для обоих имён.
+        // Возвращаем курсор только если окно авторизации реально показано (ошибка/код/таймаут).
+        var CURSOR_HOLD_NAMES = { Authorization: 1, Loading: 1 };
+        var CURSOR_HOLD_MAX_MS = 60000;   // страховка: удержание никогда не живёт дольше
+        var CURSOR_GRACE_MS    = 5000;    // окно закрыто, а Loading ещё не открылся — ждём его
+        var cursorHold = false, holdTimer = null;
+        function holdOn()  { cursorHold = true; clearTimeout(holdTimer); holdTimer = setTimeout(holdOff, CURSOR_HOLD_MAX_MS); }
+        function holdOff() { cursorHold = false; clearTimeout(holdTimer); holdTimer = null; }
+        function holdGrace() { clearTimeout(holdTimer); holdTimer = setTimeout(holdOff, CURSOR_GRACE_MS); }
+        function isOpen(n) { try { return !!window.getInterfaceStatus(n); } catch (e) { return false; } }
+        // Окно авторизации действительно на экране (не закрыто и не перекрыто экраном Loading)
+        function authOnScreen() {
+            try {
+                if (!isOpen('Authorization') || isOpen('Loading')) return false;
+                var c = window.component && window.component('Authorization');
+                return !c || c.show !== false;
+            } catch (e) { return false; }
+        }
+        var patched = (typeof WeakSet === 'function') ? new WeakSet() : null;
+
+        // CSS: только visibility. Анимации/переходы НЕ трогаем — иначе при показе
+        // они проигрываются заново и окно «возвращается» с задержкой.
+        var st = document.createElement('style');
+        st.textContent =
+            'html.' + HIDE_CLASS + ' .authorization,' +
+            'html.' + HIDE_CLASS + ' .authorization *{visibility:hidden!important}';
+        (document.head || document.documentElement).appendChild(st);
+
+        function isHidden() { return document.documentElement.classList.contains(HIDE_CLASS); }
+        function hideUI() { hideToken++; holdOn(); document.documentElement.classList.add(HIDE_CLASS); }
+
+        function showUI() {
+            document.documentElement.classList.remove(HIDE_CLASS);
+            if (cursorHold) {
+                if (authOnScreen()) {
+                    // Окно возвращается (ошибка пароля / код 2FA / таймаут) — включаем курсор так,
+                    // как это сделала бы игра при показе окна.
+                    holdOff();
+                    try { if (typeof window.setCursorStatus === 'function') window.setCursorStatus('Authorization', true, false); }
+                    catch (e) { console.error('[PRAVO AHK AUTO-PWD] cursor show error:', e); }
+                } else if (isOpen('Loading')) {
+                    // идёт загрузка после верного пароля — держим, снимется при закрытии Loading
+                } else {
+                    holdGrace();   // окно уже закрыто; Loading мог ещё не открыться
+                }
+            }
+            clearTimeout(revealTimer); revealTimer = null;
+            if (errObs) { errObs.disconnect(); errObs = null; }
+        }
+
+        // Снять скрытие после закрытия окна (успешный вход) — когда его DOM уже исчез
+        function releaseWhenGone() {
+            var token = hideToken, t0 = Date.now();
+            (function chk() {
+                if (token !== hideToken) return;
+                if (!document.querySelector('.authorization') || Date.now() - t0 > 1500) { showUI(); return; }
+                setTimeout(chk, 16);
+            })();
+        }
+
+        // Сервер сообщил о проблеме (ошибка пароля, код 2FA) — показать окно СРАЗУ
+        function onServerProblem(why) {
+            if (!isHidden() && !sent) return;
+            blockUntil = Date.now() + RETRY_BLOCK_MS;
+            showUI();
+            console.log('[PRAVO AHK AUTO-PWD] ' + why + ' — окно показано' + (sendAt ? ' (+' + (Date.now() - sendAt) + ' мс после отправки)' : ''));
+        }
+
+        // Оборачиваем методы компонента Login: setError / setStage вызывает сервер
+        function patchAuth(c) {
+            try {
+                var inst = c && c.$refs && c.$refs.auth;
+                if (!inst) return;
+                if (patched) { if (patched.has(inst)) return; patched.add(inst); }
+                else { if (inst.__pravoP) return; inst.__pravoP = true; }
+
+                var oe = inst.setError;
+                if (typeof oe === 'function') {
+                    inst.setError = function() {
+                        onServerProblem('Ошибка от сервера');   // ДО отрисовки ошибки
+                        return oe.apply(this, arguments);
+                    };
+                }
+                var os = inst.setStage;
+                if (typeof os === 'function') {
+                    inst.setStage = function(stage) {
+                        if (stage > 1) onServerProblem('Требуется код');
+                        return os.apply(this, arguments);
+                    };
+                }
+            } catch (e) { console.error('[PRAVO AHK AUTO-PWD] patch error:', e); }
+        }
+        function tryPatch() {
+            try { var c = window.interface && window.interface('Authorization'); if (c) patchAuth(c); } catch (e) {}
+        }
+
+        // Запасной наблюдатель: ошибка / код / регистрация появились в DOM → показать окно
+        function watchProblems() {
+            if (errObs) errObs.disconnect();
+            errObs = new MutationObserver(function() {
+                tryPatch();
+                var hasErr = document.querySelector('.authorization-field__error');
+                if (hasErr || document.querySelector('.login-code, .registration')) {
+                    if (hasErr) blockUntil = Date.now() + RETRY_BLOCK_MS;
+                    showUI();
+                    console.log('[PRAVO AHK AUTO-PWD] Нужен ручной ввод — окно показано');
+                }
+            });
+            errObs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        }
+
+        function canAuto() {
+            var now = Date.now();
+            return !sent && now >= blockUntil && (now - lastSend) >= MIN_GAP_MS &&
+                   typeof window.sendClientEvent === 'function' && window.gm;
+        }
+
+        // Окно Authorization грузится лениво: пока Login не смонтирован, window.interface('Authorization')
+        // возвращает false, а серверный вызов interface("Authorization").$refs.auth.setError(...)
+        // падает с TypeError и ошибка ТЕРЯЕТСЯ. Если пароль ушёл раньше монтирования, а ответ сервера
+        // (особенно на быстром/локальном сервере) пришёл раньше Login — окно вернулось бы только по таймеру.
+        // Поэтому шлём пароль, когда Login уже готов и его setError обёрнут.
+        var LOGIN_READY_MAX_MS = 3000;   // не дождались монтирования — шлём как есть (запасной путь)
+        var sendAt = 0, openAt = 0, fireToken = 0;
+
+        function loginReady() {
+            try {
+                var c = window.interface && window.interface('Authorization');
+                return !!(c && c.$refs && c.$refs.auth);
+            } catch (e) { return false; }
+        }
+
+        function doSend() {
+            sendAt = Date.now();
+            lastSend = sendAt;
+            clearTimeout(revealTimer);
+            revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS);
+            window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', AUTO_PASSWORD);
+            console.log('[PRAVO AHK AUTO-PWD] Пароль отправлен (Login готов через ' + (sendAt - openAt) + ' мс)');
+        }
+
+        function fire() {
+            try {
+                sent = true; openAt = Date.now();
+                var token = ++fireToken;
+                watchProblems();
+                revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS + LOGIN_READY_MAX_MS);
+                (function waitReady() {
+                    if (token !== fireToken || !sent) return;          // окно уже закрыто/перезапущено
+                    tryPatch();
+                    if (loginReady() || Date.now() - openAt >= LOGIN_READY_MAX_MS) {
+                        try { doSend(); } catch (e) { showUI(); console.error('[PRAVO AHK AUTO-PWD] Ошибка авто-входа:', e); }
+                        return;
+                    }
+                    setTimeout(waitReady, 8);
+                })();
+            } catch (e) {
+                showUI();
+                console.error('[PRAVO AHK AUTO-PWD] Ошибка авто-входа:', e);
+            }
+        }
+
+        function isLoginParams(params) {
+            var p = params;
+            if (typeof p === 'string') {
+                try { p = JSON.parse(p.replace(/\n/, '\\n')); } catch (e) { return false; }
+            }
+            return !!p && p[0] === 'auth';
+        }
+
+        // Ставим обёртку на window[prop]; если функция ещё не определена — ждём присвоения
+        function hook(prop, factory) {
+            var cur = window[prop];
+            if (typeof cur === 'function') { window[prop] = factory(cur); return; }
+            var val;
+            Object.defineProperty(window, prop, {
+                configurable: true, enumerable: true,
+                get: function() { return val; },
+                set: function(v) { val = (typeof v === 'function') ? factory(v) : v; }
+            });
+        }
+
+        // Любое обращение к window.interface('Authorization') (в т.ч. от сервера) — патчим Login
+        hook('interface', function(orig) {
+            return function(name) {
+                var c = orig.apply(this, arguments);
+                if (name === 'Authorization' && c) patchAuth(c);
+                return c;
+            };
+        });
+
+        hook('openInterface', function(orig) {
+            return function(name, params) {
+                var go = false;
+                if (name === 'Authorization' && !window.getInterfaceStatus('Authorization') &&
+                    isLoginParams(params)) {
+                    if (lastSend && (Date.now() - lastSend) < REOPEN_FAIL_MS) {
+                        // Сервер переоткрыл окно сразу после отправки → вход не прошёл.
+                        // Показываем окно сразу, как в оригинале, без повторов.
+                        blockUntil = Date.now() + RETRY_BLOCK_MS;
+                        showUI();
+                    } else if (canAuto()) {
+                        go = true;
+                        hideUI(); // ДО открытия — первый кадр уже без окна
+                    }
+                }
+                // Новое окно авторизации БЕЗ автовхода (сервер переоткрыл окно после ошибки) —
+                // курсор должен включиться игрой как обычно: остаток подавления сбрасываем.
+                if (name === 'Authorization' && !go && !isOpen('Authorization')) holdOff();
+                var r = orig.apply(this, arguments);
+                if (name === 'Authorization') {
+                    tryPatch();
+                    setTimeout(tryPatch, 0);
+                }
+                if (go) fire();
+                return r;
+            };
+        });
+
+        // Курсор: пока окно авторизации спрятано автовходом — игра не должна включать курсор.
+        // Игра делает это в showInterface() через window.setCursorStatus('Authorization', true, ...).
+        hook('setCursorStatus', function(orig) {
+            return function(name, status) {
+                if (cursorHold && CURSOR_HOLD_NAMES[name] && (status === true || status === 1)) {
+                    return;   // курсор не включаем; вернём его в showUI(), если понадобится ручной ввод
+                }
+                return orig.apply(this, arguments);
+            };
+        });
+
+        hook('closeInterface', function(orig) {
+            return function(name) {
+                if (name === 'Authorization') {
+                    sent = false;
+                    var r = orig.apply(this, arguments);
+                    if (isHidden()) releaseWhenGone(); else showUI();
+                    return r;
+                }
+                if (name === 'Loading') {
+                    var r2 = orig.apply(this, arguments);
+                    if (cursorHold) {
+                        holdOff();   // загрузка закончилась — удержание не нужно
+                        // если под ней оказалось окно авторизации — вернуть ему курсор как обычно
+                        if (authOnScreen()) { try { window.setCursorStatus('Authorization', true, false); } catch (e) {} }
+                    }
+                    return r2;
+                }
+                return orig.apply(this, arguments);
+            };
+        });
+
+        // Запасной путь (окно появилось не через openInterface)
+        function fallbackCheck() {
+            if (sent || !canAuto()) return;
+            if (document.querySelector('.authorization-field__input[type="password"]')) {
+                hideUI();
+                fire();
+                tryPatch();
+            }
+        }
+        var observer = new MutationObserver(fallbackCheck);
+        function startObserver() {
+            observer.observe(document.body, { childList: true, subtree: true });
+            fallbackCheck();
+        }
+        if (document.body) startObserver();
+        else document.addEventListener('DOMContentLoaded', startObserver);
+    })();
+}
+// ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
+
+// Запуск: сначала fkonst.js (из MVD AHK — там он хранится), затем pravo.js
+if (!AHK_DIAG.skipFkonst) {
+    loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function() {
+        if (!AHK_DIAG.skipPravo) loadScriptFromGitHub(username, repo, folder, filename);
     });
+} else if (!AHK_DIAG.skipPravo) {
+    loadScriptFromGitHub(username, repo, folder, filename);
+}
+// ── Мышь/колесо для MENU_KEY, GIVELIC_KEY, REISSUE_KEY ───────
+// Клавиатурные обработчики этих хоткеев живут в mvdF.js / pravo.js (keydown, общий матчер _hkMatch).
+// Колесо и кнопки мыши keydown не ловит — регистрируем здесь тем же матчером (строгие модификаторы).
+(function() {
+    var CLICK_MAX_MS = 400; // удержание дольше = камера GTA, не хоткей
+    function pravoOnly(fn) { return function() { if (window._isPravoSkin && window._isPravoSkin()) fn(); }; }
+    function register(tag, combo, action) {
+        var h = _hkParse(combo);
+        if (!h) return;
+        if (h.main === 'wheelup' || h.main === 'wheeldown') {
+            window.addEventListener('wheel', function(e) {
+                if (!_hkMatch(e, combo)) return;
+                e.preventDefault && e.preventDefault();
+                action();
+            }, { passive: false, capture: true });
+            console.log('[PRAVO ' + tag + '] Колесо зарегистрировано: ' + combo);
+        } else if (h.main === 'mousemiddle' || h.main === 'mouseback' || h.main === 'mouseforward') {
+            var downAt = {};
+            window.addEventListener('mousedown', function(e) { downAt[e.button] = Date.now(); }, true);
+            window.addEventListener('mouseup', function(e) {
+                var t0 = downAt[e.button]; downAt[e.button] = 0;
+                if (!t0 || Date.now() - t0 > CLICK_MAX_MS) return;
+                if (!_hkMatch(e, combo)) return;
+                e.preventDefault && e.preventDefault();
+                action();
+            }, true);
+            console.log('[PRAVO ' + tag + '] Кнопка мыши зарегистрирована: ' + combo + ' (клик ≤ ' + CLICK_MAX_MS + ' мс)');
+        }
+        // обычная клавиша — обрабатывается keydown-обработчиком в mvdF.js / pravo.js
+    }
+    if (MENU_KEY) register('MENU-KEY', MENU_KEY, pravoOnly(function() {
+        // sendChatInput доступен после загрузки mvdF.js
+        if (typeof window.sendChatInput === 'function') window.sendChatInput('/dahk');
+    }));
+    if (GIVELIC_KEY) register('GIVELIC-KEY', GIVELIC_KEY, pravoOnly(function() {
+        window.showGiveLicIdInputDialog && window.showGiveLicIdInputDialog();
+    }));
+    if (AUTO_REISSUE_LIC && REISSUE_KEY) register('REISSUE-KEY', REISSUE_KEY, pravoOnly(function() {
+        // вся логика (snAdd, __mvdPrevSendChatInput) живёт в pravo.js
+        window._pravoDoReissue && window._pravoDoReissue();
+    }));
 })();
 
-// ============================================================
-// Автоматический поиск чат-компонента — два метода:
-//
-// Метод 1 (быстрый): читаем исходник Hud.js через fetch и ищем
-//   уникальный паттерн:  const XX={components:{Scrolling:
-//   Этот паттерн стабилен — меняется только имя XX
-//
-// Метод 2 (резервный): eval-сканирование всех переменных
-//   в scope модуля (1, 2, 3 символа)
-// ============================================================
-
-function hookComponent(v, name) {
-    if (
-        v &&
-        typeof v === 'object' &&
-        !Array.isArray(v) &&
-        v.methods &&
-        typeof v.methods.add === 'function' &&
-        typeof v.data === 'function' &&
-        v.components
-    ) {
-        // FIX: не вешаем хук повторно при перезагрузке скрипта
-        if (v.methods.__hassleHooked) {
-            console.log(`✅ Хук на чат уже установлен ("${name}"), пропускаем`);
-            window.__hassleChatHooked = true;
-            return true;
-        }
-        const originalAdd = v.methods.add;
-        v.methods.add = function (e, s, t) {
-            const result = originalAdd.call(this, e, s, t);
-            window.OnChatAddMessage?.(e, s, t);
-            return result;
-        };
-        v.methods.__hassleHooked = true; // маркер: хук уже на месте
-        window.__hassleChatHooked = true;
-        console.log(`✅ Хук на чат установлен (переменная: "${name}")`);
-        return true;
-    }
-    return false;
-}
-
-function evalScan() {
-    // Все возможные символы для минифицированных имён
-    const starts = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$'.split('');
-    const rest   = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$'.split('');
-
-    // 1 символ
-    for (const c of starts) {
-        let v; try { v = eval(c); } catch(e) { continue; }
-        if (hookComponent(v, c)) return true;
-    }
-    // 2 символа
-    for (const c1 of starts) {
-        for (const c2 of rest) {
-            const n = c1 + c2;
-            let v; try { v = eval(n); } catch(e) { continue; }
-            if (hookComponent(v, n)) return true;
-        }
-    }
-    // 3 символа
-    for (const c1 of starts) {
-        for (const c2 of rest) {
-            for (const c3 of rest) {
-                const n = c1 + c2 + c3;
-                let v; try { v = eval(n); } catch(e) { continue; }
-                if (hookComponent(v, n)) return true;
-            }
-        }
-    }
-
-    console.error('❌ Компонент чата не найден после полного сканирования');
-    return false;
-}
-
-// noScan=true — только быстрый путь по исходнику Hud.js: полный перебор имён (≈200 тыс. eval) подвешивает игру на секунды
-function setupChatHook(noScan) {
-    // Метод 1: найти имя переменной по исходнику Hud.js
-    // Паттерн const XX={components:{Scrolling: стабилен между обновлениями
-    try {
-        const hudScript = Array.from(document.querySelectorAll('script[type="module"][src]'))
-            .find(s => s.src.includes('Hud'));
-
-        if (hudScript) {
-            fetch(hudScript.src)
-                .then(r => r.text())
-                .then(src => {
-                    // FIX: в актуальном Hud.js компонент объявлен в списке через запятую («...,An=512,us={components:{Scrolling:kn}...»),
-                    // а не как отдельный «const us=...» — прежняя регулярка не находила его и каждый раз шёл перебор имён.
-                    // Допускаем const/let/var/запятую перед именем и «$» в имени.
-                    const match = src.match(/(?:const|let|var|,)\s*([\w$]+)=\{components:\{Scrolling:/);
-                    if (match) {
-                        const varName = match[1];
-                        console.log(`🔍 Нашли имя чат-компонента в исходнике: "${varName}"`);
-                        // eval() здесь имеет доступ к scope модуля Hud.js
-                        let v; try { v = eval(varName); } catch(e) {}
-                        if (!hookComponent(v, varName)) {
-                            console.warn('⚠️ eval по имени не сработал, запускаем сканирование');
-                            (noScan ? console.warn('⚠️ Чат-компонент не найден быстрым способом (перебор пропущен)') : evalScan());
-                        }
-                    } else {
-                        console.warn('⚠️ Паттерн не найден в исходнике, запускаем сканирование');
-                        (noScan ? console.warn('⚠️ Чат-компонент не найден быстрым способом (перебор пропущен)') : evalScan());
-                    }
-                })
-                .catch(() => { if (!noScan) evalScan(); });
-
-            return; // fetch асинхронный, выходим
-        }
-    } catch (e) {}
-
-    // Метод 2: сканирование (синхронно, если fetch не доступен)
-    (noScan ? console.warn('⚠️ Чат-компонент не найден быстрым способом (перебор пропущен)') : evalScan());
-}
-
-setupChatHook();
-
-// Загрузить текст файла с GitHub (без eval) — XHR с retry.
-// FIX 1: к адресу добавляется ?t=<время>. raw.githubusercontent отдаёт Cache-Control: max-age=300, и браузер игры
-//        5 минут отдавал СТАРЫЙ файл — «перезагрузилось, но код прежний» (особенно сразу после коммита).
-// FIX 2: 404 — не временная ошибка, повторять её бессмысленно. Раньше отсутствующий (необязательный) Ozv.js
-//        задерживал каждую перезагрузку на 5 повторов × 2 с = 10 секунд.
-// FIX 3: пауза между повторами была фиксированной 1,5 с у ВСЕХ аккаунтов: при перезагрузке нескольких аккаунтов разом (7 файлов × N)
-//        временная ошибка/429 от GitHub повторялась у всех одновременно и снова упиралась в тот же лимит. Теперь первая пауза короткая
-//        (≈0,4 с), дальше ×2 (0,8 → 1,6 → 3,2 с) со случайным разбросом ±30%; если сервер прислал Retry-After — ждём его (не дольше 10 с).
-function fetchRawText(filename, retries = 4, _n = 0) {
-    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/HassleB/${filename}?t=${Date.now()}`;
-    return new Promise((resolve, reject) => {
-        const retry = (why, permanent, retryAfterSec) => {
-            if (!permanent && retries > 0) {
-                let wait = 400 * Math.pow(2, _n) * (0.7 + Math.random() * 0.6);
-                if (retryAfterSec > 0) wait = Math.max(wait, Math.min(retryAfterSec, 10) * 1000);
-                wait = Math.round(wait);
-                console.warn(`⚠️ ${why} для ${filename}, повтор через ${wait} мс... (${retries} осталось)`);
-                setTimeout(() => fetchRawText(filename, retries - 1, _n + 1).then(resolve).catch(reject), wait);
-            } else {
-                const err = new Error(`Не удалось загрузить ${filename}: ${why}`);
-                err.permanent = !!permanent;
-                reject(err);
-            }
-        };
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-        xhr.timeout = 20000; // зависший запрос раньше мог держать всю перезагрузку бесконечно
-        xhr.onload = function() {
-            if (xhr.status >= 200 && xhr.status < 300) {
-                console.log(`✅ Текст ${filename} получен`);
-                resolve(xhr.responseText);
-            } else if (xhr.status === 404) {
-                retry(`HTTP 404`, true);
-            } else {
-                let ra = 0;
-                try { ra = parseInt(xhr.getResponseHeader('Retry-After'), 10) || 0; } catch (e) {}
-                retry(`HTTP ${xhr.status}`, false, ra);
-            }
-        };
-        xhr.onerror = function() { retry('Ошибка сети', false); };
-        xhr.ontimeout = function() { retry('Таймаут', false); };
-        xhr.send();
-    });
-}
-
-// Выполнить уже загруженный текст скрипта (eval в области видимости Load.js — как и раньше)
-function evalLoadedScript(filename, text) {
-    try {
-        eval(text);
-        console.log(`✅ Скрипт ${filename} выполнен успешно`);
-    } catch (err) {
-        console.error(`❌ Ошибка выполнения ${filename}:`, err);
-        throw err;
-    }
-}
-
-// Функция загрузчика с retry (оставлена для совместимости)
-function loadScriptFromGitHub(filename, retries = 4) {
-    return fetchRawText(filename, retries).then(text => evalLoadedScript(filename, text));
-}
-
-// Функция для применения конфигурации пользователя
-function applyUserConfig() {
-    if (!window.USER_CONFIGS) {
-        console.error('❌ USER_CONFIGS не загружен!');
-        return false;
-    }
-
-    const userConfig = window.USER_CONFIGS[currentUser];
-    if (!userConfig) {
-        console.error(`❌ Конфигурация для пользователя "${currentUser}" не найдена!`);
-        return false;
-    }
-
-    window.CHAT_IDS = userConfig.CHAT_IDS;
-    window.DEFAULT_TOKEN = null;
-    // Пароль приходит из установщика (общий + персональные по нику). userConfig.PASSWORD — только запасной вариант
-    window.PASSWORD = accountPassword || userConfig.PASSWORD || '';
-    window.NICK_PASSWORDS = (nickPasswords && typeof nickPasswords === 'object') ? nickPasswords : {};
-    window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
-
-    window.ACCOUNT_NUMBER = accountNumber;
-    const userBotTokens = userConfig.BOT_TOKENS || {}; // старый формат (fallback), в новом List.js токенов нет
-    if (accountToken) {
-        window.ACCOUNT_TOKEN = accountToken;
-        console.log(`✅ Токен для аккаунта #${accountNumber} (${currentUser}) взят из локального хранилища`);
-    } else if (accountNumber && userBotTokens[accountNumber]) {
-        window.ACCOUNT_TOKEN = userBotTokens[accountNumber];
-        console.log(`✅ Токен для аккаунта #${accountNumber} (${currentUser}) взят из List.js`);
-    } else {
-        window.ACCOUNT_TOKEN = null;
-        console.warn(`⚠️ Токен для аккаунта #${accountNumber} у "${currentUser}" не найден — добавьте его в лончере («Токены аккаунтов») и переустановите код`);
-    }
-
-    console.log(`✅ Конфигурация для "${currentUser}" применена:`, {
-        chatIds: userConfig.CHAT_IDS,
-        password: window.PASSWORD ? 'общий задан' : 'общий НЕ задан',
-        nickPasswords: Object.keys(window.NICK_PASSWORDS).length,
-        reconnect: userConfig.RECONNECT_ENABLED_DEFAULT
-    });
-
-    return true;
-}
-
-// Получить информацию о последнем коммите файла с GitHub API
-async function fetchLastCommitInfo(filename) {
-    const apiUrl = `https://api.github.com/repos/${username}/${repo}/commits?path=HassleB/${filename}&per_page=1`;
-    try {
-        const xhr = await new Promise((resolve, reject) => {
-            const x = new XMLHttpRequest();
-            x.open('GET', apiUrl, true);
-            x.setRequestHeader('Accept', 'application/vnd.github.v3+json');
-            x.onload = () => resolve(x);
-            x.onerror = () => reject(new Error('network error'));
-            x.send();
-        });
-        if (xhr.status === 200) {
-            const commits = JSON.parse(xhr.responseText);
-            if (commits && commits.length > 0) {
-                const c = commits[0];
-                const msg   = c.commit.message.split('\n')[0].slice(0, 80); // первая строка, макс 80 символов
-                const author = c.commit.author.name;
-                const rawDate = c.commit.author.date; // ISO 8601
-                // Форматируем дату в DD.MM.YYYY HH:MM
-                const d = new Date(rawDate);
-                const pad = n => String(n).padStart(2, '0');
-                const dateStr = `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-                return { msg, author, date: dateStr, sha: c.sha.slice(0, 7) };
-            }
-        }
-    } catch (e) {
-        console.warn('[CommitInfo] Ошибка получения информации о коммите:', e.message);
-    }
-    return null;
-}
-
-// Отправить в Telegram уведомление о загруженном файле с инфой о коммите
-function sendCodeLoadedNotification(filename, commitInfo) {
-    // Берём токен и chatIds из window (уже установлены через applyUserConfig)
-    const token = window.ACCOUNT_TOKEN || window.DEFAULT_TOKEN;
-    const chatIds = window.CHAT_IDS;
-    if (!token || !chatIds || chatIds.length === 0) return;
-
-    let text;
-    if (commitInfo) {
-        text =
-            `📦 <b>${filename} загружен</b>\n` +
-            `📝 ${commitInfo.msg}\n` +
-            `📅 ${commitInfo.date}\n` +
-            `👤 ${commitInfo.author}  <code>#${commitInfo.sha}</code>`;
-    } else {
-        text = `📦 <b>${filename} загружен</b>\n<i>Информация о коммите недоступна</i>`;
-    }
-
-    const tgUrl = `https://api.telegram.org/bot${token}/sendMessage`;
-    chatIds.forEach(chatId => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', tgUrl, true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.send(JSON.stringify({
-            chat_id: chatId,
-            text,
-            parse_mode: 'HTML',
-            disable_notification: true
-        }));
-    });
-}
-
-// ============================================================
-// FIX: Очистка хуков перед повторной загрузкой скриптов.
-// Каждый eval Code.js/Code2.js оборачивает window-функции.
-// Без очистки после N перезагрузок накапливается N обёрток,
-// и каждое событие (чат, диалог, авторизация) срабатывает N раз.
-// ============================================================
-function hassleCleanupHooks() {
-    // FIX: если /reload пришёлся на момент «тихого» чтения профиля MainMenu — снимаем обёртку window.interface
-    // с «приёмником» прошлой копии и сбрасываем на сервере «меню открыто». Иначе ответ сервера уходил в
-    // приёмник старой копии, а новая копия не получала статистику вообще (3 неудачных попытки подряд).
-    if (typeof window.__hassleProfileUnwrap === 'function') {
-        try { window.__hassleProfileUnwrap(); console.log('[Hassle Cleanup] Обёртка чтения профиля снята'); } catch(e) {}
-    }
-    // Screen (скрин в Telegram) ничего не оборачивает — только гасим его опросы мода, чтобы старая копия не дописала в Telegram после перезагрузки
-    if (typeof window.__screenCleanup === 'function') {
-        try { window.__screenCleanup(); console.log('[Hassle Cleanup] Screen снят'); } catch(e) {}
-    }
-    // Voice (голос в Telegram) ничего не оборачивает, кроме двух перехватов Telegram-функций — снимаем их и гасим опросы мода
-    if (typeof window.__voiceCleanup === 'function') {
-        try { window.__voiceCleanup(); console.log('[Hassle Cleanup] Voice снят'); } catch(e) {}
-    }
-    // Lyashov (/lyashov — ответы «Евгения Ляшова» от нейросети) подклеен после Dress и стоит поверх всех — снимаем его самым первым
-    if (typeof window.__lyashovCleanup === 'function') {
-        try { window.__lyashovCleanup(); console.log('[Hassle Cleanup] Lyashov снят'); } catch(e) {}
-    }
-    // Dress (/dress — раздевалка) подклеен после Voice и стоит поверх Near — снимаем его вторым
-    if (typeof window.__dressCleanup === 'function') {
-        try { window.__dressCleanup(); console.log('[Hassle Cleanup] Dress снят'); } catch(e) {}
-    }
-    // Near (игроки рядом) подклеен последним и стоит поверх всех — снимаем его самым первым
-    if (typeof window.__nearCleanup === 'function') {
-        try { window.__nearCleanup(); console.log('[Hassle Cleanup] Near снят'); } catch(e) {}
-    }
-    // Ozv (озвучка) подклеен после Code3 и стоит поверх — снимаем его после Near
-    if (typeof window.__ozvCleanup === 'function') {
-        try { window.__ozvCleanup(); console.log('[Hassle Cleanup] Ozv снят'); } catch(e) {}
-    }
-    // Code3 (помощник лицензёра) стоит поверх хуков Code.js/Code2.js — снимаем его первым
-    if (typeof window.__code3Cleanup === 'function') {
-        try { window.__code3Cleanup(); console.log('[Hassle Cleanup] Code3 снят'); } catch(e) {}
-    }
-    // FIX: обрываем старый long-poll XHR — он не должен завершиться после перезагрузки
-    // и сдвинуть _hbOffset в неправильное место (пропуск обновлений)
-    if (window._hassleCurrentPollXhr) {
-        try { window._hassleCurrentPollXhr.abort(); } catch(e) {}
-        window._hassleCurrentPollXhr = null;
-        console.log('[Hassle Cleanup] Старый long-poll XHR оборван');
-    }
-    // openInterface: Code.js вешает 2 обёртки при каждом eval
-    if (typeof window._hassleOrig_openInterface === 'function') {
-        window.openInterface = window._hassleOrig_openInterface;
-        console.log('[Hassle Cleanup] openInterface восстановлен');
-    }
-    // addDialogInQueue: Code2.js вешает обёртку при каждом eval
-    if (typeof window._hassleOrig_addDialogInQueue === 'function') {
-        window.addDialogInQueue = window._hassleOrig_addDialogInQueue;
-        console.log('[Hassle Cleanup] addDialogInQueue восстановлен');
-    }
-    // sendClientEventCustom: Code2.js вешает обёртку при каждом eval
-    if (typeof window._hassleOrig_sendClientEventCustom === 'function') {
-        window.sendClientEventCustom = window._hassleOrig_sendClientEventCustom;
-        // sendClientEvent — глобальная переменная уровня модуля игры,
-        // Code2.js присваивает её напрямую: sendClientEvent = window.sendClientEventCustom
-        if (typeof sendClientEvent !== 'undefined') {
-            try { sendClientEvent = window._hassleOrig_sendClientEventCustom; } catch(e) {}
-        }
-        console.log('[Hassle Cleanup] sendClientEventCustom восстановлен');
-    }
-    // FIX: Code2.js оборачивает window.interface и window.getInterfaceStatus (трекер PlayersOnline) при КАЖДОМ eval,
-    // и раньше эти обёртки копились стопкой — игра вызывает interface() постоянно, цепочка росла с каждым /reload.
-    // Оригиналы Code2 теперь запоминает на window; возвращаем их, Code2 обернёт заново один раз.
-    if (typeof window._hassleOrig_interface === 'function') {
-        window.interface = window._hassleOrig_interface;
-        console.log('[Hassle Cleanup] window.interface восстановлен');
-    }
-    if (typeof window._hassleOrig_getInterfaceStatus === 'function') {
-        window.getInterfaceStatus = window._hassleOrig_getInterfaceStatus;
-        console.log('[Hassle Cleanup] getInterfaceStatus восстановлен');
-    }
-    // Общий возврат к исходным функциям игры (см. снимок выше). Идёт ПОСЛЕ снятия Ozv/Code3 и точечных восстановлений.
-    try {
-        const snap = window.__hasslePristine || {};
-        let restored = 0;
-        HASSLE_GAME_FNS.forEach(n => {
-            if (n in snap && window[n] !== snap[n]) { try { window[n] = snap[n]; restored++; } catch (e) {} }
-        });
-        HASSLE_OWN_FNS.forEach(n => {
-            if (n in snap) { if (window[n] !== snap[n]) { try { window[n] = snap[n]; } catch (e) {} } }
-            else if (typeof window[n] === 'function') { try { delete window[n]; } catch (e) { window[n] = undefined; } }
-        });
-        if (restored) console.log(`[Hassle Cleanup] Возвращено исходных функций игры: ${restored}`);
-    } catch (e) {}
-    // OnChatAddMessage: Code.js ставит новую функцию, Code2.js оборачивает её.
-    // Сбрасываем — Code.js поставит заново при следующем eval.
-    window.OnChatAddMessage = null;
-    // Сбрасываем флаг паузы бота, иначе __botInit не будет вызван повторно
-    window.__WAIT_CODE2__ = false;
-    window.__botInit = null;
-    console.log('[Hassle Cleanup] Хуки сброшены, готов к перезагрузке');
-}
-
-// Короткое уведомление в Telegram прямо из загрузчика (токен и чаты уже в window после applyUserConfig)
-function loaderNotify(text) {
-    try {
-        const token = window.ACCOUNT_TOKEN || window.DEFAULT_TOKEN;
-        const chatIds = window.CHAT_IDS;
-        if (!token || !chatIds || !chatIds.length) return;
-        chatIds.forEach(chatId => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', `https://api.telegram.org/bot${token}/sendMessage`, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.send(JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_notification: true }));
-        });
-    } catch (e) {}
-}
-
-// Проверка синтаксиса БЕЗ выполнения: сломанный коммит не должен убивать работающего бота
-function syntaxError(text) {
-    try { new Function(text); return null; }
-    catch (e) { return (e instanceof SyntaxError) ? e : null; } // другая ошибка (например, CSP) — не повод отменять перезагрузку
-}
-
-// ============================================================
-// Замена копий скриптов — одной синхронной функцией, чтобы при сбое можно было вернуть ПРЕДЫДУЩУЮ рабочую версию.
-// t = { listText, codeText, code2Text, code3Text, ozvText, nearText, screenText, voiceText, dressText, lyashovText, miniText } (необязательные — null).
-// Возвращает ошибку, если Code.js/Code2/Code3 упали ПОСЛЕ того, как Code.js поставил __botInit (бота можно запустить в базовом режиме),
-// и бросает исключение, если запускать уже нечего.
-// ============================================================
-function applyScriptCopies(t) {
-    // FIX: снимаем старые хуки перед повторным eval скриптов
-    hassleCleanupHooks();
-
-    console.log('📋 Применение List.js...');
-    evalLoadedScript('List.js', t.listText);
-
-    console.log(`⚙️ Применение конфигурации для ${currentUser}...`);
-    if (!applyUserConfig()) {
-        throw new Error('Не удалось применить конфигурацию пользователя');
-    }
-
-    // Code2.js — текст нужен до запуска Code.js (Code.js eval'ит его в СВОЕЙ области видимости).
-    // Code3.js (помощник лицензёра + вкладка «Лицензёр» в Telegram) подклеиваем к тексту Code2: Code3 видит
-    // config/processUpdates и ставит всё через перехваты — Code.js и Code2.js остаются без изменений.
-    window.__CODE2_TEXT__ = t.code2Text;
-    if (t.code3Text) window.__CODE2_TEXT__ += '\n;\n' + t.code3Text;
-    // Ozv.js (озвучка) — тоже подклеиваем к тексту Code2, чтобы он видел sendAdminSpamAlert из Code.js.
-    // Вложенный eval в try: если Ozv.js сломан — Code2/Code3 это не ломает.
-    if (t.ozvText) {
-        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.ozvText) + '); } catch (eOzv) { console.warn("[OZV] не запущен:", eOzv && eOzv.message); }\n';
-    }
-
-    // Near.js (игроки рядом: /near, /neartg, /neardist, /neardiag, window.NearPlayers) — подклеиваем последним, поверх Ozv:
-    // ему нужен sendToTelegram из области видимости Code.js. Вложенный eval в try: сломанный Near.js остальное не ломает.
-    if (t.nearText) {
-        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.nearText) + '); } catch (eNear) { console.warn("[NEAR] не запущен:", eNear && eNear.message); }\n';
-    }
-
-    // Screen.js (кнопка «📸 Скрин» в Telegram: заявка моду, ожидание снимка, отправка) — подклеиваем после Near, как и его.
-    // Ему нужны config, displayName, debugLog, tgApi, sendChatInput из области видимости Code.js. Вложенный eval в try: сломанный Screen.js остальное не ломает.
-    if (t.screenText) {
-        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.screenText) + '); } catch (eScreen) { console.warn("[SCREEN] не запущен:", eScreen && eScreen.message); }\n';
-    }
-
-    // Voice.js (кнопки «🎙 Голос в TG» / «🎧 Слышать» в Telegram: токен и чат моду, переключатели, возврат настроек после перезапуска игры) —
-    // подклеиваем после Screen, как и его. Ему нужны config, displayName, debugLog, tgApi из области видимости Code.js.
-    // Вложенный eval в try: сломанный Voice.js остальное не ломает.
-    if (t.voiceText) {
-        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.voiceText) + '); } catch (eVoice) { console.warn("[VOICE] не запущен:", eVoice && eVoice.message); }\n';
-    }
-
-    // Dress.js (/dress: телепорт к раздевалке через /tpl, выбор «Переодеться» → «Да», возврат на место) — подклеиваем после Voice, как и его.
-    // Нужен мод /tpl в APK (hassle_tpl.c). Хуки чата и диалогов ставит только на время запуска команды. Вложенный eval в try: сломанный Dress.js остальное не ломает.
-    if (t.dressText) {
-        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.dressText) + '); } catch (eDress) { console.warn("[DRESS] не запущен:", eDress && eDress.message); }\n';
-    }
-
-    // Lyashov.js (/lyashov <вопрос>, /lyashauto, /lyashdiag: ответы «Евгения Ляшова» от нейросети в локальный чат, порт lyashov_ai.pwn) —
-    // подклеиваем после Dress. Для /lyashauto нужен Near.js (позиция). Вложенный eval в try: сломанный Lyashov.js остальное не ломает.
-    if (t.lyashovText) {
-        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.lyashovText) + '); } catch (eLys) { console.warn("[LYASHOV] не запущен:", eLys && eLys.message); }\n';
-    }
-
-    // MiniApp/MiniApp.js — общий загрузчик мини-аппов (Stats.js и любые будущие из его списка FILES). Подклеиваем самым последним,
-    // поверх Near: сам MiniApp.js докачивает файлы мини-аппов и выполняет их в области видимости Code.js (config, processUpdates, tgApi…).
-    // Новые мини-аппы добавляются строкой в FILES на GitHub — этот файл (Load.js) менять не нужно.
-    // Вложенный eval в try: сломанный MiniApp.js остальное не ломает.
-    if (t.miniText) {
-        window.__CODE2_TEXT__ += '\n;\ntry { eval(' + JSON.stringify(t.miniText) + '); } catch (eMini) { console.warn("[MINIAPP] не запущен:", eMini && eMini.message); }\n';
-    }
-
-    // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
-    window.__WAIT_CODE2__ = true;
-
-    console.log('📦 Выполнение Code.js (+ Code2 внутри)...');
-    try {
-        evalLoadedScript('Code.js', t.codeText);
-    } catch (errCode) {
-        // Code2/Code3 упали уже после того, как Code.js поставил __botInit — бота ещё можно запустить (решает вызывающий)
-        if (typeof window.__botInit === 'function') return errCode;
-        throw errCode;
-    }
-    return null;
-}
-
-// Бот запускается после того как Code.js eval'нул Code2 и установил __botInit
-function startBotNow() {
-    console.log('🚀 Запускаем бота...');
-    if (typeof window.__botInit === 'function') {
-        window.__botInit();
-        window.__botInit = null;
-    } else {
-        console.warn('⚠️ __botInit не найден — бот уже запущен или Code.js не установил флаг');
-    }
-}
-
-function hassleSameCopies(a, b) {
-    if (!a || !b) return false;
-    return ['listText', 'codeText', 'code2Text', 'code3Text', 'ozvText', 'nearText', 'screenText', 'voiceText', 'dressText', 'lyashovText', 'miniText'].every(k => (a[k] || null) === (b[k] || null));
-}
-
-// Последовательная загрузка скриптов
-//
-// FIX (перезагрузка «не моментальная» / «иногда не срабатывает»):
-//  • Раньше хуки снимались ПЕРВЫМИ, а потом 5 файлов качались друг за другом (с повторами по 2 с). Всё это время бот был
-//    мёртв: опрос Telegram оборван, чат не слушался; упал любой запрос — бот оставался мёртвым до перезапуска игры.
-//    Теперь сначала параллельно скачиваем ВСЕ файлы и проверяем синтаксис, пока старая копия работает, и только потом
-//    за пару миллисекунд меняем копии. Не скачалось / синтаксическая ошибка — старая копия продолжает работать,
-//    в Telegram приходит причина.
-//  • Повторный вызов во время загрузки (второе нажатие /reload или кнопки, пока первая перезагрузка ещё идёт) раньше
-//    запускал вторую инициализацию параллельно: вторая обнуляла __botInit первой, и бот не стартовал вообще.
-async function initializeScripts() {
-    const INIT_MAX_MS = 120000; // страховка: «зависший» запуск не блокирует следующие перезагрузки вечно
-    if (window.__hassleInitRunning && Date.now() - (window.__hassleInitStartedAt || 0) < INIT_MAX_MS) {
-        console.warn('⚠️ Перезагрузка уже выполняется — повторный запуск проигнорирован');
-        return;
-    }
-    window.__hassleInitRunning = true;
-    window.__hassleInitStartedAt = Date.now();
-    const t0 = Date.now();
-    const isReload = !!window.__CODE_READY__;
-    let oldCopyReplaced = false;
-    let texts = null;   // что запускаем сейчас — чтобы в catch понять, есть ли смысл откатываться
-
-    try {
-        console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
-
-        // ── ЭТАП 1: скачиваем всё, старая копия пока работает ──
-        console.log('📥 Загрузка List.js, Code.js, Code2.js, Code3.js, Ozv.js, Near.js, Screen.js, Voice.js, Dress.js, Lyashov.js, MiniApp/MiniApp.js (параллельно)...');
-        const optional = (name, retries) => fetchRawText(name, retries).catch(e => {
-            console.warn(`⚠️ ${name} не загружен (работаем без него):`, e && e.message);
-            return null;
-        });
-        const [listText, code2Text, codeText, code3Raw, ozvText, nearRaw, screenRaw, voiceRaw, dressRaw, lyashovRaw, miniRaw] = await Promise.all([
-            fetchRawText('List.js'),
-            fetchRawText('Code2.js'),
-            fetchRawText('Code.js'),
-            optional('Code3.js', 3),   // помощник лицензёра — необязательный
-            optional('Ozv.js', 1),     // озвучка — необязательная; 404 не повторяется
-            optional('Near.js', 2),    // игроки рядом (нужен APK с модом Near) — необязательный
-            optional('Screen.js', 2),  // скрин в Telegram (нужен клиент с модом hassle_screen.c) — необязательный
-        optional('Voice.js', 2),   // голос в Telegram (нужен клиент с модом hassle_voice.c) — необязательный
-        optional('Dress.js', 2),   // /dress — раздевалка через /tpl (нужен клиент с модом hassle_tpl.c) — необязательный, для теста
-            optional('Lyashov.js', 2), // /lyashov — ответы Ляшова от нейросети (порт lyashov_ai.pwn) — необязательный
-        optional('MiniApp/MiniApp.js', 2)   // общий загрузчик мини-аппов (HassleB/MiniApp/MiniApp.js): сам качает мини-аппы из своего списка — необязательный
-        ]);
-
-        const tDownloaded = Date.now();
-
-        // ── Проверка синтаксиса до замены копий ──
-        let code3Text = code3Raw;
-        for (const [name, text] of [['List.js', listText], ['Code.js', codeText], ['Code2.js', code2Text]]) {
-            const err = syntaxError(text);
-            if (err) throw new Error(`Синтаксическая ошибка в ${name}: ${err.message}`);
-        }
-        if (code3Text) {
-            const err3 = syntaxError(code3Text);
-            if (err3) {
-                console.warn('⚠️ Code3.js с синтаксической ошибкой — пропущен:', err3.message);
-                loaderNotify(`⚠️ <b>Code3.js</b> с синтаксической ошибкой — пропущен (бот работает без него)\n<code>${String(err3.message).replace(/</g, '&lt;')}</code>`);
-                code3Text = null;
-            }
-        }
-
-        let nearText = nearRaw;
-        if (nearText) {
-            const errN = syntaxError(nearText);
-            if (errN) {
-                console.warn('⚠️ Near.js с синтаксической ошибкой — пропущен:', errN.message);
-                loaderNotify(`⚠️ <b>Near.js</b> с синтаксической ошибкой — пропущен (бот работает без него)\n<code>${String(errN.message).replace(/</g, '&lt;')}</code>`);
-                nearText = null;
-            }
-        }
-
-        let screenText = screenRaw;
-        if (screenText) {
-            const errS = syntaxError(screenText);
-            if (errS) {
-                console.warn('⚠️ Screen.js с синтаксической ошибкой — пропущен:', errS.message);
-                loaderNotify(`⚠️ <b>Screen.js</b> с синтаксической ошибкой — пропущен (кнопка «Скрин» не работает)\n<code>${String(errS.message).replace(/</g, '&lt;')}</code>`);
-                screenText = null;
-            }
-        }
-
-        let voiceText = voiceRaw;
-        if (voiceText) {
-            const errV = syntaxError(voiceText);
-            if (errV) {
-                console.warn('⚠️ Voice.js с синтаксической ошибкой — пропущен:', errV.message);
-                loaderNotify(`⚠️ <b>Voice.js</b> с синтаксической ошибкой — пропущен (кнопки «Голос» не работают)\n<code>${String(errV.message).replace(/</g, '&lt;')}</code>`);
-                voiceText = null;
-            }
-        }
-
-        let dressText = dressRaw;
-        if (dressText) {
-            const errD = syntaxError(dressText);
-            if (errD) {
-                console.warn('⚠️ Dress.js с синтаксической ошибкой — пропущен:', errD.message);
-                loaderNotify(`⚠️ <b>Dress.js</b> с синтаксической ошибкой — пропущен (команда /dress не работает)\n<code>${String(errD.message).replace(/</g, '&lt;')}</code>`);
-                dressText = null;
-            }
-        }
-
-        let lyashovText = lyashovRaw;
-        if (lyashovText) {
-            const errL = syntaxError(lyashovText);
-            if (errL) {
-                console.warn('⚠️ Lyashov.js с синтаксической ошибкой — пропущен:', errL.message);
-                loaderNotify(`⚠️ <b>Lyashov.js</b> с синтаксической ошибкой — пропущен (команда /lyashov не работает)\n<code>${String(errL.message).replace(/</g, '&lt;')}</code>`);
-                lyashovText = null;
-            }
-        }
-
-        let miniText = miniRaw;
-        if (miniText) {
-            const errM = syntaxError(miniText);
-            if (errM) {
-                console.warn('⚠️ MiniApp/MiniApp.js с синтаксической ошибкой — пропущен:', errM.message);
-                loaderNotify(`⚠️ <b>MiniApp/MiniApp.js</b> с синтаксической ошибкой — пропущен (мини-аппы не загружены)\n<code>${String(errM.message).replace(/</g, '&lt;')}</code>`);
-                miniText = null;
-            }
-        }
-
-        const tChecked = Date.now();
-
-        // Хук на чат ставится один раз при старте Load.js. Если тогда он не встал (чат-компонент ещё не был создан,
-        // игра обновилась) — бот не видит ни одного сообщения чата до перезапуска игры. При перезагрузке пробуем снова.
-        if (!window.__hassleChatHooked) {
-            console.log('🔁 Хук на чат не был установлен — пробуем ещё раз');
-            try { setupChatHook(true); } catch (e) { console.warn('setupChatHook:', e && e.message); }
-        }
-
-        // ── ЭТАП 2: меняем копии (синхронно, без ожиданий) ──
-        // Что именно запускаем (после отсева Code3/Near/Screen/Voice/Dress/MiniApp с синтаксическими ошибками) — запоминаем для отката
-        texts = { listText, codeText, code2Text, code3Text, ozvText, nearText, screenText, voiceText, dressText, lyashovText, miniText };
-        const tApply0 = Date.now();
-        oldCopyReplaced = true;
-        const partialErr = applyScriptCopies(texts);
-        if (partialErr) {
-            // Code2/Code3 упали на запуске. Есть прошлая рабочая версия — откатываемся на неё (catch ниже),
-            // иначе запускаем базовый бот, чтобы Telegram-управление осталось и причина была видна.
-            if (window.__hassleLastGood && !hassleSameCopies(texts, window.__hassleLastGood)) throw partialErr;
-            console.error('❌ Ошибка в Code.js/Code2.js — аварийный запуск базового бота:', partialErr);
-            loaderNotify(`⚠️ <b>Ошибка при выполнении скриптов</b> — запущен базовый режим\n<code>${String(partialErr && partialErr.message).replace(/</g, '&lt;')}</code>`);
-        }
-        startBotNow();
-        if (!partialErr) window.__hassleLastGood = texts;   // эту связку скриптов можно безопасно вернуть, если следующая версия не запустится
-        const tApply = Date.now() - tApply0;
-
-        // Раньше после /reload в Telegram была только строка «Перезагрузка...», и не было понятно, дошло ли дело до конца.
-        // Теперь в сообщении ещё и время по этапам — видно, что именно долго: сеть (скачивание), проверка синтаксиса или запуск.
-        window.__hassleLoadCount = (window.__hassleLoadCount || 0) + 1;
-        if (isReload) {
-            const sec = ((Date.now() - t0) / 1000).toFixed(1);
-            const f = ms => (ms / 1000).toFixed(1);
-            loaderNotify(`✅ <b>Скрипты перезагружены</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'}), ${sec} с\n` +
-                `<i>скачивание ${f(tDownloaded - t0)} с · проверка ${f(tChecked - tDownloaded)} с · запуск ${f(tApply)} с</i>`);
-        }
-        console.log(`⏱ Этапы: скачивание ${tDownloaded - t0} мс, проверка ${tChecked - tDownloaded} мс, запуск ${tApply} мс`);
-
-        // Инфо о коммитах грузим в фоне — не блокируем старт бота
-        Promise.all([
-            fetchLastCommitInfo('Code.js'),
-            fetchLastCommitInfo('Code2.js'),
-        ]).then(([codeInfo, code2Info]) => {
-            window.CODE_COMMIT_INFO  = codeInfo  || null;
-            window.CODE2_COMMIT_INFO = code2Info || null;
-            console.log('📝 Инфо о коммитах загружено — обновляем велком и меню');
-            // Версия Code/Code2 в меню Menu (блок с ником и сервером)
-            if (typeof window.updateMenuVersionLabel === 'function') {
-                try { window.updateMenuVersionLabel(); } catch (e) {}
-            }
-            // Редактируем уже отправленное велком-сообщение с версиями
-            if (typeof window.sendWelcomeMessage === 'function') {
-                window.sendWelcomeMessage(false, true);
-            }
-        }).catch(() => {
-            console.warn('⚠️ Не удалось получить инфо о коммитах');
-        });
-
-        console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
-
-        // === ЗАЖАТИЕ ЛОГОТИПА H → /hb ===
-        (function setupHBLongPress() {
-            const LONG_PRESS_MS = 600; // мс — сколько держать для открытия меню
-
-            function attachLongPress() {
-                const fist = document.querySelector('.hud-hassle-info__fist-content');
-                if (!fist) {
-                    setTimeout(attachLongPress, 1000);
-                    return;
-                }
-                if (fist.dataset.hbAttached) return;
-                fist.dataset.hbAttached = '1';
-
-                let timer = null;
-
-                // Touch (мобилка)
-                fist.addEventListener('touchstart', () => {
-                    timer = setTimeout(() => {
-                        timer = null;
-                        window.sendChatInput('/hb');
-                    }, LONG_PRESS_MS);
-                }, { passive: true });
-
-                fist.addEventListener('touchend', () => {
-                    if (timer) { clearTimeout(timer); timer = null; }
-                });
-
-                fist.addEventListener('touchmove', () => {
-                    if (timer) { clearTimeout(timer); timer = null; }
-                });
-
-                // Mouse (ПК)
-                fist.addEventListener('mousedown', () => {
-                    timer = setTimeout(() => {
-                        timer = null;
-                        window.sendChatInput('/hb');
-                    }, LONG_PRESS_MS);
-                });
-
-                fist.addEventListener('mouseup', () => {
-                    if (timer) { clearTimeout(timer); timer = null; }
-                });
-
-                fist.addEventListener('mouseleave', () => {
-                    if (timer) { clearTimeout(timer); timer = null; }
-                });
-
-                console.log('✅ [HB] Зажатие логотипа H → /hb подключено');
-            }
-
-            setTimeout(attachLongPress, 3000);
-        })();
-        // === END ЗАЖАТИЕ ЛОГОТИПА H ===
-
-        setTimeout(() => {
-            if (window.OnChatAddMessage) {
-                console.log('✅ OnChatAddMessage успешно инициализирован');
-            } else {
-                console.warn('⚠️ OnChatAddMessage не найден, но это может быть нормально');
-            }
-        }, 1000);
-
-    } catch (error) {
-        console.error('❌ Критическая ошибка при инициализации:', error);
-        const safe = String(error && error.message).replace(/</g, '&lt;');
-        // FIX: новая версия скачалась и прошла проверку синтаксиса, но упала при запуске (ошибка времени выполнения) — раньше бот оставался
-        // мёртвым до перезапуска игры: старая копия уже снята, новая не поднялась. Теперь возвращаем предыдущую рабочую версию.
-        let rolledBack = false;
-        const good = window.__hassleLastGood;
-        if (oldCopyReplaced && texts && good && !hassleSameCopies(texts, good)) {
-            try {
-                console.warn('↩️ Новая версия не запустилась — возвращаем предыдущую рабочую');
-                const rbErr = applyScriptCopies(good);
-                startBotNow();
-                rolledBack = true;
-                loaderNotify(`↩️ <b>Новая версия не запустилась — возвращена предыдущая рабочая</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'})\n<code>${safe}</code>` +
-                    (rbErr ? `\n⚠️ при возврате тоже ошибка: <code>${String(rbErr && rbErr.message).replace(/</g, '&lt;')}</code>` : ''));
-            } catch (eRb) {
-                console.error('❌ Откат не удался:', eRb);
-            }
-        }
-        if (rolledBack) {
-            // уведомление уже отправлено
-        } else if (isReload && !oldCopyReplaced) {
-            // Перезагрузка не удалась ДО замены копий — прежняя копия продолжает работать
-            loaderNotify(`❌ <b>Перезагрузка не удалась</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'}) продолжает работать на прежней версии\n<code>${safe}</code>`);
-        } else {
-            loaderNotify(`❌ <b>Критическая ошибка загрузки</b> — аккаунт #${accountNumber || '?'} (${currentUser || '—'})\n<code>${safe}</code>`);
-            // alert блокирует игру, поэтому только если бота нет совсем (первый запуск)
-            if (!isReload) alert(`Ошибка загрузки скриптов для ${currentUser}: ${error.message}`);
-        }
-    } finally {
-        window.__hassleInitRunning = false;
-    }
-}
-
-window.CURRENT_USER = currentUser;
-window.ACCOUNT_NUMBER = accountNumber;
-window.initializeScripts = initializeScripts;
-
-initializeScripts();
+})()
