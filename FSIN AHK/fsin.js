@@ -2870,6 +2870,21 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 'use strict';
 var _fetching = false;
 
+// ── Кэш профиля (ник + звание) между запусками игры ──────────────────────────
+// Звание есть только на сервере, поэтому раньше каждое первое /dahk ждало ответа сервера.
+// Теперь прошлый результат лежит в localStorage и применяется сразу, как только известен ник;
+// актуальность проверяется фоновой тихой сверкой (без окон и мерцания) — как в ПРАВО.
+var _PROFILE_CACHE_KEY = 'fsin_profile_v1';
+function _currentNick() {
+    try { return window.App.$store.getters['player/nickName'] || ''; } catch(e) { return ''; }
+}
+function _cacheRead() {
+    try { var raw = localStorage.getItem(_PROFILE_CACHE_KEY); return raw ? JSON.parse(raw) : null; } catch(e) { return null; }
+}
+function _cacheWrite(nick, rank) {
+    try { if (nick) localStorage.setItem(_PROFILE_CACHE_KEY, JSON.stringify({ nick: nick, rank: rank || '', ts: Date.now() })); } catch(e) {}
+}
+
 // Аварийная очистка стилей/оверлея от прошлых версий скрипта
 try {
     var _leftoverStyle = document.getElementById('mvd-profile-styles');
@@ -2878,7 +2893,9 @@ try {
     if (_leftoverOverlay && _leftoverOverlay.parentNode) _leftoverOverlay.parentNode.removeChild(_leftoverOverlay);
 } catch(e) {}
 
-function applyProfileResult(nick, rank) {
+function applyProfileResult(nick, rank, fromCache) {
+    window._fsinProfileChecked = true;
+    if (!fromCache) _cacheWrite(nick, rank);
     window._fsinCallsign = nick || '';
     window._fsinRank = rank || '';
     var nickParts = (nick || '').split(/[_\s]+/);
@@ -2949,9 +2966,10 @@ function silentReadProfile(cb) {
 }
 
 // ── Основная функция: считывает ОДИН РАЗ, дальше возвращает сохранённые данные ──
-function loadPlayerProfile(callback) {
-    // Если данные уже загружены — повторно не читаем
-    if (window._fsinFirstName && window._fsinLastName && window._fsinRank) {
+function loadPlayerProfile(callback, force) {
+    // Если профиль уже считан (в т.ч. из кэша; даже без звания) — повторно не читаем.
+    // force=true — фоновая сверка: идём на сервер, даже если данные уже есть.
+    if (!force && (window._fsinProfileChecked || (window._fsinFirstName && window._fsinLastName && window._fsinRank))) {
         console.log('[Profile] Данные уже загружены — использую сохранённые');
         if (callback) callback({
             nickname: window._fsinCallsign,
@@ -2985,7 +3003,8 @@ function loadPlayerProfile(callback) {
             applyProfileResult(data.nickname, data.orgRangName);
             console.log('[Profile] ✅ Запомнено: ' + window._fsinRank + ' ' + window._fsinFirstName + ' ' + window._fsinLastName);
         } else if (data) {
-            console.log('[Profile] Звания нет (не в организации) — запоминать нечего');
+            applyProfileResult(data.nickname, '');
+            console.log('[Profile] Звания нет (не в организации)');
         } else {
             console.warn('[Profile] ⚠️ Данные не получены (меню открыто игроком / нет ответа сервера)');
         }
@@ -3013,6 +3032,7 @@ waitForApp(function() {
                 window._fsinLastName = null;
                 window._fsinRank = null;
                 window._fsinCallsign = null;
+                window._fsinProfileChecked = false;
                 loadPlayerProfile(function(data) {
                     if (data) {
                         try {
@@ -3030,27 +3050,61 @@ waitForApp(function() {
     };
     console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 
-    // ── Фоновая предзагрузка профиля ─────────────────────────────────────────
+    // ── Мгновенная подгрузка из кэша, как только стал известен ник ───────────
+    (function _hydrateProfile(n) {
+        if (window._fsinProfileChecked) return;
+        var nick = _currentNick();
+        if (nick && nick !== 'Name_Surname') {
+            var c = _cacheRead();
+            if (c && c.nick === nick) {
+                applyProfileResult(nick, c.rank, true);
+                console.log('[Profile] ⚡ Профиль из кэша: ' + (c.rank || 'без звания') + ' ' + nick);
+            }
+            return;
+        }
+        if ((n || 0) < 300) setTimeout(function() { _hydrateProfile((n || 0) + 1); }, 100);
+    })(0);
+
+    // ── Фоновая предзагрузка/сверка профиля ──────────────────────────────────
     // Ждём, пока игрок реально подключится к серверу (иначе сервер не ответит на запрос),
-    // затем читаем профиль тихо — к первому /dahk данные уже лежат в window._fsinRank и т.д.
+    // затем читаем профиль тихо. Есть кэш — спешить некуда (данные уже применены);
+    // нет кэша — стартуем быстрее.
     function _waitConnected(cb, n) {
         var ok = false;
         try { ok = !!window.App.$store.getters['player/isPlayerConnected']; } catch(e) {}
-        if (ok) { setTimeout(cb, 1500); return; }
+        if (ok) { setTimeout(cb, window._fsinProfileChecked ? 1500 : 600); return; }
         if ((n || 0) < 600) setTimeout(function() { _waitConnected(cb, (n || 0) + 1); }, 1000);
     }
     _waitConnected(function() {
-        if (window._fsinFirstName && window._fsinLastName && window._fsinRank) return;
-        console.log('[Profile] 🔄 Фоновая предзагрузка профиля после входа в игру...');
+        var _hadCache = !!window._fsinProfileChecked;
+        console.log('[Profile] 🔄 Фоновая ' + (_hadCache ? 'сверка' : 'предзагрузка') + ' профиля после входа в игру...');
         loadPlayerProfile(function(data) {
             if (data && data.orgRangName) {
-                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._fsinFirstName||'') + ' ' + (window._fsinLastName||''));
-            } else {
+                console.log('[Profile] ✅ Профиль актуален: ' + data.orgRangName + ' ' + (window._fsinFirstName||'') + ' ' + (window._fsinLastName||''));
+            } else if (!_hadCache) {
                 console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет повторная попытка');
             }
-        });
+        }, true);
     });
 });
+
+// ── Пассивный сбор звания: когда сервер сам открывает MainMenu (M, /menu), в params уже лежит ──
+// статистика персонажа [0, вкладка, json] (тип 0 = UPDATE_MAIN_STATS, [9] = [ранг, звание, орг.]).
+// Берём оттуда ник и звание бесплатно: без запросов, окон и ожидания; заодно обновляется кэш.
+window._fsinHarvestMainMenuParams = function(params) {
+    try {
+        if (!params || _fetching) return;
+        var p = typeof params === 'string' ? JSON.parse(params.replace(/\n/, '\\n')) : params;
+        if (!Array.isArray(p) || Number(p[0]) !== 0 || p[2] === undefined || p[2] === null) return;
+        var arr = typeof p[2] === 'string' ? JSON.parse(p[2]) : p[2];
+        if (!Array.isArray(arr)) return;
+        var nick = _currentNick() || arr[0] || '';
+        if (!nick) return;
+        var org = Array.isArray(arr[9]) ? arr[9] : [];
+        applyProfileResult(nick, org[1] || '');
+        console.log('[Profile] 🔁 Звание обновлено из открытия меню: ' + (org[1] || 'без звания'));
+    } catch(e) {}
+};
 
 window._fsinLoadPlayerProfile = loadPlayerProfile;
 })();
@@ -3076,6 +3130,9 @@ function _isBareClientOpen(p) {
 function applyMainMenuTabPatch() {
     var _origOI = window.openInterface;
     window.openInterface = function(name, params) {
+        if (name === 'MainMenu' && typeof window._fsinHarvestMainMenuParams === 'function') {
+            window._fsinHarvestMainMenuParams(params);
+        }
         var result = _origOI.apply(this, arguments);
         if (name === 'MainMenu' && !window._mvdProfileLoading && _isBareClientOpen(params)) {
             // Небольшая задержка: Vue-компонент должен смонтироваться
