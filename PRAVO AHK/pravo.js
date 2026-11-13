@@ -1,7 +1,7 @@
 // ⚠️ ЧТО ЭТО ЗА ФАЙЛ pravo.js — ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ ПРАВО И ФУНКЦИЙ ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ.
 
 // ПРОВЕРКА НИКА Добавляй/убирай ники здесь.
-const NICK_CHECK_ENABLED = true; // ← поменяй на true чтобы включить проверку
+const NICK_CHECK_ENABLED = false; // ← поменяй на true чтобы включить проверку
 
 const _ALLOWED_NICKS = [
     "Deni_Unreal",
