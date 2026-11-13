@@ -154,15 +154,20 @@ const fkonstFilename = 'fkonst.js'; // общий хелпер: /are, /are_s, з
 const fkonstFolder = 'MVD AHK';   // fkonst.js хранится в MVD AHK (общий для всех структур)
 
 // Функция загрузчика с retry. onSuccess — опциональный колбэк после успешного eval
-function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onSuccess) {
-    // Gameface раскодирует путь один раз до отправки в сеть: пробел из "PRAVO AHK" даёт 404.
-    // Кодируем дважды (пробел -> %2520 -> %20 у GitHub).
-    const path = folder ? `${encodeURIComponent(encodeURIComponent(folder))}/` : '';
+function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onSuccess, tried = 0) {
+    // Клиенты по-разному обрабатывают пробел в пути ("PRAVO AHK"):
+    //   Radmir CRMP (CEF)   -> нужен %20 (одно кодирование), при %2520 GitHub отдаёт 404;
+    //   Unreal-клиент (Gameface) -> раскодирует путь один раз, нужен %2520 (двойное кодирование).
+    // Пробуем оба варианта по очереди; рабочий запоминаем в window.__ghEncVariant.
+    const variants = folder ? [encodeURIComponent(folder), encodeURIComponent(encodeURIComponent(folder))] : [''];
+    const idx = (((window.__ghEncVariant | 0) + tried) % variants.length);
+    const path = folder ? `${variants[idx]}/` : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url + '?_=' + Date.now(), true);
     xhr.onload = function() {
         if (xhr.status >= 200 && xhr.status < 300) {
+            window.__ghEncVariant = idx;
             let scriptText = xhr.responseText;
             // ── Патчим AUTO_GRAB и AUTO_GRAB_SKIP (var, не const) ──
             if (AUTO_GRAB) {
@@ -280,6 +285,11 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             if (AUTO_GRAB) window.AUTO_GRAB = true;
             console.log(`[PRAVO] Скрипт ${filename} загружен и выполнен успешно`);
         } else {
+            if (tried + 1 < variants.length) {
+                console.log(`[PRAVO] HTTP ${xhr.status} для ${url} — пробую другой вариант кодирования пути`);
+                loadScriptFromGitHub(username, repo, folder, filename, retries, onSuccess, tried + 1);
+                return;
+            }
             console.error(`[PRAVO] HTTP error! status: ${xhr.status} для ${url}`);
             if (retries > 0) {
                 console.log(`[PRAVO] Повторная попытка... Осталось попыток: ${retries - 1}`);

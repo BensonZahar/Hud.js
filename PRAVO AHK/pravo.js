@@ -138,36 +138,47 @@ function _showAccessDenied(nick) {
 })(function() {
 // ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB Грузим 5 файлов параллельно при старте игры.
 (function prefetchAllCustomUI() {
-    var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/PRAVO%2520AHK/' // двойное кодирование: Gameface раскодирует путь один раз
-             + encodeURIComponent(encodeURIComponent('Кастом Интерфейсы')) + '/';
+    // Два варианта кодирования пути: Radmir (CEF) принимает %20, Unreal (Gameface) — %2520.
+    // Рабочий вариант запоминается в window.__ghEncVariant (его же ставит LoadPravo.js).
+    var BASES = [
+        'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/PRAVO%20AHK/'
+            + encodeURIComponent('Кастом Интерфейсы') + '/',
+        'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/PRAVO%2520AHK/'
+            + encodeURIComponent(encodeURIComponent('Кастом Интерфейсы')) + '/'
+    ];
     var FILES = {
-        zkm_js:       BASE + 'zkm.js',
-        zkm_css:      BASE + 'zkm.css',
-        zkmsn_js:     BASE + 'ZkmScreenNotification.js',
-        zkmsn_css:    BASE + 'ZkmScreenNotification.css',
-        dokladi_js:   BASE + 'dokladi.js',
-        dokladi_css:  BASE + 'dokladi.css',
-        sidemenu_js:  BASE + 'SideMenu.js',
-        sidemenu_css: BASE + 'SideMenu.css'
+        zkm_js:       'zkm.js',
+        zkm_css:      'zkm.css',
+        zkmsn_js:     'ZkmScreenNotification.js',
+        zkmsn_css:    'ZkmScreenNotification.css',
+        dokladi_js:   'dokladi.js',
+        dokladi_css:  'dokladi.css',
+        sidemenu_js:  'SideMenu.js',
+        sidemenu_css: 'SideMenu.css'
     };
     var RETRIES = 5, BASE_DELAY = 1000;
 
-    function xhrGet(url, attempt) {
+    function xhrGet(name, attempt, v) {
+        v = v || 0;
         return new Promise(function(resolve, reject) {
+            var idx = (((window.__ghEncVariant | 0) + v) % BASES.length);
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', url + '?_=' + Date.now(), true);
+            xhr.open('GET', BASES[idx] + name + '?_=' + Date.now(), true);
             xhr.onload = function() {
                 if (xhr.status >= 200 && xhr.status < 300) {
+                    window.__ghEncVariant = idx;
                     resolve(xhr.responseText);
+                } else if (v + 1 < BASES.length) {
+                    xhrGet(name, attempt, v + 1).then(resolve, reject);
                 } else if (attempt < RETRIES) {
                     var d = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
-                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, d);
+                    setTimeout(function() { xhrGet(name, attempt + 1, 0).then(resolve, reject); }, d);
                 } else reject(new Error('HTTP ' + xhr.status));
             };
             xhr.onerror = function() {
                 if (attempt < RETRIES) {
                     var d = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
-                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, d);
+                    setTimeout(function() { xhrGet(name, attempt + 1, 0).then(resolve, reject); }, d);
                 } else reject(new Error('Network'));
             };
             xhr.send();
@@ -177,7 +188,7 @@ function _showAccessDenied(nick) {
     var promises = {};
     for (var key in FILES) {
         (function(k) {
-            promises[k] = xhrGet(FILES[k], 0)
+            promises[k] = xhrGet(FILES[k], 0, 0)
                 .then(function(text) {
                     window['__prefetch_' + k] = text;
                     console.log('[pravo] ✅ префетч ' + k + ' (' + text.length + ' байт)');
