@@ -155,8 +155,8 @@ const fkonstFolder = 'MVD AHK';   // fkonst.js хранится в MVD AHK (об
 
 // Функция загрузчика с retry. onSuccess — опциональный колбэк после успешного eval
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onSuccess) {
-    // Gameface раскодирует путь один раз до отправки в сеть, поэтому пробел в имени папки
-    // ("PRAVO AHK") превращается в 404. Кодируем дважды: пробел -> %2520 -> %20 на стороне GitHub.
+    // Gameface раскодирует путь один раз до отправки в сеть: пробел из "PRAVO AHK" даёт 404.
+    // Кодируем дважды (пробел -> %2520 -> %20 у GitHub).
     const path = folder ? `${encodeURIComponent(encodeURIComponent(folder))}/` : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
@@ -251,13 +251,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
             // перезаписываем их сразу после eval.
-            try {
-                eval(scriptText);
-            } catch (evalErr) {
-                console.error('[PRAVO] Ошибка выполнения ' + filename + ':', evalErr);
-                window._ahkLoadErrors = (window._ahkLoadErrors || []).concat(filename + ': ' + (evalErr && evalErr.message));
-            }
-            window._ahkLoaded = (window._ahkLoaded || []).concat(filename);
+            eval(scriptText);
             // Прокидываем LICENSOR_HELPER_ENABLED в window после eval
             window.LICENSOR_HELPER_ENABLED = LICENSOR_HELPER_ENABLED;
             if (typeof onSuccess === 'function') onSuccess();
@@ -292,7 +286,6 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
                 setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1, onSuccess), 2000);
             } else {
                 console.error(`[PRAVO] Не удалось загрузить скрипт AHK ${filename} после всех попыток`);
-                if (typeof onSuccess === 'function') onSuccess(); // не блокируем pravo.js из-за fkonst.js
             }
         }
     };
@@ -303,7 +296,6 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1, onSuccess), 2000);
         } else {
             console.error(`[PRAVO] Не удалось загрузить скрипт AHK ${filename} после всех попыток`);
-                if (typeof onSuccess === 'function') onSuccess(); // не блокируем pravo.js из-за fkonst.js
         }
     };
     xhr.send();

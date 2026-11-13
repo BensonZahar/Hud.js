@@ -138,8 +138,8 @@ function _showAccessDenied(nick) {
 })(function() {
 // ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB Грузим 5 файлов параллельно при старте игры.
 (function prefetchAllCustomUI() {
-    var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/PRAVO%20AHK/'
-             + encodeURIComponent('Кастом Интерфейсы') + '/';
+    var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/PRAVO%2520AHK/' // двойное кодирование: Gameface раскодирует путь один раз
+             + encodeURIComponent(encodeURIComponent('Кастом Интерфейсы')) + '/';
     var FILES = {
         zkm_js:       BASE + 'zkm.js',
         zkm_css:      BASE + 'zkm.css',
