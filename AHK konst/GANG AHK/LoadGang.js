@@ -55,9 +55,16 @@ const fkonstFolder = 'MVD AHK';
 
 // Загрузка с GitHub с повторными попытками.
 // onSuccess — колбэк после успешного eval; onFail — после исчерпания попыток.
-function loadScriptFromGitHub(folder, filename, retries, onSuccess, onFail) {
+function loadScriptFromGitHub(folder, filename, retries, onSuccess, onFail, tried) {
+    tried = tried || 0;
     // Папка может быть вложенной («AHK konst/GANG AHK») — кодируем каждую часть отдельно, слэши оставляем
-    const path = folder ? folder.split('/').map(encodeURIComponent).join('/') + '/' : '';
+    // Radmir (CEF): нужен %20, Unreal (Gameface): раскодирует путь один раз -> нужен %2520. Пробуем оба, рабочий помним.
+    const parts = folder ? folder.split('/') : [];
+    const variants = folder
+        ? [parts.map(encodeURIComponent).join('/'), parts.map(function (x) { return encodeURIComponent(encodeURIComponent(x)); }).join('/')]
+        : [''];
+    const idx = (((window.__ghEncVariant | 0) + tried) % variants.length);
+    const path = folder ? variants[idx] + '/' : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
 
     function retry(reason) {
@@ -75,6 +82,7 @@ function loadScriptFromGitHub(folder, filename, retries, onSuccess, onFail) {
     xhr.open('GET', url + '?_=' + Date.now(), true);
     xhr.onload = function () {
         if (xhr.status >= 200 && xhr.status < 300) {
+            window.__ghEncVariant = idx;
             let scriptText = xhr.responseText;
             // ── Патчим MENU_KEY (в gang.js это var, не const) ──
             if (filename === 'gang.js') {
@@ -85,6 +93,9 @@ function loadScriptFromGitHub(folder, filename, retries, onSuccess, onFail) {
             eval(scriptText);
             console.log(`[GANG] Скрипт ${filename} загружен и выполнен успешно`);
             if (typeof onSuccess === 'function') onSuccess();
+        } else if (tried + 1 < variants.length) {
+            console.log(`[GANG] HTTP ${xhr.status} — пробую другой вариант кодирования пути`);
+            loadScriptFromGitHub(folder, filename, retries, onSuccess, onFail, tried + 1);
         } else {
             retry(`HTTP error! status: ${xhr.status}`);
         }
