@@ -1,4 +1,4 @@
-import os, random, string, threading, tempfile, requests, json
+import os, re, random, string, threading, tempfile, requests, json
 import sys, base64, hashlib, time, io, winreg
 import subprocess, zipfile, shutil
 from pathlib import Path
@@ -105,6 +105,330 @@ HASSLE_DD_VAR_FALLBACK = 'Dd'   # Телефон — словарь импорт
 HASSLE_FD_VAR_FALLBACK = 'Rd'   # Телефон — словарь конфигов (open/show/options)
 
 HASSLE_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+# ═══════════════════════════════════════════════════════════════════════
+#  ahk.js — ОТДЕЛЬНЫЙ МОДУЛЬ (вместо вставки в конец Index.js)
+# ═══════════════════════════════════════════════════════════════════════
+# Установщик пишет assets/ahk.js и прописывает его <script type="module"> в
+# uiresources/index.html (между маркерами HASSLE LOAD BOT). Index.js НЕ меняется.
+# Внутренние переменные Index.js (Rt/$t/w/f, Oe/Ao/sr) в отдельном модуле недоступны,
+# поэтому регистрация интерфейсов идёт через window.App, а нужные функции Vue
+# ищутся в неймспейсе ./index.js по исходнику (не зависят от сборки игры).
+AHK_MODULE_CORE = r'''// ═══════════════════════════════════════════════════════════════════════
+// ahk.js — ОТДЕЛЬНЫЙ МОДУЛЬ (подключается в index.html после index.js)
+// ═══════════════════════════════════════════════════════════════════════
+// Раньше этот код вставлялся В КОНЕЦ index.js и пользовался его внутренними
+// (минифицированными) переменными: Rt, $t, w, f (регистрация интерфейсов) и
+// Oe, Ao, sr (хелперы Vue для патча Hud). В отдельном модуле их НЕТ — вот
+// почему интерфейсы не открывались (ReferenceError глотался try/catch).
+//
+// Теперь всё берётся из публичных мест, имена которых не зависят от сборки:
+//   • window.App.$.type.components  — это и есть Rt (локальные компоненты root)
+//   • window.App.components         — это и есть $t (конфиги интерфейсов)
+//   • import("./index.js")          — неймспейс; нужные Vue-функции ищутся по
+//                                     исходнику (defineAsyncComponent, openBlock …)
+//
+// ВАЖНО: из index.js код AHK нужно УДАЛИТЬ (оставить оригинал), иначе всё
+// выполнится дважды.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── 0. Вспомогательное ────────────────────────────────────────────────
+const __ahkSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function __ahkWaitFor(fn, timeoutMs, stepMs) {
+    const t0 = Date.now();
+    for (;;) {
+        try { const v = fn(); if (v) return v; } catch (e) {}
+        if (Date.now() - t0 > timeoutMs) return null;
+        await __ahkSleep(stepMs || 50);
+    }
+}
+
+// Vue-функции, найденные в неймспейсе index.js (заполняется асинхронно)
+const __vue = {};
+let __vueP = null;
+const __RE_OPEN_BLOCK   = /^function\s*[\w$]*\s*\(\s*[\w$]+\s*=\s*(?:!1|false)\s*\)\s*\{\s*[\w$]+\.push\(\s*[\w$]+\s*=\s*[\w$]+\s*\?\s*null\s*:\s*\[\s*\]\s*\)\s*;?\s*\}$/;
+const __RE_CREATE_BLOCK = /^function\s*[\w$]*\s*\(\s*([\w$]+)\s*,\s*([\w$]+)\s*,\s*([\w$]+)\s*,\s*([\w$]+)\s*,\s*([\w$]+)\s*\)\s*\{\s*return\s+[\w$]+\(\s*[\w$]+\(\s*\1\s*,\s*\2\s*,\s*\3\s*,\s*\4\s*,\s*\5\s*,\s*(?:!0|true)\s*\)\s*\)\s*;?\s*\}$/;
+const __RE_COMMENT_VN   = /^function\s*[\w$]*\s*\(\s*[\w$]+\s*=\s*(?:""|'')\s*,\s*[\w$]+\s*=\s*(?:!1|false)\s*\)\s*\{\s*return\s+[\w$]+\s*\?\s*\(\s*[\w$]+\(\s*\)\s*,\s*[\w$]+\(/;
+
+function __ahkVueHelpers() {
+    if (__vueP) return __vueP;
+    __vueP = import("./index.js").then(function (ns) {
+        const list = [];
+        Object.keys(ns).forEach(function (k) {
+            try { if (typeof ns[k] === "function") list.push(ns[k]); } catch (e) {}
+        });
+        const src = function (fn) {
+            try { return Function.prototype.toString.call(fn); } catch (e) { return ""; }
+        };
+        const find = function (test, maxLen) {
+            for (let i = 0; i < list.length; i++) {
+                const s = src(list[i]);
+                if (s.length <= maxLen && test(s, list[i])) return list[i];
+            }
+            return null;
+        };
+        const found = {
+            defineAsyncComponent: find(function (s) { return s.indexOf("AsyncComponentWrapper") !== -1; }, 8000),
+            openBlock:            find(function (s) { return __RE_OPEN_BLOCK.test(s); }, 250),
+            createBlock:          find(function (s) { return __RE_CREATE_BLOCK.test(s); }, 250),
+            createCommentVNode:   find(function (s, fn) {
+                if (!__RE_COMMENT_VN.test(s)) return false;
+                try { const v = fn("", false); return !!v && typeof v.type === "symbol"; } catch (e) { return false; }
+            }, 300)
+        };
+        Object.keys(found).forEach(function (k) { if (found[k]) __vue[k] = found[k]; });
+        console.log("[AHK] Vue-хелперы из index.js:", Object.keys(__vue).join(", ") || "не найдены");
+        return __vue;
+    }).catch(function (e) {
+        console.warn("[AHK] не удалось импортировать ./index.js:", e);
+        return __vue;
+    });
+    return __vueP;
+}
+
+// ── 1. Регистрация кастомных интерфейсов (список сформирован установщиком) ──
+// files — файлы интерфейса и его зависимости; .css подключаются <link> при первом открытии.
+const __AHK_IFACES = [
+%%IFACES%%
+];
+const __AHK_SIDE_EFFECTS = [
+%%SIDE_EFFECTS%%
+];
+
+function __ahkCssOf(def) {
+    return (def.files || []).filter(function (f) { return /\.css(\?|$)/i.test(f); });
+}
+function __ahkAddCss(file) {
+    try {
+        const href = new URL(file, import.meta.url).href;
+        const links = document.getElementsByTagName("link");
+        for (let i = 0; i < links.length; i++) if (links[i].href === href) return;
+        const l = document.createElement("link");
+        l.rel = "stylesheet";
+        l.href = href;
+        l.onerror = function () { console.warn("[AHK] css не загрузился:", href); };
+        document.head.appendChild(l);
+    } catch (e) { console.warn("[AHK] addCss:", file, e); }
+}
+
+// Все реестры, из которых Vue ищет компонент по имени (Rt и его копии)
+function __ahkRegistries(root) {
+    const regs = [];
+    const push = function (r) { if (r && typeof r === "object" && regs.indexOf(r) === -1) regs.push(r); };
+    push(root.type && root.type.components);                 // = Rt
+    push(root.components);                                   // merged-копия (если есть)
+    push(root.appContext && root.appContext.components);     // глобальные
+    return regs;
+}
+
+// Запасной путь (если defineAsyncComponent не нашёлся): подгружаем модуль
+// прямо перед openInterface(name).
+function __ahkEnsure(def, root) {
+    if (!def.__p) {
+        __ahkCssOf(def).forEach(__ahkAddCss);
+        def.__p = def.load().then(function (mod) {
+            const comp = (mod && mod.default) || mod;
+            __ahkRegistries(root).forEach(function (r) { r[def.name] = comp; });
+            def.__ready = true;
+        });
+    }
+    return def.__p;
+}
+function __ahkInstallOpenGuard(root) {
+    const orig = window.openInterface;
+    if (typeof orig !== "function" || orig.__ahkGuard) return;
+    const byName = {};
+    __AHK_IFACES.forEach(function (d) { byName[d.name] = d; });
+    const guard = function (name) {
+        const def = byName[name], args = arguments, self = this;
+        if (!def || def.__ready) return orig.apply(self, args);
+        return __ahkEnsure(def, root).then(
+            function () { return orig.apply(self, args); },
+            function (e) { console.error("[AHK] не загрузился интерфейс " + name + ":", e); }
+        );
+    };
+    guard.__ahkGuard = true;
+    window.openInterface = guard;
+}
+
+async function __ahkRegisterInterfaces() {
+    const app = await __ahkWaitFor(function () {
+        return window.App && window.App.$ && window.App.components ? window.App : null;
+    }, 60000, 50);
+    if (!app) { console.error("[AHK] window.App не появился — интерфейсы не зарегистрированы"); return; }
+    const root = app.$;
+    const H = await __ahkVueHelpers();
+    const lazy = typeof H.defineAsyncComponent === "function";
+
+    __AHK_IFACES.forEach(function (def) {
+        try {
+            if (lazy) {
+                const comp = H.defineAsyncComponent(function () {
+                    __ahkCssOf(def).forEach(__ahkAddCss);
+                    return def.load();
+                });
+                __ahkRegistries(root).forEach(function (r) { r[def.name] = comp; });
+            }
+            // конфиг ($t): app.components — реактивная обёртка над $t
+            if (!app.components[def.name]) {
+                app.components[def.name] = { open: { status: false }, show: true, options: Object.assign({}, def.options) };
+            }
+        } catch (e) { console.error("[AHK] регистрация интерфейса " + def.name + ":", e); }
+    });
+    if (!lazy) {
+        console.warn("[AHK] defineAsyncComponent не найден — режим «грузить перед открытием»");
+        __ahkInstallOpenGuard(root);
+    }
+    console.log("[AHK] ✅ интерфейсы зарегистрированы:", __AHK_IFACES.map(function (d) { return d.name; }).join(", "));
+}
+
+// side-effect модули (например ZkmScreenNotification — вешает window.*)
+__AHK_SIDE_EFFECTS.forEach(function (se) {
+    try {
+        __ahkCssOf(se).forEach(__ahkAddCss);
+        se.load().catch(function (e) { console.error("[AHK] side-effect импорт:", e); });
+    } catch (e) { console.error("[AHK] side-effect импорт:", e); }
+});
+
+// Запускаем регистрацию интерфейсов (ждёт window.App)
+__ahkRegisterInterfaces().catch(function (e) { console.error("[AHK] регистрация интерфейсов:", e); });
+'''
+
+# Патч компонента Hud (VoiceChat и пр.). Включается только если в загрузчике (LoadAhk.js)
+# найден старый блок «HASSLE HUD COMPONENT PATCH» — его установщик вырезает и заменяет этим.
+AHK_MODULE_HUD = r'''// ── 2. Патч компонента Hud (раньше использовал Oe/Ao/sr из index.js) ────
+// ВАЖНО: запускается синхронно при загрузке модуля, чтобы успеть до создания Hud.
+__ahkVueHelpers();
+(function __hasComponentPatch() {
+    console.log("[HAS-COMP] Инициализация компонентного патча...");
+
+    import("./Hud.js").then(function (mod) {
+        var Mu = mod && mod.default;
+        if (!Mu || typeof Mu !== "object") {
+            console.warn("[HAS-COMP] Mu не найден в Hud.js module");
+            return;
+        }
+
+        // 1. Patch data() — добавляем __hassleForced
+        if (typeof Mu.data === "function") {
+            var __hasOrigData = Mu.data;
+            Mu.data = function () {
+                var s = __hasOrigData.apply(this, arguments);
+                if (s && typeof s.__hassleForced === "undefined") s.__hassleForced = false;
+                return s;
+            };
+            console.log("[HAS-COMP] ✅ data() обёрнут");
+        }
+
+        // 2. Patch computed.isHassleHud
+        if (Mu.computed) {
+            Mu.computed.isHassleHud = function () { return !!this.__hassleForced; };
+            console.log("[HAS-COMP] ✅ computed.isHassleHud переопределён");
+        }
+
+        // 3. Replace Chat → RadmirChat
+        if (Mu.components && Mu.components.RadmirChat) {
+            var rc = Mu.components.RadmirChat;
+            if (rc.props) {
+                if (rc.props.isHudControls) rc.props.isHudControls.default = true;
+                if (rc.props.canChatFadeout) rc.props.canChatFadeout.default = true;
+                if (rc.props.useChatAnimation) rc.props.useChatAnimation.default = true;
+            }
+            Mu.components.Chat = rc;
+            console.log("[HAS-COMP] ✅ Chat → RadmirChat");
+        }
+
+        // 4. Patch HudHassle.render — inject VoiceChat
+        if (Mu.components && Mu.components.HudHassle && Mu.components.HudRadmir) {
+            var hudHassle = Mu.components.HudHassle;
+            var voiceChatComp = Mu.components.HudRadmir.components &&
+                                Mu.components.HudRadmir.components.VoiceChat;
+
+            if (voiceChatComp && typeof hudHassle.render === "function") {
+                var __hasOrigHassleRender = hudHassle.render;
+                hudHassle.render = function () {
+                    var vnode = __hasOrigHassleRender.apply(this, arguments);
+                    try {
+                        // Vue-хелперы ищутся в index.js по исходнику (см. __ahkVueHelpers)
+                        var ob = __vue.openBlock, cb = __vue.createBlock, cc = __vue.createCommentVNode;
+                        if (!(ob && cb && cc)) return vnode;
+                        var props = arguments[2] || {};
+                        var dataObj = props.data;
+                        if (vnode && Array.isArray(vnode.children)) {
+                            var showVoice = !!(dataObj && dataObj.useChat &&
+                                              dataObj.voiceChat && dataObj.voiceChat.show);
+                            var vcNode;
+                            if (showVoice) {
+                                var cfs = (window.App && window.App.chatFontSize) || 0;
+                                var cps = (window.App && window.App.chatPageSize) || 1;
+                                var chpx = (window.App && typeof window.App.vhToPx === "function")
+                                    ? window.App.vhToPx(2.22 + 0.15 * cfs) * cps : 0;
+                                ob();
+                                vcNode = cb(voiceChatComp, {
+                                    key: 0,
+                                    entries: dataObj.voiceChat.entries,
+                                    chatHeightPx: chpx,
+                                    isHudControls: dataObj.isHudControls,
+                                    isShowButtons: dataObj.voiceChat.showButtons,
+                                    isTransparent: window.isOpenedChat ? window.isOpenedChat() : false
+                                }, null, 8, ["entries", "chatHeightPx", "isHudControls", "isShowButtons", "isTransparent"]);
+                            } else {
+                                vcNode = cc("", true);
+                            }
+                            vnode.children.push(vcNode);
+                            if (Array.isArray(vnode.dynamicChildren)) vnode.dynamicChildren.push(vcNode);
+                        }
+                    } catch (err) { console.warn("[HAS-COMP] VoiceChat inject error:", err); }
+                    return vnode;
+                };
+                console.log("[HAS-COMP] ✅ HudHassle.render — VoiceChat injected");
+            } else {
+                console.warn("[HAS-COMP] ⚠️ VoiceChat недоступен:", { vc: !!voiceChatComp });
+            }
+        }
+
+        // 5. Patch Hud.render — fix chat fragment key
+        if (typeof Mu.render === "function") {
+            var FRAGMENT_SYM = Symbol.for("v-fgt");
+            var __hasOrigHudRender = Mu.render;
+            Mu.render = function () {
+                var vnode = __hasOrigHudRender.apply(this, arguments);
+                try {
+                    (function fixKey(vn) {
+                        if (!vn) return;
+                        if (vn.type === FRAGMENT_SYM && (vn.key === 2 || vn.key === 3)) {
+                            if (vn.children && vn.children.length > 0) {
+                                for (var i = 0; i < vn.children.length; i++) {
+                                    var ch = vn.children[i];
+                                    if (ch && ch.props && ch.props.ref === "chat") {
+                                        vn.key = "__has_chat_fixed__";
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (vn.children && Array.isArray(vn.children)) {
+                            for (var j = 0; j < vn.children.length; j++) fixKey(vn.children[j]);
+                        }
+                    })(vnode);
+                } catch (err) { console.warn("[HAS-COMP] fixChatFragmentKey error:", err); }
+                return vnode;
+            };
+            console.log("[HAS-COMP] ✅ Hud.render — fragment key fixed");
+        }
+
+        console.log("[HAS-COMP] ✅ Все компонентные патчи применены");
+    }).catch(function (err) {
+        console.warn("[HAS-COMP] ❌ Не удалось загрузить Hud.js:", err);
+    });
+})();
+'''
+
+AHK_HTML_MARK_S = "<!-- HASSLE LOAD BOT START -->"
+AHK_HTML_MARK_E = "<!-- HASSLE LOAD BOT END -->"
+AHK_HTML_TAG    = '<script type="module" crossorigin src="./assets/ahk.js"></script>'
+AHK_HUD_PATCH_S = "// === HASSLE HUD COMPONENT PATCH"
+AHK_HUD_PATCH_E = "// === END HASSLE HUD COMPONENT PATCH ==="
 
 
 def _intload_url(department: str) -> str:
@@ -840,6 +1164,121 @@ class InstallerAPI:
         p = self.radmir_path / "uiresources" / "assets" / "Index.js"
         return p if p.exists() else None
 
+    # ── ahk.js + index.html ─────────────────────────────────────────────────
+    def _index_html(self):
+        if not self.radmir_path:
+            return None
+        p = self.radmir_path / "uiresources" / "index.html"
+        return p if p.exists() else None
+
+    @staticmethod
+    def _read_keep_nl(p):
+        with open(p, 'r', encoding='utf-8', newline='') as f:
+            return f.read()
+
+    def _ahk_js_path(self):
+        if not self.radmir_path:
+            return None
+        return self.radmir_path / "uiresources" / "assets" / "ahk.js"
+
+    @staticmethod
+    def _html_remove_block(html: str) -> str:
+        pat = re.compile(r'[ \t]*' + re.escape(AHK_HTML_MARK_S) + r'.*?' + re.escape(AHK_HTML_MARK_E) + r'[ \t]*(?:\r?\n)?', re.S)
+        return pat.sub('', html)
+
+    @staticmethod
+    def _html_has_block(html: str) -> bool:
+        return AHK_HTML_MARK_S in html and 'assets/ahk.js' in html
+
+    @classmethod
+    def _html_add_block(cls, html: str) -> str:
+        """Прописывает ahk.js в index.html ПОСЛЕ скрипта index.js (иначе модуль выполнится раньше игры)."""
+        html = cls._html_remove_block(html)
+        nl = '\r\n' if '\r\n' in html else '\n'
+        block = f'    {AHK_HTML_MARK_S}{nl}    {AHK_HTML_TAG}{nl}    {AHK_HTML_MARK_E}{nl}'
+        m_head = re.search(r'</head\s*>', html, re.I)
+        if not m_head:
+            raise ValueError("В index.html не найден тег </head>")
+        pos = m_head.start()
+        m_idx = re.search(r'<script[^>]*\bsrc\s*=\s*["\'][^"\']*index\.js[^"\']*["\'][^>]*>\s*</script\s*>', html, re.I)
+        if m_idx and m_idx.start() > pos:
+            # скрипт игры стоит ниже </head> — ставим ahk.js сразу после него
+            end = m_idx.end()
+            nl_end = html.find('\n', end)
+            end = len(html) if nl_end == -1 else nl_end + 1
+            return html[:end] + block + html[end:]
+        line_start = html.rfind('\n', 0, pos) + 1
+        if html[line_start:pos].strip() == '':
+            pos = line_start
+        else:
+            block = nl + block
+        return html[:pos] + block + html[pos:]
+
+    @staticmethod
+    def _split_hud_patch(code: str):
+        """Вырезает старый блок HUD-патча из загрузчика. Возвращает (был_ли_блок, код_без_него)."""
+        si = code.find(AHK_HUD_PATCH_S)
+        if si == -1:
+            return False, code
+        ei = code.find(AHK_HUD_PATCH_E, si)
+        if ei == -1:
+            _log_to_file('_split_hud_patch: найден старт блока HUD-патча, но нет конца — оставляю как есть')
+            return False, code
+        nl = code.find('\n', ei)
+        tail = code[nl + 1:] if nl != -1 else ''
+        return True, code[:si] + '// (патч компонента Hud вынесен в начало ahk.js)\n' + tail
+
+    @staticmethod
+    def _build_module_interfaces(ifaces: list):
+        """Возвращает (js_список_интерфейсов, js_список_side-effect) для ahk.js.
+        import() пишем литералами — путь резолвится относительно ahk.js (assets/)."""
+        entries, side = [], []
+        for iface in ifaces or []:
+            name  = iface["name"]
+            files = list(iface.get("files", []))
+            deps  = list(iface.get("deps", []))  # нативные зависимости (css и т.п.): подключаются, но не скачиваются
+            itype = iface.get("type", "interface")
+            js_file = next((f for f in files if f.endswith(".js")), files[0] if files else None)
+            if not js_file:
+                continue
+            all_files = files + deps
+            imp = json.dumps("./" + js_file)
+            if itype == "sideEffect":
+                side.append(f'  {{ load: () => import({imp}), files: {json.dumps(all_files)} }},')
+                print(f'[Installer] "{name}" -> side-effect импорт')
+                continue
+            if name in NATIVE_INTERFACE_NAMES:
+                print(f'[Installer] [!] Пропускаю "{name}" — совпадает с нативным интерфейсом игры')
+                continue
+            opts = {"hideHud": bool(iface.get("hideHud")), "hideChat": bool(iface.get("hideChat"))}
+            if iface.get("hud"):
+                opts["hud"] = True
+            if iface.get("style"):
+                opts["style"] = str(iface["style"])
+            entries.append(f'  {{ name: {json.dumps(name)}, load: () => import({imp}), files: {json.dumps(all_files)}, options: {json.dumps(opts)} }},')
+        return "\n".join(entries), "\n".join(side)
+
+    def _build_ahk_module(self, ifaces: list, obf: str, with_hud: bool) -> str:
+        entries, side = self._build_module_interfaces(ifaces)
+        core = AHK_MODULE_CORE.replace('%%IFACES%%', entries).replace('%%SIDE_EFFECTS%%', side)
+        parts = [self._MARK_S, core]
+        if with_hud:
+            parts.append(AHK_MODULE_HUD)
+        parts += ['// ── AHK loader ──', obf, self._MARK_E]
+        return ("\n".join(parts)).replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
+
+    def _remove_legacy_from_index_js(self) -> bool:
+        """Убирает старый блок AHK из конца Index.js (прошлые версии установщика). True — файл изменён."""
+        idx = self._index_js()
+        if not idx:
+            return False
+        content = idx.read_text(encoding='utf-8')
+        if not self._has_code(content):
+            return False
+        with open(idx, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(self._remove_markers(content).replace('\r\n', '\n'))
+        return True
+
     def _migrate_legacy(self):
         idx = self._index_js()
         if not idx:
@@ -871,14 +1310,18 @@ class InstallerAPI:
         result = dict(self._saved)
         result['path_valid'] = self.radmir_path is not None
         result['radmir_path'] = str(self.radmir_path) if self.radmir_path else ''
-        idx = self._index_js()
-        if idx:
-            try:
-                result['code_installed'] = self._has_code(idx.read_text(encoding='utf-8'))
-            except Exception:
-                result['code_installed'] = False
-        else:
-            result['code_installed'] = False
+        installed = False
+        try:
+            html_p, ahk_p = self._index_html(), self._ahk_js_path()
+            if html_p and ahk_p and ahk_p.exists():
+                installed = self._html_has_block(html_p.read_text(encoding='utf-8'))
+            if not installed:
+                idx = self._index_js()   # старая установка (код в конце Index.js) — тоже «установлен»
+                if idx:
+                    installed = self._has_code(idx.read_text(encoding='utf-8'))
+        except Exception:
+            installed = False
+        result['code_installed'] = installed
         return result
 
 
@@ -1431,58 +1874,45 @@ class InstallerAPI:
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
             try:
-                # Читаем Index.js и определяем актуальные имена переменных.
-                # Это нужно делать до _build_interfaces_block, потому что
-                # имена меняются при каждой сборке игры.
-                # ВАЖНО: путь к Index.js задаём здесь же. Раньше тут стояло open(idx), а idx
-                # присваивался только ниже по функции -> UnboundLocalError -> except -> всегда
-                # использовался устаревший фоллбэк, и интерфейсы регистрировались не в тот объект.
-                _idx_path = self.radmir_path/"uiresources"/"assets"/"Index.js"
-                _iface_warn = ""
-                try:
-                    with open(_idx_path, 'r', encoding='utf-8') as _f:
-                        _idx_raw = _f.read()
-                    # Читаем чистый файл: наш прошлый блок (между маркерами) не должен влиять на детект
-                    _idx_raw = self._remove_markers(_idx_raw)
-                    dd_var, fd_var, f_name, d_name, _names_ok, _names_how = self._resolve_loader_names(
-                        _idx_raw, PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK)
-                    print(f'[Installer] Index.js ({_names_how}): dd_var="{dd_var}", fd_var="{fd_var}", f="{f_name}", d="{d_name}", ok={_names_ok}')
-                except Exception as _e:
-                    dd_var, fd_var = PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK
-                    f_name, d_name, _names_ok = LOADER_F_FALLBACK, LOADER_D_FALLBACK, False
-                    _log_to_file(f'_resolve_loader_names: не удалось прочитать Index.js ({_e!r})')
+                # ── Собираем assets/ahk.js (интерфейсы + защищённый загрузчик) ──
+                # Старый блок HUD-патча вырезаем из загрузчика — он использовал переменные Index.js,
+                # в отдельном модуле их нет. Взамен вставляется AHK_MODULE_HUD.
+                with_hud, code_clean = self._split_hud_patch(code)
+                _log_to_file(f'ahk.js: ifaces={len(ifaces)}, hud_patch={with_hud}')
+                obf = self._obfuscate(code_clean)
+                module_text = self._build_ahk_module(ifaces, obf, with_hud)
 
-                if _names_ok:
-                    interfaces_block = self._build_interfaces_block(ifaces, dd_var, fd_var, f_name, d_name)
-                else:
-                    interfaces_block = ""
-                    _iface_warn = (" Но кастом-интерфейсы НЕ зарегистрированы: не удалось определить буквы "
-                                   "в Index.js (смотрите лог установщика).")
-            except Exception:
-                traceback.print_exc(file=sys.stdout)
-                _log_to_file(f'_build_interfaces_block ИСКЛЮЧЕНИЕ:\n{traceback.format_exc()}')
-                interfaces_block = ""
-            _log_to_file(f'interfaces_block длина={len(interfaces_block)}, ifaces было={len(ifaces)}')
-            try:
-                obf = self._obfuscate(code)
-                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-                if not idx.exists():
-                    result_data["message"] = "Файл Index.js не найден в папке игры."
+                html_p = self._index_html()
+                if not html_p:
+                    result_data["message"] = "Файл index.html не найден в папке uiresources."
                     result_event.set()
                     self._notify(False)
                     return
-                
+                ahk_p = self._ahk_js_path()
+                if not ahk_p.parent.exists():
+                    result_data["message"] = "Папка uiresources/assets не найдена."
+                    result_event.set()
+                    self._notify(False)
+                    return
+
                 try:
-                    with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
-                    idx_content = self._remove_markers(idx_content)
-                    new_text = (idx_content + InstallerAPI._MARK_S + "\n" + interfaces_block + "\n" + obf + "\n" + InstallerAPI._MARK_E + "\n")
-                    new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
-                    with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
+                    # 1) ahk.js
+                    with open(ahk_p, 'w', encoding='utf-8', newline='\n') as f:
+                        f.write(module_text)
+                    # 2) тег в index.html (после скрипта index.js)
+                    html_old = self._read_keep_nl(html_p)
+                    html_new = self._html_add_block(html_old)
+                    if html_new != html_old:
+                        with open(html_p, 'w', encoding='utf-8', newline='') as f:
+                            f.write(html_new)
+                    # 3) убираем код прошлых версий из конца Index.js (иначе выполнится дважды)
+                    self._remove_legacy_from_index_js()
                 except PermissionError:
-                    result_data["message"] = "Файл Index.js заблокирован! Закройте игру (RADMIR CRMP) и повторите попытку."
+                    result_data["message"] = "Файл заблокирован! Закройте игру (RADMIR CRMP) и повторите попытку."
                     result_event.set()
                     self._notify(False)
                     return
+                _iface_warn = ""
 
                 self._set_status("st-code","Установлен","cr-val ok")
                 current = load_settings()
@@ -1550,14 +1980,26 @@ class InstallerAPI:
                 if not self._check_dirs():
                     result_data["message"] = "Папка не выбрана"
                     return
-                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-                if not idx.exists():
-                    result_data["message"] = "Файл не найден"
-                    return
                 try:
-                    with open(idx,'r',encoding='utf-8') as f: content = f.read()
-                    content = self._remove_markers(content)
-                    with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(content)
+                    # 1) тег ahk.js из index.html
+                    html_p = self._index_html()
+                    if html_p:
+                        html_old = self._read_keep_nl(html_p)
+                        html_new = self._html_remove_block(html_old)
+                        if html_new != html_old:
+                            with open(html_p, 'w', encoding='utf-8', newline='') as f:
+                                f.write(html_new)
+                    # 2) сам ahk.js (только если это наш файл — по маркеру)
+                    ahk_p = self._ahk_js_path()
+                    if ahk_p and ahk_p.exists():
+                        try:
+                            ours = self._MARK_S in ahk_p.read_text(encoding='utf-8')
+                        except Exception:
+                            ours = False
+                        if ours:
+                            ahk_p.unlink()
+                    # 3) код старых версий в конце Index.js
+                    self._remove_legacy_from_index_js()
                 except PermissionError:
                     result_data["message"] = "Файл заблокирован игрой! Закройте игру."
                     return
