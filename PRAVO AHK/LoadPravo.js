@@ -24,7 +24,7 @@
 //   skipFkonst  : true  → fkonst.js не грузится ([DLG]/[TS]/[GT] хуки на диалоги) — тест №2
 //   skipPravo   : true  → pravo.js не грузится (остаётся только LoadPravo)        — тест №3
 // Когда причина найдена — верните всё в false (или удалите этот блок).
-var AHK_DIAG = { muteConsole: true, skipFkonst: false, skipPravo: false };
+var AHK_DIAG = { muteConsole: false, skipFkonst: false, skipPravo: false };
 if (AHK_DIAG.muteConsole) {
     ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir', 'table'].forEach(function(k) {
         try { console[k] = function() {}; } catch (e) {}
@@ -249,7 +249,13 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
             // перезаписываем их сразу после eval.
-            eval(scriptText);
+            try {
+                eval(scriptText);
+            } catch (evalErr) {
+                console.error('[PRAVO] Ошибка выполнения ' + filename + ':', evalErr);
+                window._ahkLoadErrors = (window._ahkLoadErrors || []).concat(filename + ': ' + (evalErr && evalErr.message));
+            }
+            window._ahkLoaded = (window._ahkLoaded || []).concat(filename);
             // Прокидываем LICENSOR_HELPER_ENABLED в window после eval
             window.LICENSOR_HELPER_ENABLED = LICENSOR_HELPER_ENABLED;
             if (typeof onSuccess === 'function') onSuccess();
@@ -281,9 +287,10 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             console.error(`[PRAVO] HTTP error! status: ${xhr.status} для ${url}`);
             if (retries > 0) {
                 console.log(`[PRAVO] Повторная попытка... Осталось попыток: ${retries - 1}`);
-                setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1), 2000);
+                setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1, onSuccess), 2000);
             } else {
                 console.error(`[PRAVO] Не удалось загрузить скрипт AHK ${filename} после всех попыток`);
+                if (typeof onSuccess === 'function') onSuccess(); // не блокируем pravo.js из-за fkonst.js
             }
         }
     };
@@ -291,9 +298,10 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
         console.error(`[PRAVO] Ошибка сети при загрузке скрипта ${filename} с ${url}`);
         if (retries > 0) {
             console.log(`[PRAVO] Повторная попытка... Осталось попыток: ${retries - 1}`);
-            setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1), 2000);
+            setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1, onSuccess), 2000);
         } else {
             console.error(`[PRAVO] Не удалось загрузить скрипт AHK ${filename} после всех попыток`);
+                if (typeof onSuccess === 'function') onSuccess(); // не блокируем pravo.js из-за fkonst.js
         }
     };
     xhr.send();

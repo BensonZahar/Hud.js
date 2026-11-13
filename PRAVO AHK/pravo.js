@@ -294,6 +294,13 @@ window._isPravoSkin = function() { return pravoSkins.includes(skinId); };
 let skinId = null;
 // 3. Функция получения скина
 function getSkinIdFromStore() {
+    // FIX: интерфейс Menu в игре не смонтирован (show:false) -> window.interface('Menu') отдаёт Proxy без $store,
+    // и скин не определялся (хоткей молча не работал). Сначала читаем Vuex напрямую из App.
+    try {
+        const st = window.App && window.App.$store;
+        if (st && st.getters && st.getters["player/skinId"] !== undefined) return st.getters["player/skinId"];
+        if (st && st.state && st.state.player && st.state.player.skinId !== undefined) return st.state.player.skinId;
+    } catch (e) {}
     try {
         const menuInterface = window.interface("Menu");
         if (menuInterface && menuInterface.$store && menuInterface.$store.getters["player/skinId"] !== undefined) {
