@@ -164,6 +164,31 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
             <span>Телефон Hassle</span>
           </button>
+          <button id="insert-target-hassle2" class="dept-btn dept-fsb" onclick="setInsertTarget('hassle2')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <span>HASSLE 2</span>
+          </button>
+        </div>
+
+        <!-- ── HASSLE 2: путь до папки игры ── -->
+        <div id="insert-hassle2-box" style="display:none;margin-bottom:14px">
+          <div class="card" style="margin-bottom:10px">
+            <div class="card-row">
+              <span class="cr-lbl">HASSLE 2 / Папка игры</span>
+              <span id="h2-status" class="cr-val muted">Не выбрана</span>
+            </div>
+            <div class="card-row">
+              <span class="cr-lbl">AHK в игре</span>
+              <span id="h2-pak" class="cr-val muted">Не установлен</span>
+            </div>
+          </div>
+          <div class="path-row" style="margin-bottom:0">
+            <div class="path-disp" id="h2-path-disp">Папка не выбрана... (например D:\HASSLE GAMES\Hassle Online)</div>
+            <button class="btn btn-secondary" onclick="selectHassle2Folder()">
+              <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+              Выбрать
+            </button>
+          </div>
         </div>
 
         <div id="section-callsign">
@@ -406,6 +431,24 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
             <span>Телефон Hassle</span>
           </button>
+          <button id="remove-target-hassle2" class="dept-btn dept-fsb" onclick="setRemoveTarget('hassle2')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <span>HASSLE 2</span>
+          </button>
+        </div>
+
+        <!-- ── HASSLE 2: карточка для удаления (скрыта) ── -->
+        <div id="remove-hassle2-card" style="display:none">
+          <div class="card" style="margin-bottom:14px">
+            <div class="card-row">
+              <span class="cr-lbl">HASSLE 2 / Папка игры</span>
+              <span id="h2-remove-path" class="cr-val muted" style="font-size:10px">Не выбрана (выберите на вкладке «Вставить AHK»)</span>
+            </div>
+            <div class="card-row">
+              <span class="cr-lbl">AHK в игре</span>
+              <span id="hassle2-remove-status" class="cr-val muted">Не проверен</span>
+            </div>
+          </div>
         </div>
 
         <!-- ── Hassle-карточка для удаления (скрыта) ── -->
@@ -985,6 +1028,7 @@ window.addEventListener('pywebviewready',function(){
     }
     buildBindsList();
     if(s.path_valid){applyFolder(s.radmir_path||'');}
+    if(s.hassle2_path){applyHassle2Folder(s.hassle2_path,!!s.hassle2_installed);}
     // Статус кода — восстанавливаем из реальной проверки Index.js
     if(s.code_installed){
       document.getElementById('st-code').textContent='Установлен';
@@ -1317,10 +1361,10 @@ document.addEventListener('wheel',function(e){
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){var btn=document.getElementById('btn-insert');var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();if(currentDepartment==='gang'){cs='';grab.enabled=false;binds={};timerItems=[];}btn.disabled=true;if(insertTarget==='phone'){runBar('pbar-insert','pbar-insert-f',4000);var _api=window.pywebview&&window.pywebview.api;if(_api){/* передаём только поля, нужные для Hassle: callsign, use_callsign, password, menu_key, department, app_folder */
+function doInsert(){var btn=document.getElementById('btn-insert');var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();if(currentDepartment==='gang'){cs='';grab.enabled=false;binds={};timerItems=[];}btn.disabled=true;if(insertTarget==='hassle2'){if(!hassle2Selected){alert('Сначала укажите папку HASSLE 2 (например: D:\\HASSLE GAMES\\Hassle Online).');btn.disabled=false;return;}runBar('pbar-insert','pbar-insert-f',8000);var _api2=window.pywebview&&window.pywebview.api;if(_api2&&_api2.insert_hassle2_code){_api2.insert_hassle2_code(cs,callsignOn,pwd,curMenuKey(),currentDepartment,'',licensorHelperOn?autoReissueOn:false,reissueKey,(licensorHelperOn&&givelicOn)?giveLicKey:'',licensorHelperOn&&currentDepartment==='pravo',licensorHelperOn&&givelicOn&&currentDepartment==='pravo').then(function(r){btn.disabled=false;if(r&&r.ok){_setHassle2Installed(true);flash(true);}else{flash(false);}});}else{flash(false);btn.disabled=false;}return;}if(insertTarget==='phone'){runBar('pbar-insert','pbar-insert-f',4000);var _api=window.pywebview&&window.pywebview.api;if(_api){/* передаём только поля, нужные для Hassle: callsign, use_callsign, password, menu_key, department, app_folder */
 _api.insert_hassle_code(cs,callsignOn,pwd,curMenuKey(),currentDepartment,'',licensorHelperOn?autoReissueOn:false,reissueKey,(licensorHelperOn&&givelicOn)?giveLicKey:'',licensorHelperOn&&currentDepartment==='pravo',licensorHelperOn&&givelicOn&&currentDepartment==='pravo').then(function(r){btn.disabled=false;if(r&&r.ok){flash(true);}else{flash(false);}});}else{flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,curMenuKey(),[],binds,[],timerItems,currentDepartment,licensorHelperOn?autoReissueOn:false,reissueKey,(licensorHelperOn&&givelicOn)?giveLicKey:'').then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
-function doRemove(){var btn=document.getElementById('btn-remove');btn.disabled=true;if(removeTarget==='phone'){_setHassleStatus('hassle-remove-status','Удаление с телефона...','muted');runBar('pbar-remove','pbar-remove-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.remove_hassle_code('').then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-remove-status',r.message||'Код удалён','ok');flash(true);}else{_setHassleStatus('hassle-remove-status',(r&&r.message)||'Ошибка удаления','err');flash(false);}});}else{_setHassleStatus('hassle-remove-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doRemove(){var btn=document.getElementById('btn-remove');btn.disabled=true;if(removeTarget==='hassle2'){_setHassleStatus('hassle2-remove-status','Удаление...','muted');runBar('pbar-remove','pbar-remove-f',1500);var _api3=window.pywebview&&window.pywebview.api;if(_api3&&_api3.remove_hassle2_code){_api3.remove_hassle2_code().then(function(r){btn.disabled=false;if(r&&r.ok){_setHassle2Installed(false);_setHassleStatus('hassle2-remove-status',r.message||'Код удалён','ok');flash(true);}else{_setHassleStatus('hassle2-remove-status',(r&&r.message)||'Ошибка удаления','err');flash(false);}});}else{_setHassleStatus('hassle2-remove-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(removeTarget==='phone'){_setHassleStatus('hassle-remove-status','Удаление с телефона...','muted');runBar('pbar-remove','pbar-remove-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.remove_hassle_code('').then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-remove-status',r.message||'Код удалён','ok');flash(true);}else{_setHassleStatus('hassle-remove-status',(r&&r.message)||'Ошибка удаления','err');flash(false);}});}else{_setHassleStatus('hassle-remove-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function initDlgScroll(listId,thumbId,railId){
   var el=typeof listId==='string'?document.getElementById(listId):listId;
@@ -1408,39 +1452,58 @@ buildBindsList();
 var insertTarget = 'pc';
 var removeTarget = 'pc';
 
+var hassle2Selected = false;
+
 function setInsertTarget(t){
   insertTarget = t;
-  var pc = document.getElementById('insert-target-pc');
-  var ph = document.getElementById('insert-target-phone');
   var lbl = document.getElementById('btn-insert-label');
-  if(t === 'phone'){
-    pc.classList.remove('active');
-    ph.classList.add('active');
-    if(lbl) lbl.textContent = 'Вставить AHK (Hassle)';
-  } else {
-    ph.classList.remove('active');
-    pc.classList.add('active');
-    if(lbl) lbl.textContent = 'Вставить код';
-  }
+  var box = document.getElementById('insert-hassle2-box');
+  document.getElementById('insert-target-pc').classList.toggle('active', t === 'pc');
+  document.getElementById('insert-target-phone').classList.toggle('active', t === 'phone');
+  document.getElementById('insert-target-hassle2').classList.toggle('active', t === 'hassle2');
+  if(box) box.style.display = (t === 'hassle2') ? '' : 'none';
+  if(lbl) lbl.textContent = t === 'phone' ? 'Вставить AHK (Hassle)' : (t === 'hassle2' ? 'Вставить AHK (HASSLE 2)' : 'Вставить код');
 }
 
 function setRemoveTarget(t){
   removeTarget = t;
-  var pc = document.getElementById('remove-target-pc');
-  var ph = document.getElementById('remove-target-phone');
   var hassleCard = document.getElementById('remove-hassle-card');
+  var h2Card = document.getElementById('remove-hassle2-card');
   var lbl = document.getElementById('btn-remove-label');
-  if(t === 'phone'){
-    pc.classList.remove('active');
-    ph.classList.add('active');
-    if(hassleCard) hassleCard.style.display = '';
-    if(lbl) lbl.textContent = 'Удалить (Hassle)';
-  } else {
-    ph.classList.remove('active');
-    pc.classList.add('active');
-    if(hassleCard) hassleCard.style.display = 'none';
-    if(lbl) lbl.textContent = 'Удалить код';
-  }
+  document.getElementById('remove-target-pc').classList.toggle('active', t === 'pc');
+  document.getElementById('remove-target-phone').classList.toggle('active', t === 'phone');
+  document.getElementById('remove-target-hassle2').classList.toggle('active', t === 'hassle2');
+  if(hassleCard) hassleCard.style.display = (t === 'phone') ? '' : 'none';
+  if(h2Card) h2Card.style.display = (t === 'hassle2') ? '' : 'none';
+  if(lbl) lbl.textContent = t === 'phone' ? 'Удалить (Hassle)' : (t === 'hassle2' ? 'Удалить (HASSLE 2)' : 'Удалить код');
+}
+
+// ── HASSLE 2: выбор папки игры (D:\HASSLE GAMES\Hassle Online) ──
+function selectHassle2Folder(){
+  var _api = window.pywebview && window.pywebview.api;
+  if(!_api || !_api.select_hassle2_folder) return;
+  _api.select_hassle2_folder().then(function(r){
+    if(!r) return;
+    if(r.error === 'not_hassle2'){
+      alert('Выберите папку игры HASSLE 2 — ту, внутри которой лежит HassleOnline\\Content\\Paks\n(например: D:\\HASSLE GAMES\\Hassle Online)');
+      return;
+    }
+    if(r.ok) applyHassle2Folder(r.path, !!r.installed);
+  });
+}
+function applyHassle2Folder(p, installed){
+  hassle2Selected = !!p;
+  var d = document.getElementById('h2-path-disp');
+  if(d){ d.textContent = '✓ ' + p; d.classList.add('set'); }
+  _setHassleStatus('h2-status', 'Выбрана', 'ok');
+  var rp = document.getElementById('h2-remove-path');
+  if(rp){ rp.textContent = p; rp.className = 'cr-val ok'; }
+  _setHassle2Installed(!!installed);
+}
+function _setHassle2Installed(on){
+  _setHassleStatus('h2-pak', on ? 'Установлен' : 'Не установлен', on ? 'ok' : 'muted');
+  if(on) _setHassleStatus('hassle2-remove-status', 'Установлен', 'ok');
+  else _setHassleStatus('hassle2-remove-status', hassle2Selected ? 'Не установлен' : 'Не проверен', 'muted');
 }
 
 function _setHassleStatus(elId, text, cls){

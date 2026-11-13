@@ -107,6 +107,54 @@ HASSLE_FD_VAR_FALLBACK = 'Rd'   # Телефон — словарь конфиг
 HASSLE_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 # ═══════════════════════════════════════════════════════════════════════
+# HASSLE 2 (ПК, Unreal Engine 5)
+# ═══════════════════════════════════════════════════════════════════════
+# Интерфейс HASSLE 2 лежит ВНУТРИ pak игры (pakchunk172-Windows.pak, mount point
+# HassleOnline/Content/UserInterface/Main/), обычной папки uiresources там нет.
+# Поэтому игровые файлы не трогаем: рядом кладём свой патч-pak (так же, как build.bat
+# в HassleUI), а в нём:
+#     index.html       — оригинальный index.html игры + тег <script ahk.js>
+#     assets/ahk.js    — наш модуль (+ файлы кастом-интерфейсов)
+# Пользователь указывает корень игры, например  D:\HASSLE GAMES\Hassle Online
+HASSLE2_PAK_NAME     = "pakchunk998-Windows_P"   # 999 занят под HassleUI (модифицированный index.js)
+HASSLE2_ORIG_PAK     = "pakchunk172-Windows.pak" # родной pak с интерфейсом (из него берём оригинальные index.html / index.js)
+HASSLE2_MOD_PAK_UI   = "pakchunk999-Windows_P.pak"  # мод HassleUI (запасной источник index.js для букв Vue-хелперов)
+HASSLE2_STUB         = "pakchunk172-Windows"     # от его .utoc берётся заголовок для пустого IoStore-контейнера
+HASSLE2_CONTAINER_ID = b"HSLMOD98"               # ContainerId нашего пустого .utoc (у HassleUI — HSLMOD99)
+HASSLE2_PAK_VERSION  = "V11"
+HASSLE2_MOUNT        = "../../../HassleOnline/Content/UserInterface/Main/"
+HASSLE2_MOUNT_REL    = "HassleOnline/Content/UserInterface/Main/"
+# repak.exe ищется: настройка hassle2_repak -> рядом с установщиком / внутри exe -> AppData\AHK_KONST\tools -> скачивается отсюда
+HASSLE2_REPAK_URLS   = [
+    "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/installerEXE/repak.exe",
+    "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/installerEXE/repak.zip",
+]
+# Запасной вариант, если не удалось достать index.html из pak (экспорт FModel, 2026-11-13)
+HASSLE2_INDEX_FALLBACK = r'''<!DOCTYPE html>
+<html lang="">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="transparent" content="true">
+    <title>Hassle interfaces</title>
+    <script type="module" crossorigin src="./assets/index.js"></script>
+    <link rel="stylesheet" href="./assets/index.css">
+  </head>
+  <body>
+    <noscript>
+      <strong>We're sorry but Hassle interfaces doesn't work properly without JavaScript enabled. Please enable it to continue.</strong>
+    </noscript>
+    <div id="app"></div>
+    <!-- built files will be auto injected -->
+
+    <!-- this new script is for vite -->
+    
+  </body>
+</html>
+'''
+
+# ═══════════════════════════════════════════════════════════════════════
 #  ahk.js — ОТДЕЛЬНЫЙ МОДУЛЬ (вместо вставки в конец Index.js)
 # ═══════════════════════════════════════════════════════════════════════
 # Установщик пишет assets/ahk.js и прописывает его <script type="module"> в
@@ -1310,6 +1358,13 @@ class InstallerAPI:
         result = dict(self._saved)
         result['path_valid'] = self.radmir_path is not None
         result['radmir_path'] = str(self.radmir_path) if self.radmir_path else ''
+        try:
+            _h2 = self._hassle2_normalize_root(load_settings().get('hassle2_path', ''))
+            result['hassle2_path'] = str(_h2) if _h2 else ''
+            result['hassle2_installed'] = bool(_h2 and (_h2 / 'HassleOnline' / 'Content' / 'Paks' / (HASSLE2_PAK_NAME + '.pak')).exists())
+        except Exception:
+            result['hassle2_path'] = ''
+            result['hassle2_installed'] = False
         installed = False
         try:
             html_p, ahk_p = self._index_html(), self._ahk_js_path()
@@ -1542,20 +1597,27 @@ class InstallerAPI:
     _VUE_HELPER_PATTERNS = {
         'Fragment':           r'([\w$]+)\s*=\s*Symbol\.for\("v-fgt"\)',
         'openBlock':          r'function\s+([\w$]+)\(e=!1\)\{[\w$]+\.push\([\w$]+=e\?null:\[\]\)\}',
-        'createElementBlock': r'function\s+([\w$]+)\(e,t,n,o,r,i\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,i,!0\)\)\}function\s+[\w$]+\(e,t,n,o,r\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,!0\)\)\}',
-        'createBlock':        r'function\s+[\w$]+\(e,t,n,o,r,i\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,i,!0\)\)\}function\s+([\w$]+)\(e,t,n,o,r\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,!0\)\)\}',
-        'createBaseVNode':    r'function\s+[\w$]+\(e,t,n,o,r,i\)\{return [\w$]+\(([\w$]+)\(e,t,n,o,r,i,!0\)\)\}function\s+[\w$]+\(e,t,n,o,r\)',
-        'createVNode':        r'function\s+[\w$]+\(e,t,n,o,r,i\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,i,!0\)\)\}function\s+[\w$]+\(e,t,n,o,r\)\{return [\w$]+\(([\w$]+)\(e,t,n,o,r,!0\)\)\}',
+        'createElementBlock': (r'function\s+([\w$]+)\(e,t,n,o,r,i\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,i,!0\)\)\}function\s+[\w$]+\(e,t,n,o,r\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,!0\)\)\}',
+                                        r'function\s+(?P<n>[\w$]+)\((?P<a1>[\w$]+),(?P<a2>[\w$]+),(?P<a3>[\w$]+),(?P<a4>[\w$]+),(?P<a5>[\w$]+),(?P<a6>[\w$]+)\)\{return [\w$]+\([\w$]+\((?P=a1),(?P=a2),(?P=a3),(?P=a4),(?P=a5),(?P=a6),!0\)\)\}function\s+[\w$]+\((?P<b1>[\w$]+),(?P<b2>[\w$]+),(?P<b3>[\w$]+),(?P<b4>[\w$]+),(?P<b5>[\w$]+)\)\{return [\w$]+\([\w$]+\((?P=b1),(?P=b2),(?P=b3),(?P=b4),(?P=b5),!0\)\)\}'),
+        'createBlock':        (r'function\s+[\w$]+\(e,t,n,o,r,i\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,i,!0\)\)\}function\s+([\w$]+)\(e,t,n,o,r\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,!0\)\)\}',
+                                        r'function\s+[\w$]+\((?P<a1>[\w$]+),(?P<a2>[\w$]+),(?P<a3>[\w$]+),(?P<a4>[\w$]+),(?P<a5>[\w$]+),(?P<a6>[\w$]+)\)\{return [\w$]+\([\w$]+\((?P=a1),(?P=a2),(?P=a3),(?P=a4),(?P=a5),(?P=a6),!0\)\)\}function\s+(?P<n>[\w$]+)\((?P<b1>[\w$]+),(?P<b2>[\w$]+),(?P<b3>[\w$]+),(?P<b4>[\w$]+),(?P<b5>[\w$]+)\)\{return [\w$]+\([\w$]+\((?P=b1),(?P=b2),(?P=b3),(?P=b4),(?P=b5),!0\)\)\}'),
+        'createBaseVNode':    (r'function\s+[\w$]+\(e,t,n,o,r,i\)\{return [\w$]+\(([\w$]+)\(e,t,n,o,r,i,!0\)\)\}function\s+[\w$]+\(e,t,n,o,r\)',
+                                        r'function\s+[\w$]+\((?P<a1>[\w$]+),(?P<a2>[\w$]+),(?P<a3>[\w$]+),(?P<a4>[\w$]+),(?P<a5>[\w$]+),(?P<a6>[\w$]+)\)\{return [\w$]+\((?P<n>[\w$]+)\((?P=a1),(?P=a2),(?P=a3),(?P=a4),(?P=a5),(?P=a6),!0\)\)\}function\s+[\w$]+\((?P<b1>[\w$]+),(?P<b2>[\w$]+),(?P<b3>[\w$]+),(?P<b4>[\w$]+),(?P<b5>[\w$]+)\)\{return [\w$]+\([\w$]+\((?P=b1),(?P=b2),(?P=b3),(?P=b4),(?P=b5),!0\)\)\}'),
+        'createVNode':        (r'function\s+[\w$]+\(e,t,n,o,r,i\)\{return [\w$]+\([\w$]+\(e,t,n,o,r,i,!0\)\)\}function\s+[\w$]+\(e,t,n,o,r\)\{return [\w$]+\(([\w$]+)\(e,t,n,o,r,!0\)\)\}',
+                                        r'function\s+[\w$]+\((?P<a1>[\w$]+),(?P<a2>[\w$]+),(?P<a3>[\w$]+),(?P<a4>[\w$]+),(?P<a5>[\w$]+),(?P<a6>[\w$]+)\)\{return [\w$]+\([\w$]+\((?P=a1),(?P=a2),(?P=a3),(?P=a4),(?P=a5),(?P=a6),!0\)\)\}function\s+[\w$]+\((?P<b1>[\w$]+),(?P<b2>[\w$]+),(?P<b3>[\w$]+),(?P<b4>[\w$]+),(?P<b5>[\w$]+)\)\{return [\w$]+\((?P<n>[\w$]+)\((?P=b1),(?P=b2),(?P=b3),(?P=b4),(?P=b5),!0\)\)\}'),
         'createTextVNode':    r'function\s+([\w$]+)\(e=" ",t=0\)\{return [\w$]+\([\w$]+,null,e,t\)\}',
         'createCommentVNode': r'function\s+([\w$]+)\(e="",t=!1\)\{return t\?\([\w$]+\(\),[\w$]+\([\w$]+,null,e\)\):[\w$]+\([\w$]+,null,e\)\}',
         'toDisplayString':    r'([\w$]+)\s*=\s*e=>[\w$]+\(e\)\?e:e==null\?"":',
         'normalizeClass':     r'function\s+([\w$]+)\(e\)\{let t="";if\([\w$]+\(e\)\)t=e;else if',
         'normalizeStyle':     r'function\s+([\w$]+)\(e\)\{if\([\w$]+\(e\)\)\{const t=\{\};for\(let n=0;n<e\.length;n\+\+\)',
-        '_export_sfc':        r'([\w$]+)\s*=\s*\(e,t\)=>\{const n=e\.__vccOpts\|\|e;for\(const\[o,r\]of t\)n\[o\]=r;return n\}',
+        '_export_sfc':        (r'([\w$]+)\s*=\s*\(e,t\)=>\{const n=e\.__vccOpts\|\|e;for\(const\[o,r\]of t\)n\[o\]=r;return n\}',
+                                        r'(?P<n>[\w$]+)\s*=\s*\((?P<a>[\w$]+),(?P<b>[\w$]+)\)=>\{const (?P<c>[\w$]+)=(?P=a)\.__vccOpts\|\|(?P=a);for\(const\[(?P<k>[\w$]+),(?P<v>[\w$]+)\]of (?P=b)\)(?P=c)\[(?P=k)\]=(?P=v);return (?P=c)\}'),
         'resolveComponent':   r'function\s+([\w$]+)\(e,t\)\{return [\w$]+\([\w$]+,e,!0,t\)\|\|e\}',
         'withCtx':            r'function\s+([\w$]+)\(e,t=[\w$]+,n\)\{if\(!t\|\|e\._n\)return e;',
-        'renderList':         r'function\s+([\w$]+)\(e,t,n,o\)\{let r;const i=n&&n\[o\];',
-        'renderSlot':         r'function\s+([\w$]+)\(e,t,n=\{\},o,r\)\{',
+        'renderList':         (r'function\s+([\w$]+)\(e,t,n,o\)\{let r;const i=n&&n\[o\];',
+                                        r'function\s+(?P<n>[\w$]+)\((?P<a>[\w$]+),(?P<b>[\w$]+),(?P<c>[\w$]+),(?P<d>[\w$]+)\)\{let [\w$]+;const [\w$]+=(?P=c)&&(?P=c)\[(?P=d)\];'),
+        'renderSlot':         (r'function\s+([\w$]+)\(e,t,n=\{\},o,r\)\{',
+                                        r'function\s+(?P<n>[\w$]+)\([\w$]+,[\w$]+,[\w$]+=\{\},[\w$]+,[\w$]+\)\{'),
         'withDirectives':     r'function\s+([\w$]+)\(e,t\)\{(?:const|let) n=[\w$]+;if\(n===null\)return e;',
         'vModelText':         r'([\w$]+)\s*=\s*\{created\(e,\{modifiers:\{lazy:t,trim:n,number:o\}\}',
         'vShow':              r'([\w$]+)\s*=\s*\{beforeMount\(e,\{value:t\},\{transition:n\}\)',
@@ -1583,10 +1645,17 @@ class InstallerAPI:
             local_to_alias[loc.strip()] = (alias or loc).strip()
         res = {}
         for name, pat in cls._VUE_HELPER_PATTERNS.items():
-            mm = re.search(pat, content)
-            if not mm:
-                continue
-            alias = local_to_alias.get(mm.group(1))
+            # pat — один шаблон или кортеж шаблонов (по порядку): сначала точный (как в сборке Radmir),
+            # потом общий — в другой сборке (HASSLE 2) минификатор называет аргументы функций иначе.
+            alias = None
+            for p in (pat if isinstance(pat, (tuple, list)) else (pat,)):
+                mm = re.search(p, content)
+                if not mm:
+                    continue
+                gi = mm.re.groupindex
+                alias = local_to_alias.get(mm.group('n') if 'n' in gi else mm.group(1))
+                if alias:
+                    break
             if alias:
                 res[name] = alias
         # createElementVNode — синоним createBaseVNode
@@ -1677,10 +1746,13 @@ class InstallerAPI:
             parts.append(_safe(se, 'side-effect импорт'))
         return "".join(parts)
 
-    def _deploy_custom_ui_files(self, ifaces: list, department: str = 'mvd'):
-        if not self.radmir_path:
-            return
-        assets_dir = self.radmir_path / "uiresources" / "assets"
+    def _deploy_custom_ui_files(self, ifaces: list, department: str = 'mvd', assets_dir=None, index_text=None):
+        # assets_dir / index_text нужны для HASSLE 2: там нет папки uiresources, файлы
+        # складываются во временную папку, а буквы Vue-хелперов берутся из index.js из pak.
+        if assets_dir is None:
+            if not self.radmir_path:
+                return
+            assets_dir = self.radmir_path / "uiresources" / "assets"
         if not assets_dir.exists():
             return
         deploy_ui_url = _deploy_ui_url(department)
@@ -1690,8 +1762,11 @@ class InstallerAPI:
         # сборке игры. Определяем их один раз и подставляем в import{...}from"./index.js" загрузчиков.
         vue_aliases = {}
         try:
+            if index_text is not None:
+                vue_aliases = self._detect_vue_aliases(self._remove_markers(index_text))
+                print(f'[Installer] Vue-helper-ы index.js (из pak): найдено {len(vue_aliases)}')
             _idx = assets_dir / "Index.js"
-            if _idx.exists():
+            if index_text is None and _idx.exists():
                 _idx_clean = self._remove_markers(_idx.read_text(encoding='utf-8'))
                 vue_aliases = self._detect_vue_aliases(_idx_clean)
                 print(f'[Installer] Vue-helper-ы Index.js: найдено {len(vue_aliases)}')
@@ -2529,6 +2604,320 @@ class InstallerAPI:
             try:
                 import ctypes
                 ctypes.windll.user32.MessageBoxW(0, result_data["message"], "AHK Installer - Hassle", 0x10 | 0x40000)
+            except Exception:
+                pass
+        return result_data
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HASSLE 2 (ПК, UE5) — патч-pak с index.html + assets/ahk.js
+    # ═══════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _hassle2_normalize_root(path):
+        """Корень игры = папка, в которой лежит HassleOnline\\Content\\Paks
+        (D:\\HASSLE GAMES\\Hassle Online). Если выбрали папку глубже
+        (Binaries\\Win64, HassleOnline, Content\\Paks) — поднимаемся вверх до корня."""
+        if not path:
+            return None
+        try:
+            p = Path(path)
+            for cand in [p] + list(p.parents)[:6]:
+                if (cand / "HassleOnline" / "Content" / "Paks").is_dir():
+                    return cand
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _hassle2_paks(root) -> Path:
+        return Path(root) / "HassleOnline" / "Content" / "Paks"
+
+    def select_hassle2_folder(self):
+        r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
+        if not r or not len(r):
+            return None
+        root = self._hassle2_normalize_root(r[0])
+        if not root:
+            return {"error": "not_hassle2"}
+        save_settings({'hassle2_path': str(root)})
+        installed = (self._hassle2_paks(root) / (HASSLE2_PAK_NAME + '.pak')).exists()
+        return {"ok": True, "path": str(root), "installed": installed}
+
+    def _hassle2_repak(self):
+        """Находит repak.exe (или скачивает его). None — если не получилось."""
+        cands = []
+        saved = load_settings().get('hassle2_repak', '')
+        if saved:
+            cands.append(Path(saved))
+        cands.append(Path(resource_path('repak.exe')))
+        try:
+            exe_dir = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+            cands.append(exe_dir / 'repak.exe')
+        except Exception:
+            pass
+        appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
+        tools_dir = Path(appdata) / _NEW_APPDATA_FOLDER / 'tools'
+        dest = tools_dir / 'repak.exe'
+        cands.append(dest)
+        for c in cands:
+            try:
+                if c.is_file():
+                    return c
+            except Exception:
+                pass
+        for url in HASSLE2_REPAK_URLS:
+            try:
+                resp = requests.get(url, timeout=90)
+                resp.raise_for_status()
+                data = resp.content
+                if data[:2] == b'PK':
+                    with zipfile.ZipFile(io.BytesIO(data)) as z:
+                        member = next((n for n in z.namelist() if n.lower().endswith('repak.exe')), None)
+                        if not member:
+                            continue
+                        data = z.read(member)
+                if data[:2] != b'MZ':
+                    continue
+                tools_dir.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(data)
+                _log_to_file(f'_hassle2_repak: скачан {url} -> {dest}')
+                return dest
+            except Exception as e:
+                _log_to_file(f'_hassle2_repak: не удалось скачать {url}: {e}')
+        return None
+
+    @staticmethod
+    def _hassle2_run(repak, args, timeout=60):
+        kw = dict(capture_output=True, timeout=timeout)
+        if os.name == 'nt':
+            kw['creationflags'] = HASSLE_CREATE_NO_WINDOW
+        return subprocess.run([str(repak)] + list(args), **kw)
+
+    def _hassle2_pak_get(self, repak, pak, inner):
+        """Достаёт файл из .pak через `repak get`. inner — путь внутри Main/ (index.html, assets/index.js).
+        Точный вид пути repak зависит от версии, поэтому берём путь из `repak list` и пробуем варианты."""
+        pak = Path(pak)
+        if not pak.is_file():
+            return None
+        low_inner = inner.lower()
+        cands = []
+        try:
+            r = self._hassle2_run(repak, ['list', str(pak)], timeout=90)
+            for line in r.stdout.decode('utf-8', 'ignore').splitlines():
+                l = line.strip().replace('\\', '/')
+                ll = l.lower()
+                if ll == low_inner or ll.endswith('userinterface/main/' + low_inner):
+                    cands.append(l)
+        except Exception as e:
+            _log_to_file(f'_hassle2_pak_get: list {pak.name}: {e!r}')
+        for extra in (inner, HASSLE2_MOUNT_REL + inner, HASSLE2_MOUNT + inner):
+            if extra not in cands:
+                cands.append(extra)
+        for c in cands:
+            try:
+                r = self._hassle2_run(repak, ['get', str(pak), c], timeout=120)
+                if r.returncode == 0 and r.stdout:
+                    _log_to_file(f'_hassle2_pak_get: {pak.name}:{c} -> {len(r.stdout)} байт')
+                    return r.stdout
+            except Exception as e:
+                _log_to_file(f'_hassle2_pak_get: get {pak.name}:{c}: {e!r}')
+        _log_to_file(f'_hassle2_pak_get: {inner} не удалось достать из {pak.name}')
+        return None
+
+    @staticmethod
+    def _hassle2_make_stub(paks, name, stub):
+        """Пустой IoStore-контейнер (.utoc 144 байта + пустой .ucas) для патч-pak.
+        Порт make_utoc.ps1 из HassleUI: заголовок берётся от родного .utoc, счётчики/флаги обнуляются."""
+        import struct
+        src_toc = Path(paks) / (stub + '.utoc')
+        if not src_toc.is_file():
+            raise Exception(f'Не найден {stub}.utoc в папке Paks — проверьте, что выбрана папка HASSLE 2.')
+        src = src_toc.read_bytes()
+        if len(src) < 144 or src[:16] != b'-==--==--==--==-':
+            raise Exception(f'{stub}.utoc имеет неожиданный формат.')
+        if struct.unpack_from('<I', src, 20)[0] != 144:
+            raise Exception(f'{stub}.utoc: неожиданный размер заголовка TOC.')
+        b = bytearray(src[:144])
+        for off, ln in ((24, 4), (28, 4), (36, 4), (48, 4), (64, 16), (80, 1), (84, 4), (96, 4)):
+            b[off:off + ln] = bytes(ln)
+        b[56:64] = HASSLE2_CONTAINER_ID
+        (Path(paks) / (name + '.utoc')).write_bytes(bytes(b))
+        (Path(paks) / (name + '.ucas')).write_bytes(b'')
+
+    def _hassle2_save_form(self, callsign, use_callsign, auto_password, menu_key, department,
+                           auto_reissue_lic, reissue_key, givelic_key, licensor_helper, givelic_button_on):
+        """Те же настройки, что сохраняет insert_hassle_code: _hassle_build_code читает их из settings.json."""
+        _dept = department or load_settings().get('department', 'mvd')
+        _is_pravo = _dept == 'pravo'
+        _safe_reissue_key = str(reissue_key).replace('"', '').replace("'", '')[:30] if reissue_key else ''
+        _safe_givelic_key = str(givelic_key).replace('"', '').replace("'", '')[:30] if givelic_key else ''
+        _lh = bool(licensor_helper) and _is_pravo
+        if _dept == 'gang':
+            save_settings({
+                'gang_menu_key':     menu_key or 'Alt+0',
+                'auto_password':     auto_password,
+                'use_auto_password': bool(auto_password),
+            })
+        else:
+            save_settings({
+                'callsign':         callsign if use_callsign else '',
+                'use_callsign':     bool(use_callsign),
+                'auto_password':    auto_password,
+                'menu_key':         menu_key or 'Alt+0',
+                'licensor_helper':  _lh,
+                'auto_reissue_lic': bool(auto_reissue_lic) and _is_pravo,
+                'reissue_key':      _safe_reissue_key if (auto_reissue_lic and _is_pravo) else '',
+                'givelic_key':      _safe_givelic_key if _is_pravo else '',
+                'givelic_on':       (bool(_safe_givelic_key) or bool(givelic_button_on)) and _is_pravo,
+            })
+        return _dept
+
+    def _hassle2_delete_pak(self, paks):
+        """Удаляет наш патч-pak (.pak/.utoc/.ucas). Возвращает список удалённых файлов."""
+        removed = []
+        for ext in ('.pak', '.utoc', '.ucas'):
+            f = Path(paks) / (HASSLE2_PAK_NAME + ext)
+            if f.exists():
+                f.unlink()
+                removed.append(f.name)
+        return removed
+
+    def insert_hassle2_code(self, callsign='', use_callsign=False, auto_password='',
+                            menu_key='Alt+0', department=None, app_folder=None,
+                            auto_reissue_lic=False, reissue_key='Alt+R',
+                            givelic_key='', licensor_helper=False, givelic_button_on=False, **_kwargs):
+        """HASSLE 2 (ПК): собирает патч-pak с index.html (+<script ahk.js>) и assets/ahk.js
+        и кладёт его в <игра>\\HassleOnline\\Content\\Paks. Игровые pak не изменяются."""
+        result_data = {"ok": False, "message": "Неизвестная ошибка"}
+        tmp_dir = None
+        try:
+            root = self._hassle2_normalize_root(load_settings().get('hassle2_path', ''))
+            if not root:
+                result_data["message"] = "Папка HASSLE 2 не выбрана. Укажите папку игры, например D:\\HASSLE GAMES\\Hassle Online"
+                return result_data
+            paks = self._hassle2_paks(root)
+            dept = self._hassle2_save_form(callsign, use_callsign, auto_password, menu_key, department,
+                                           auto_reissue_lic, reissue_key, givelic_key, licensor_helper, givelic_button_on)
+
+            repak = self._hassle2_repak()
+            if not repak:
+                result_data["message"] = ("Не найден repak.exe. Положите repak.exe рядом с установщиком "
+                                          "(или загрузите в installerEXE/ на GitHub) и повторите.")
+                return result_data
+
+            code = self._hassle_build_code(dept)
+            if not code:
+                result_data["message"] = "Загруженные данные пусты."
+                return result_data
+
+            tmp_dir = tempfile.mkdtemp(prefix="ahk_hassle2_")
+            main = Path(tmp_dir) / "Main"
+            assets = main / "assets"
+            assets.mkdir(parents=True)
+            orig_pak = paks / HASSLE2_ORIG_PAK
+
+            # 1) оригинальный index.html игры (из pak; если не вышло — копия из FModel-экспорта)
+            html_old, html_src = None, 'встроенная копия'
+            raw = self._hassle2_pak_get(repak, orig_pak, 'index.html')
+            if raw:
+                try:
+                    txt = raw.decode('utf-8-sig')
+                    if '<html' in txt.lower() and '</head' in txt.lower():
+                        html_old, html_src = txt, 'из pak игры'
+                except Exception:
+                    pass
+            if html_old is None:
+                html_old = HASSLE2_INDEX_FALLBACK
+            html_new = self._html_add_block(html_old)
+            with open(main / "index.html", 'w', encoding='utf-8', newline='') as f:
+                f.write(html_new)
+
+            # 2) index.js игры — только чтобы определить буквы Vue-хелперов для загрузчиков интерфейсов
+            index_text = None
+            for p in (orig_pak, paks / HASSLE2_MOD_PAK_UI):
+                rawjs = self._hassle2_pak_get(repak, p, 'assets/index.js')
+                if rawjs and len(rawjs) > 100000:
+                    index_text = rawjs.decode('utf-8', 'ignore')
+                    break
+
+            # 3) кастом-интерфейсы + assets/ahk.js
+            ifaces = self._fetch_custom_interfaces(dept)
+            self._deploy_custom_ui_files(ifaces, dept, assets_dir=assets, index_text=index_text)
+            _, code_clean = self._split_hud_patch(code)   # HUD-патч Radmir для Hassle 2 не нужен
+            obf = self._obfuscate(code_clean)
+            module_text = self._build_ahk_module(ifaces, obf, False)
+            with open(assets / "ahk.js", 'w', encoding='utf-8', newline='\n') as f:
+                f.write(module_text)
+            _log_to_file(f'insert_hassle2_code: index.html {html_src}, ifaces={len(ifaces)}, index.js из pak={index_text is not None}')
+
+            # 4) pack -> Paks
+            try:
+                self._hassle2_delete_pak(paks)
+            except PermissionError:
+                result_data["message"] = "Файл заблокирован! Закройте игру (HASSLE 2) и повторите попытку."
+                return result_data
+            pak_out = paks / (HASSLE2_PAK_NAME + '.pak')
+            kw = dict(capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=180)
+            if os.name == 'nt':
+                kw['creationflags'] = HASSLE_CREATE_NO_WINDOW
+            r = subprocess.run([str(repak), 'pack', '--version', HASSLE2_PAK_VERSION,
+                                '--mount-point', HASSLE2_MOUNT, str(main), str(pak_out)], **kw)
+            if r.returncode != 0 or not pak_out.exists():
+                tail = ((r.stderr or r.stdout or '').strip().splitlines() or [''])[-1]
+                _log_to_file(f'insert_hassle2_code: repak pack code={r.returncode}\n{r.stdout}\n{r.stderr}')
+                result_data["message"] = f"repak не смог собрать pak: {tail}"
+                return result_data
+            try:
+                self._hassle2_make_stub(paks, HASSLE2_PAK_NAME, HASSLE2_STUB)
+            except Exception:
+                try:
+                    self._hassle2_delete_pak(paks)
+                except Exception:
+                    pass
+                raise
+
+            save_settings({'hassle2_path': str(root)})
+            result_data["ok"] = True
+            result_data["message"] = "Код установлен! Перезапустите HASSLE 2."
+            if index_text is None:
+                result_data["message"] += (" (Не удалось прочитать index.js из pak — кастом-интерфейсы "
+                                           "могут не открыться, см. лог установщика.)")
+        except PermissionError:
+            result_data["message"] = "Файл заблокирован! Закройте игру (HASSLE 2) и повторите попытку."
+        except Exception as e:
+            import traceback
+            _log_to_file(f'insert_hassle2_code: {e!r}\n{traceback.format_exc()}')
+            result_data["message"] = str(e)
+        finally:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+        if not result_data["ok"]:
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(0, result_data["message"], "AHK Installer - HASSLE 2", 0x10 | 0x40000)
+            except Exception:
+                pass
+        return result_data
+
+    def remove_hassle2_code(self):
+        """Удаляет патч-pak HASSLE 2 (игра возвращается к родному index.html)."""
+        result_data = {"ok": False, "message": "Неизвестная ошибка"}
+        try:
+            root = self._hassle2_normalize_root(load_settings().get('hassle2_path', ''))
+            if not root:
+                result_data["message"] = "Папка HASSLE 2 не выбрана."
+            else:
+                removed = self._hassle2_delete_pak(self._hassle2_paks(root))
+                result_data["ok"] = True
+                result_data["message"] = "Код удалён" if removed else "Код не был установлен"
+        except PermissionError:
+            result_data["message"] = "Файл заблокирован игрой! Закройте HASSLE 2."
+        except Exception as e:
+            result_data["message"] = str(e)
+        if not result_data["ok"]:
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(0, result_data["message"], "AHK Installer - HASSLE 2", 0x10 | 0x40000)
             except Exception:
                 pass
         return result_data
