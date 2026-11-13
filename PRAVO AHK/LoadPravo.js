@@ -24,7 +24,7 @@
 //   skipFkonst  : true  → fkonst.js не грузится ([DLG]/[TS]/[GT] хуки на диалоги) — тест №2
 //   skipPravo   : true  → pravo.js не грузится (остаётся только LoadPravo)        — тест №3
 // Когда причина найдена — верните всё в false (или удалите этот блок).
-var AHK_DIAG = { muteConsole: false, skipFkonst: false, skipPravo: false };
+var AHK_DIAG = { muteConsole: false, skipFkonst: true, skipPravo: false };
 if (AHK_DIAG.muteConsole) {
     ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir', 'table'].forEach(function(k) {
         try { console[k] = function() {}; } catch (e) {}
@@ -155,7 +155,9 @@ const fkonstFolder = 'MVD AHK';   // fkonst.js хранится в MVD AHK (об
 
 // Функция загрузчика с retry. onSuccess — опциональный колбэк после успешного eval
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onSuccess) {
-    const path = folder ? `${encodeURIComponent(folder)}/` : '';
+    // Gameface раскодирует путь один раз до отправки в сеть, поэтому пробел в имени папки
+    // ("PRAVO AHK") превращается в 404. Кодируем дважды: пробел -> %2520 -> %20 на стороне GitHub.
+    const path = folder ? `${encodeURIComponent(encodeURIComponent(folder))}/` : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url + '?_=' + Date.now(), true);
