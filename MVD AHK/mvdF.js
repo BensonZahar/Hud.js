@@ -118,6 +118,7 @@ function _showAccessDenied(nick) {
     var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
              + encodeURIComponent('Кастом Интерфейсы') + '/';
     var FILES = {
+        mvdmenu_js:  BASE + 'MvdMenu.js',
         advmenu_js:  BASE + 'AdvMenu.js',
         zkm_js:      BASE + 'zkm.js',
         zkm_css:     BASE + 'zkm.css',
@@ -128,22 +129,30 @@ function _showAccessDenied(nick) {
     };
     var RETRIES = 5, BASE_DELAY = 1000;
 
-    function xhrGet(url, attempt) {
+    // Radmir (CEF) принимает путь как есть (%20), Unreal (Gameface) раскодирует путь один раз — ему нужен %2520.
+    // Пробуем оба варианта, рабочий запоминаем в window.__ghEncVariant (его же выставляет загрузчик LoadXxx.js).
+    function ghAlt(u) { var i = u.indexOf('/main/'); return i < 0 ? u : u.slice(0, i + 6) + u.slice(i + 6).replace(/%/g, '%25'); }
+    function xhrGet(url, attempt, v) {
+        v = v || 0;
         return new Promise(function(resolve, reject) {
+            var idx = (((window.__ghEncVariant | 0) + v) % 2);
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', url + '?_=' + Date.now(), true);
+            xhr.open('GET', (idx ? ghAlt(url) : url) + '?_=' + Date.now(), true);
             xhr.onload = function() {
                 if (xhr.status >= 200 && xhr.status < 300) {
+                    window.__ghEncVariant = idx;
                     resolve(xhr.responseText);
+                } else if (v < 1) {
+                    xhrGet(url, attempt, v + 1).then(resolve, reject);
                 } else if (attempt < RETRIES) {
                     var d = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
-                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, d);
+                    setTimeout(function() { xhrGet(url, attempt + 1, 0).then(resolve, reject); }, d);
                 } else reject(new Error('HTTP ' + xhr.status));
             };
             xhr.onerror = function() {
                 if (attempt < RETRIES) {
                     var d = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
-                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, d);
+                    setTimeout(function() { xhrGet(url, attempt + 1, 0).then(resolve, reject); }, d);
                 } else reject(new Error('Network'));
             };
             xhr.send();
@@ -153,7 +162,7 @@ function _showAccessDenied(nick) {
     var promises = {};
     for (var key in FILES) {
         (function(k) {
-            promises[k] = xhrGet(FILES[k], 0)
+            promises[k] = xhrGet(FILES[k], 0, 0)
                 .then(function(text) {
                     window['__prefetch_' + k] = text;
                     console.log('[mvdF] ✅ префетч ' + k + ' (' + text.length + ' байт)');

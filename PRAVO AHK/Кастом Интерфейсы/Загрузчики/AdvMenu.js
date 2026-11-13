@@ -28,17 +28,22 @@ import{M as Modal,a as MODAL_TYPES,b as MODAL_COLOR_TYPES}from"./Modal.js";
 const _GH_URL = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/PRAVO%20AHK/'
               + encodeURIComponent('Кастом Интерфейсы') + '/AdvMenu.js';
 
-function _xhrGet(url, attempt) {
+function _ghAlt(u) { var i = u.indexOf('/main/'); return i < 0 ? u : u.slice(0, i + 6) + u.slice(i + 6).replace(/%/g, '%25'); }
+// Radmir (CEF): путь как есть (%20). Unreal (Gameface): раскодирует путь один раз -> нужен %2520. Пробуем оба.
+function _xhrGet(url, attempt, v) {
+    v = v || 0;
     return new Promise(function(resolve, reject) {
+        var idx = (((window.__ghEncVariant | 0) + v) % 2);
         var xhr = new XMLHttpRequest();
-        xhr.open('GET', url + '?_=' + Date.now(), true);
+        xhr.open('GET', (idx ? _ghAlt(url) : url) + '?_=' + Date.now(), true);
         xhr.onload = function() {
-            if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
-            else if (attempt < 8) setTimeout(function() { _xhrGet(url, attempt+1).then(resolve, reject); }, Math.min(1000*Math.pow(2, attempt), 16000));
+            if (xhr.status >= 200 && xhr.status < 300) { window.__ghEncVariant = idx; resolve(xhr.responseText); }
+            else if (v < 1) _xhrGet(url, attempt, v + 1).then(resolve, reject);
+            else if (attempt < 8) setTimeout(function() { _xhrGet(url, attempt+1, 0).then(resolve, reject); }, Math.min(1000*Math.pow(2, attempt), 16000));
             else reject(new Error('HTTP ' + xhr.status));
         };
         xhr.onerror = function() {
-            if (attempt < 8) setTimeout(function() { _xhrGet(url, attempt+1).then(resolve, reject); }, Math.min(1000*Math.pow(2, attempt), 16000));
+            if (attempt < 8) setTimeout(function() { _xhrGet(url, attempt+1, 0).then(resolve, reject); }, Math.min(1000*Math.pow(2, attempt), 16000));
             else reject(new Error('Network'));
         };
         xhr.send();

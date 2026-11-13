@@ -443,17 +443,23 @@ function loadAllLawData(){
 	return _lawDataLoadPromise;
 }
 
-function _xhrGetLaws(url,attempt){
+function _xhrGetLaws(url,attempt,v){
+	v=v||0;
 	return new Promise(function(resolve,reject){
+		// Radmir: путь как есть (%20); Unreal (Gameface): раскодирует путь один раз -> нужен %2520. Пробуем оба.
+		var idx=(((window.__ghEncVariant|0)+v)%2);
+		var u=url;
+		if(idx){var i=url.indexOf("/main/");if(i>=0)u=url.slice(0,i+6)+url.slice(i+6).replace(/%/g,"%25");}
 		var xhr=new XMLHttpRequest();
-		xhr.open("GET",url+"?_="+Date.now(),true);
+		xhr.open("GET",u+"?_="+Date.now(),true);
 		xhr.onload=function(){
-			if(xhr.status>=200&&xhr.status<300)resolve(xhr.responseText);
-			else if(attempt<8)setTimeout(function(){_xhrGetLaws(url,attempt+1).then(resolve,reject);},Math.min(1000*Math.pow(2,attempt),16000));
+			if(xhr.status>=200&&xhr.status<300){window.__ghEncVariant=idx;resolve(xhr.responseText);}
+			else if(v<1)_xhrGetLaws(url,attempt,v+1).then(resolve,reject);
+			else if(attempt<8)setTimeout(function(){_xhrGetLaws(url,attempt+1,0).then(resolve,reject);},Math.min(1000*Math.pow(2,attempt),16000));
 			else reject(new Error("HTTP "+xhr.status));
 		};
 		xhr.onerror=function(){
-			if(attempt<8)setTimeout(function(){_xhrGetLaws(url,attempt+1).then(resolve,reject);},Math.min(1000*Math.pow(2,attempt),16000));
+			if(attempt<8)setTimeout(function(){_xhrGetLaws(url,attempt+1,0).then(resolve,reject);},Math.min(1000*Math.pow(2,attempt),16000));
 			else reject(new Error("Network"));
 		};
 		xhr.send();
