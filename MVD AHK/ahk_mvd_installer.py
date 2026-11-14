@@ -17,7 +17,7 @@ from PIL import Image
 # и функций для разработчиков игры.
 #
 # Доступ ограничен: установщик проверяет HWID по списку авторизованных
-# ключей (см. is_authorized/KEYS_URL) — без ключа в этом списке
+# ключей (см. is_authorized/HWID_URL → installerEXE/hwid.json) — без HWID в этом списке
 # программа не пустит дальше. Если вы обычный игрок и не участвуете
 # в тестировании — вам этот установщик не нужен, ключа у вас всё равно
 # не будет.
@@ -37,7 +37,8 @@ GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%2
 # Оригинальные Modal.css / Window.css / Button.css / ScrollableContainer.css игры — на них построена вкладка «Бинды» в index.html
 GAME_UI_RAW   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/AHK%20konst/%D0%A3%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D1%89%D0%B8%D0%BA"
 GAME_UI_FILES = ("Modal.css", "Window.css", "Button.css", "ScrollableContainer.css")
-KEYS_URL      = f"{GITHUB_RAW}/keys.json"
+# Список разрешённых HWID лежит на GitHub в папке installerEXE (рядом с adb.zip / repak.exe)
+HWID_URL      = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/installerEXE/hwid.json"
 AHK_URL       = f"{GITHUB_RAW}/LoadAhk.js"
 
 FSB_RAW       = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSB%20AHK"
@@ -526,9 +527,41 @@ def get_hwid() -> str:
     return hashlib.sha256(guid.encode()).hexdigest()[:16].upper()
 
 
+def _extract_hwids(data) -> set:
+    """Достаёт множество HWID из hwid.json. Поддерживаются форматы:
+         {"HWID1": "ник", "HWID2": ""}   — ключ = HWID (ровно та строка, что показывает окно «Нет доступа»)
+         ["HWID1", "HWID2"]              — простой список
+         {"hwids": ["HWID1", ...]}       — список/словарь внутри ключа hwids / keys / hwid
+       Регистр и пробелы по краям не важны."""
+    found = set()
+    if isinstance(data, dict):
+        for k in ("hwids", "keys", "hwid"):
+            if isinstance(data.get(k), (list, dict)):
+                return _extract_hwids(data[k])
+        found.update(str(k) for k in data.keys())
+    elif isinstance(data, list):
+        for it in data:
+            if isinstance(it, str):
+                found.add(it)
+            elif isinstance(it, dict) and it.get("hwid"):
+                found.add(str(it["hwid"]))
+    return {s.strip().upper() for s in found if s and s.strip()}
+
+
 def is_authorized(hwid: str) -> bool:
-    # ПРОВЕРКА ОТКЛЮЧЕНА: всегда возвращаем успешную авторизацию
-    return True
+    """Скачивает installerEXE/hwid.json и проверяет, есть ли в нём HWID этого ПК.
+    True/False — результат проверки. Любая ошибка (сеть, HTTP, битый JSON) пробрасывается
+    наверх: run_auth_with_ui повторит попытку, а после всех попыток покажет «Нет подключения»
+    — то есть при сбое доступ НЕ выдаётся."""
+    resp = requests.get(
+        HWID_URL,
+        params={"_": int(time.time())},            # обход кэша raw.githubusercontent.com
+        headers={"Cache-Control": "no-cache"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = json.loads(resp.content.decode("utf-8-sig"))   # utf-8-sig — на случай BOM из Блокнота
+    return hwid.strip().upper() in _extract_hwids(data)
 
 
 def get_icon_b64() -> str:
@@ -542,8 +575,68 @@ def get_icon_b64() -> str:
 
 
 def run_auth_with_ui(hwid: str) -> dict:
-    # ПРОВЕРКА ОТКЛЮЧЕНА: мгновенный успех без показа окна загрузки
-    return {"authorized": True, "failed": False}
+    """Окно «Проверка лицензии» + проверка HWID по hwid.json (с повторами при сбоях сети).
+    Возвращает {"authorized": bool, "failed": bool, "done": bool}:
+      failed=True — все попытки закончились ошибкой (нет сети / hwid.json недоступен);
+      done=False  — окно закрыли, не дождавшись конца проверки."""
+    result = {"authorized": False, "failed": False, "done": False}
+    ready_event = threading.Event()
+    window_ref = [None]
+
+    html = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
+<link href='https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,600;1,700&family=Open+Sans+Condensed:ital,wght@0,700;1,700&display=swap' rel='stylesheet'>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#010106;--border:rgba(255,255,255,.06);
+  --text:#fff;--text3:rgba(255,255,255,.36);
+  --accent-grad:linear-gradient(168deg,#f9b701 -73.4%,#fda02f 58.52%,#ff9446 126.58%);
+  --accent2:#f9b701;--danger:#e25544;
+  --font:'Open Sans',sans-serif;--font-head:'Open Sans Condensed','Open Sans',sans-serif;
+}
+html,body{width:100%;height:100%;overflow:hidden}
+body{font-family:var(--font);color:var(--text);background:var(--bg);display:flex;
+  user-select:none;-webkit-app-region:drag}
+.window{
+  width:100%;height:100%;
+  background:radial-gradient(60% 50% at 14% -6%,rgba(249,183,1,.10),transparent 60%),var(--bg);
+  border:1px solid #1a1a1e;border-radius:10px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:26px
+}
+.logo-row{display:flex;align-items:center;gap:10px}
+.logo-ico{width:40px;height:40px;border-radius:9px;flex-shrink:0;background:var(--accent-grad);
+  box-shadow:0 4px 14px rgba(253,160,47,.35),inset 0 1px 0 rgba(255,255,255,.3);
+  display:flex;align-items:center;justify-content:center}
+.logo-ico svg{width:20px;height:20px;fill:#1a1106}
+.logo-txt{font-family:var(--font-head);font-size:14px;font-weight:700;font-style:italic;
+  text-transform:uppercase;letter-spacing:.02em;line-height:1.2}
+.logo-txt span{display:block;font-family:var(--font);font-size:9px;font-weight:400;font-style:normal;
+  color:var(--text3);letter-spacing:.14em;margin-top:2px}
+.spin{width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,.1);
+  border-top-color:var(--accent2);animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#status{font-size:11px;color:var(--text3);text-align:center;line-height:1.6;max-width:300px;transition:color .2s}
+#status.err{color:var(--danger)}
+</style></head><body>
+<div class="window">
+  <div class="logo-row">
+    <div class="logo-ico"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13 1.5L3.8 13.6h6.1L8.4 22.5l11.8-13.6h-6.9L13 1.5z"/></svg></div>
+    <div class="logo-txt">AHK Installer<span>Проверка доступа</span></div>
+  </div>
+  <div class="spin"></div>
+  <div id="status">Проверка лицензии...</div>
+</div>
+<script>
+function setStatus(txt, err){
+  var s = document.getElementById('status');
+  s.textContent = txt;
+  s.className = err ? 'err' : '';
+}
+</script></body></html>"""
+
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
+    tmp.write(html); tmp.close()
+
     def _auth_loop():
         ready_event.wait(timeout=6)
         w = window_ref[0]
@@ -552,18 +645,18 @@ def run_auth_with_ui(hwid: str) -> dict:
             try:
                 flag = "true" if err else "false"
                 if w:
-                    w.evaluate_js(f"setStatus({repr(txt)}, {flag})")
+                    w.evaluate_js(f"setStatus({json.dumps(txt, ensure_ascii=False)}, {flag})")
             except Exception:
                 pass
 
         for attempt in range(1, RETRY_COUNT + 1):
             js(f"Проверка лицензии... (попытка {attempt} из {RETRY_COUNT})")
             try:
-                authorized = is_authorized(hwid)
-                result["authorized"] = authorized
+                result["authorized"] = bool(is_authorized(hwid))
+                result["failed"] = False
                 break
-
-            except Exception:
+            except Exception as e:
+                _log_to_file(f"is_authorized: попытка {attempt}/{RETRY_COUNT} не удалась: {e!r}")
                 if attempt < RETRY_COUNT:
                     for sec in range(RETRY_DELAY, 0, -1):
                         js(f"Нет подключения. Повтор через {sec} сек... ({attempt}/{RETRY_COUNT})", err=True)
@@ -571,12 +664,11 @@ def run_auth_with_ui(hwid: str) -> dict:
                 else:
                     result["failed"] = True
 
+        result["done"] = True
         try:
             if w: w.destroy()
         except Exception:
             pass
-        try: os.unlink(tmp.name)
-        except: pass
 
     auth_thread = threading.Thread(target=_auth_loop, daemon=True)
     auth_thread.start()
@@ -584,24 +676,23 @@ def run_auth_with_ui(hwid: str) -> dict:
     w = webview.create_window(
         'AHK Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
-        width=380, height=280,  # <-- Увеличили высоту с 220 до 280 для нового блока
+        width=380, height=280,
         frameless=True, background_color='#010106'
     )
     window_ref[0] = w
-
-    def _on_loaded():
-        ready_event.set()
-
-    w.events.loaded += _on_loaded
+    w.events.loaded += ready_event.set
 
     ico = resource_path("icon.ico")
     try:
         webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
     except TypeError:
         webview.start(debug=False)
+    try: os.unlink(tmp.name)
+    except: pass
 
     return result
-    
+
+
 def show_denied_window(hwid: str):
     keys_line = f'"{hwid}": ""'
 
@@ -2940,6 +3031,9 @@ class InstallerAPI:
 def main():
     hwid = get_hwid()
     result = run_auth_with_ui(hwid)
+
+    if not result.get("done"):      # окно проверки закрыли, не дождавшись результата
+        return
 
     if result["failed"]:
         show_no_internet_window()
