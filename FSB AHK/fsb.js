@@ -3165,10 +3165,20 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 
             // ── Авто-розыск: LIST "Причина выдачи розыска" → выбрать "Ввести вручную" ──
             // Срабатывает ТОЛЬКО если /su был отправлен через наш диалог (пункт 14 меню)
-            if (style === 2 && title.includes('Причина выдачи розыска') && _autoWantedActive) {
+            // [ОБНОВЛЕНО] Сервер поменял меню: заголовок теперь "Выберите действие",
+            // пункты "1. Выбрать причину из списка" / "2. Ввести причину в ручную".
+            // Старый заголовок "Причина выдачи розыска" оставлен для совместимости.
+            const _isWantedListDlg = style === 2 && _autoWantedActive && (
+                title.includes('Причина выдачи розыска') ||
+                (title.includes('Выберите действие') &&
+                 (contentText.includes('Выбрать причину из списка') || contentText.includes('Ввести причину')))
+            );
+            if (_isWantedListDlg) {
                 _autoWantedActive = false; // сбрасываем — чтоб следующий ручной /su не сработал
                 console.log('[AUTO-РОЗЫСК] Обнаружен диалог выбора причины — авто-выбор "Ввести в ручную"');
                 _awaitingRoziskInput = true;
+                // Страховка: если INPUT-диалог не пришёл за 8 сек — снимаем флаг
+                setTimeout(() => { _awaitingRoziskInput = false; }, 8000);
                 setTimeout(() => {
                     // listitem=1 — второй пункт ("Ввести причину в ручную"), response=1
                     sendClientEvent(
@@ -3222,7 +3232,11 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             }
 
             // ── Авто-розыск: INPUT "Причина выдачи розыска" → вставить причину и закрыть диалог ──
-            if (style === 1 && title.includes('Причина выдачи розыска') && _awaitingRoziskInput) {
+            // [ОБНОВЛЕНО] Заголовок INPUT-диалога теперь просто "Причина выдачи"
+            // (текст: "Введите причину, по которой вы хотите обвинить человека").
+            // includes('Причина выдачи') покрывает и старый вариант "...розыска".
+            if (style === 1 && _awaitingRoziskInput &&
+                (title.includes('Причина выдачи') || contentText.includes('обвинить человека'))) {
                 _awaitingRoziskInput = false;
                 const reason = lastWantedCode || '1.1 УК';
                 const _roziskDialogId = dialogId;
@@ -3234,7 +3248,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                         (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
                             ? window.gm.EVENT_EXECUTE_PUBLIC
                             : 'server',
-                        'OnDialogResponse', _roziskDialogId, 1, 0, reason
+                        'OnDialogResponse', _roziskDialogId, 1, -1, reason
                     );
                     console.log(`[AUTO-РОЗЫСК] Причина "${reason}" отправлена`);
                     lastWantedCode = null;
