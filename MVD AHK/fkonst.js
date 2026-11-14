@@ -27,7 +27,7 @@ const _ALLOWED_NICKS = [
             var n = window.App && window.App.$store &&
                     window.App.$store.getters &&
                     window.App.$store.getters['player/nickName'];
-            if (n && n !== "Name_Surname") return n;
+            if (n && n !== "Name_Surname" && n !== "Имя_Фамилия") return n;
             return null;
         } catch (e) { return null; }
     }
@@ -38,18 +38,38 @@ const _ALLOWED_NICKS = [
         return;
     }
 
-    // Стор ещё не готов — ждём до 30 секунд
-    var attempts = 0;
-    var timer = setInterval(function() {
-        attempts++;
+    // Ник появляется в сторе только когда игрок реально зашёл на сервер (на входе может
+    // быть очередь — минуты). Поэтому НЕ опрашиваем в цикле, а подписываемся на стор:
+    // store.watch срабатывает в момент появления ника, скрипт стартует сразу.
+    // Лимита по времени нет. Страховка — проверка раз в 5 сек (если подписка не удалась —
+    // раз в 500мс, пока не появится стор).
+    var _done = false, _unwatch = null, _slow = null;
+    function _tryStart() {
+        if (_done) return true;
         var n = getNick();
-        if (n) {
-            clearInterval(timer);
-            if (_ALLOWED_NICKS.indexOf(n) !== -1) callback();
-        } else if (attempts >= 60) {
-            clearInterval(timer);
+        if (!n) return false;
+        _done = true;
+        try { if (_unwatch) _unwatch(); } catch (e) {}
+        _unwatch = null;
+        if (_slow) { clearTimeout(_slow); _slow = null; }
+        if (_ALLOWED_NICKS.indexOf(n) !== -1) callback();
+        return true;
+    }
+    (function _arm() {
+        if (_done) return;
+        var st = window.App && window.App.$store;
+        if (!_unwatch && st && typeof st.watch === 'function') {
+            try {
+                _unwatch = st.watch(
+                    function (s, g) { return g['player/nickName']; },
+                    function () { _tryStart(); }
+                );
+                console.log('[fkonst] ⏳ Жду ник (вход на сервер/очередь) — подписка на стор активна.');
+            } catch (e) { _unwatch = null; }
         }
-    }, 500);
+        if (_tryStart()) return;
+        _slow = setTimeout(_arm, _unwatch ? 5000 : 500);
+    })();
 })(function() {
 // ── КОНЕЦ ПРОВЕРКИ НИКА — всё ниже выполняется только если ник прошёл проверку ──
 
