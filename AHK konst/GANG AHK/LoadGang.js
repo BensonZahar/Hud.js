@@ -130,6 +130,28 @@ if (AUTO_PASSWORD) {
         var HIDE_CLASS = 'gang-autologin';
 
         var sent = false, blockUntil = 0, lastSend = 0, revealTimer = null, errObs = null, hideToken = 0;
+        // ── Курсор ──────────────────────────────────────────────────────────
+        // Пока идёт авто-вход, курсор не нужен ни окну авторизации, ни экрану загрузки,
+        // который сервер открывает сразу после верного пароля (Authorization:ShowLoading →
+        // SHOW_INTERFACE "Loading" "[3000]"). Игра включает курсор в showInterface() через
+        // setCursorStatus(<имя интерфейса>, true), поэтому гасим эти вызовы для обоих имён.
+        // Возвращаем курсор только если окно авторизации реально показано (ошибка/код/таймаут).
+        var CURSOR_HOLD_NAMES = { Authorization: 1, Loading: 1 };
+        var CURSOR_HOLD_MAX_MS = 60000;   // страховка: удержание никогда не живёт дольше
+        var CURSOR_GRACE_MS    = 5000;    // окно закрыто, а Loading ещё не открылся — ждём его
+        var cursorHold = false, holdTimer = null;
+        function holdOn()  { cursorHold = true; clearTimeout(holdTimer); holdTimer = setTimeout(holdOff, CURSOR_HOLD_MAX_MS); }
+        function holdOff() { cursorHold = false; clearTimeout(holdTimer); holdTimer = null; }
+        function holdGrace() { clearTimeout(holdTimer); holdTimer = setTimeout(holdOff, CURSOR_GRACE_MS); }
+        function isOpen(n) { try { return !!window.getInterfaceStatus(n); } catch (e) { return false; } }
+        // Окно авторизации действительно на экране (не закрыто и не перекрыто экраном Loading)
+        function authOnScreen() {
+            try {
+                if (!isOpen('Authorization') || isOpen('Loading')) return false;
+                var c = window.component && window.component('Authorization');
+                return !c || c.show !== false;
+            } catch (e) { return false; }
+        }
         var patched = (typeof WeakSet === 'function') ? new WeakSet() : null;
 
         // CSS: только visibility. Анимации/переходы НЕ трогаем — иначе при показе
@@ -141,10 +163,23 @@ if (AUTO_PASSWORD) {
         (document.head || document.documentElement).appendChild(st);
 
         function isHidden() { return document.documentElement.classList.contains(HIDE_CLASS); }
-        function hideUI() { hideToken++; document.documentElement.classList.add(HIDE_CLASS); }
+        function hideUI() { hideToken++; holdOn(); document.documentElement.classList.add(HIDE_CLASS); }
 
         function showUI() {
             document.documentElement.classList.remove(HIDE_CLASS);
+            if (cursorHold) {
+                if (authOnScreen()) {
+                    // Окно возвращается (ошибка пароля / код 2FA / таймаут) — включаем курсор так,
+                    // как это сделала бы игра при показе окна.
+                    holdOff();
+                    try { if (typeof window.setCursorStatus === 'function') window.setCursorStatus('Authorization', true, false); }
+                    catch (e) { console.error('[GANG AHK AUTO-PWD] cursor show error:', e); }
+                } else if (isOpen('Loading')) {
+                    // идёт загрузка после верного пароля — держим, снимется при закрытии Loading
+                } else {
+                    holdGrace();   // окно уже закрыто; Loading мог ещё не открыться
+                }
+            }
             clearTimeout(revealTimer); revealTimer = null;
             if (errObs) { errObs.disconnect(); errObs = null; }
         }
@@ -164,7 +199,7 @@ if (AUTO_PASSWORD) {
             if (!isHidden() && !sent) return;
             blockUntil = Date.now() + RETRY_BLOCK_MS;
             showUI();
-            console.log('[GANG AHK AUTO-PWD] ' + why + ' — окно показано');
+            console.log('[GANG AHK AUTO-PWD] ' + why + ' — окно показано' + (sendAt ? ' (+' + (Date.now() - sendAt) + ' мс после отправки)' : ''));
         }
 
         // Оборачиваем методы компонента Login: setError / setStage вызывает сервер
@@ -216,13 +251,45 @@ if (AUTO_PASSWORD) {
                    typeof window.sendClientEvent === 'function' && window.gm;
         }
 
+        // Окно Authorization грузится лениво: пока Login не смонтирован, window.interface('Authorization')
+        // возвращает false, а серверный вызов interface("Authorization").$refs.auth.setError(...)
+        // падает с TypeError и ошибка ТЕРЯЕТСЯ. Если пароль ушёл раньше монтирования, а ответ сервера
+        // (особенно на быстром/локальном сервере) пришёл раньше Login — окно вернулось бы только по таймеру.
+        // Поэтому шлём пароль, когда Login уже готов и его setError обёрнут.
+        var LOGIN_READY_MAX_MS = 3000;   // не дождались монтирования — шлём как есть (запасной путь)
+        var sendAt = 0, openAt = 0, fireToken = 0;
+
+        function loginReady() {
+            try {
+                var c = window.interface && window.interface('Authorization');
+                return !!(c && c.$refs && c.$refs.auth);
+            } catch (e) { return false; }
+        }
+
+        function doSend() {
+            sendAt = Date.now();
+            lastSend = sendAt;
+            clearTimeout(revealTimer);
+            revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS);
+            window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', AUTO_PASSWORD);
+            console.log('[GANG AHK AUTO-PWD] Пароль отправлен (Login готов через ' + (sendAt - openAt) + ' мс)');
+        }
+
         function fire() {
             try {
-                sent = true; lastSend = Date.now();
+                sent = true; openAt = Date.now();
+                var token = ++fireToken;
                 watchProblems();
-                revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS);
-                window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', AUTO_PASSWORD);
-                console.log('[GANG AHK AUTO-PWD] Пароль отправлен мгновенно');
+                revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS + LOGIN_READY_MAX_MS);
+                (function waitReady() {
+                    if (token !== fireToken || !sent) return;          // окно уже закрыто/перезапущено
+                    tryPatch();
+                    if (loginReady() || Date.now() - openAt >= LOGIN_READY_MAX_MS) {
+                        try { doSend(); } catch (e) { showUI(); console.error('[GANG AHK AUTO-PWD] Ошибка авто-входа:', e); }
+                        return;
+                    }
+                    setTimeout(waitReady, 8);
+                })();
             } catch (e) {
                 showUI();
                 console.error('[GANG AHK AUTO-PWD] Ошибка авто-входа:', e);
@@ -273,6 +340,9 @@ if (AUTO_PASSWORD) {
                         hideUI(); // ДО открытия — первый кадр уже без окна
                     }
                 }
+                // Новое окно авторизации БЕЗ автовхода (сервер переоткрыл окно после ошибки) —
+                // курсор должен включиться игрой как обычно: остаток подавления сбрасываем.
+                if (name === 'Authorization' && !go && !isOpen('Authorization')) holdOff();
                 var r = orig.apply(this, arguments);
                 if (name === 'Authorization') {
                     tryPatch();
@@ -283,6 +353,17 @@ if (AUTO_PASSWORD) {
             };
         });
 
+        // Курсор: пока окно авторизации спрятано автовходом — игра не должна включать курсор.
+        // Игра делает это в showInterface() через window.setCursorStatus('Authorization', true, ...).
+        hook('setCursorStatus', function(orig) {
+            return function(name, status) {
+                if (cursorHold && CURSOR_HOLD_NAMES[name] && (status === true || status === 1)) {
+                    return;   // курсор не включаем; вернём его в showUI(), если понадобится ручной ввод
+                }
+                return orig.apply(this, arguments);
+            };
+        });
+
         hook('closeInterface', function(orig) {
             return function(name) {
                 if (name === 'Authorization') {
@@ -290,6 +371,15 @@ if (AUTO_PASSWORD) {
                     var r = orig.apply(this, arguments);
                     if (isHidden()) releaseWhenGone(); else showUI();
                     return r;
+                }
+                if (name === 'Loading') {
+                    var r2 = orig.apply(this, arguments);
+                    if (cursorHold) {
+                        holdOff();   // загрузка закончилась — удержание не нужно
+                        // если под ней оказалось окно авторизации — вернуть ему курсор как обычно
+                        if (authOnScreen()) { try { window.setCursorStatus('Authorization', true, false); } catch (e) {} }
+                    }
+                    return r2;
                 }
                 return orig.apply(this, arguments);
             };
