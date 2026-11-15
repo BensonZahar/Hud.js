@@ -136,14 +136,37 @@
         return (m > 0 ? String(m) + ':' : '') + (ss < 10 ? '0' : '') + ss;
     }
 
-    /* Ищем scoped-атрибут родного тоста: сначала по живому элементу, затем по таблицам стилей */
-    function findScope() {
-        if (scopeAttr) return scopeAttr;
+    /* Проверка по ФАКТУ: создаём скрытый «родной» элемент с этим scoped-атрибутом и смотрим, применились ли
+       стили MainNotification (размер шрифта 1.3vh на ПК / 2.41vh на мобиле). Так работает и когда CSS игры
+       лежит на другом домене и таблицы стилей недоступны для чтения. */
+    function cssApplies(scope) {
+        var p = null;
+        try {
+            p = document.createElement('div');
+            p.className = 'main-notification__text';
+            p.setAttribute(scope, '');
+            p.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;';
+            document.body.appendChild(p);
+            var fsPx = parseFloat(window.getComputedStyle(p).fontSize);
+            var h = window.innerHeight || 0;
+            return !!h && (Math.abs(fsPx - h * 0.013) < 0.6 || Math.abs(fsPx - h * 0.0241) < 0.6);
+        } catch (e) {
+            return false;
+        } finally {
+            try { if (p) p.remove(); } catch (e2) {}
+        }
+    }
+
+    /* Кандидаты scoped-атрибута: живой родной тост на экране → таблицы стилей → хэш из сборки игры,
+       с которой писался скрипт (data-v-8ec9fd4e). Берём первый, который реально стилизует элемент. */
+    function candidateScopes() {
+        var c = [];
+        function add(x) { if (x && c.indexOf(x) < 0) c.push(x); }
         try {
             var el = document.querySelector('.main-notification__body');
             if (el && el.attributes) {
                 for (var i = 0; i < el.attributes.length; i++) {
-                    if (/^data-v-[0-9a-f]+$/.test(el.attributes[i].name)) return (scopeAttr = el.attributes[i].name);
+                    if (/^data-v-[0-9a-f]+$/.test(el.attributes[i].name)) add(el.attributes[i].name);
                 }
             }
         } catch (e) {}
@@ -154,11 +177,30 @@
                 if (!rules) continue;
                 for (var ri = 0; ri < rules.length; ri++) {
                     var m = /\.main-notification__body\[(data-v-[0-9a-f]+)\]/.exec(rules[ri].selectorText || '');
-                    if (m) return (scopeAttr = m[1]);
+                    if (m) add(m[1]);
                 }
             }
         } catch (e) {}
-        return null;
+        add('data-v-8ec9fd4e');
+        return c;
+    }
+
+    var loggedMode = false;
+    function findScope() {
+        if (scopeAttr) return scopeAttr;          // уже проверенный
+        var cands = candidateScopes();
+        for (var i = 0; i < cands.length; i++) {
+            if (cssApplies(cands[i])) {
+                scopeAttr = cands[i];
+                if (!loggedMode) { loggedMode = true; console.log('[AhkNotify] карточки таймеров: РОДНОЙ стиль тоста (' + scopeAttr + ')'); }
+                return scopeAttr;
+            }
+        }
+        if (!loggedMode) {
+            loggedMode = true;
+            console.warn('[AhkNotify] CSS родного тоста не применился (проверено: ' + cands.join(', ') + ') — карточки таймеров в запасном виде');
+        }
+        return null;                               // не кэшируем: в следующий раз проверим заново
     }
 
     var TYPE_CLS = ['info', 'success', 'failure', 'warning'];   // индексы совпадают с T_INFO..T_WARNING
