@@ -8,7 +8,7 @@
 //   • тонкая обёртка над window.pushToast с тем же API, что был у старого Zkm-уведомления
 //     (add / hideAll / addTimer / updateTimer / hideTimer / hideAllTimers /
 //      addOfferChoice / highlightOfferChoice / resolveOfferChoice / hideOfferChoice / hideAllOffers),
-//   • карточки-таймеры (у родного тоста таймера нет; InformationTimer один на всех, а таймеры АХК
+//   • карточки-таймеры из разметки/классов самого родного тоста (у него таймера нет; InformationTimer один на всех, а таймеры АХК
 //     бывают одновременно: отслеживание + КД /setmark + КД штрафа + «Вышел из игры»),
 //   • «оффер» (проверка документов / цитирование): тост с подсказкой «Alt ×1 — отмена, Alt ×2 — подтвердить»;
 //     сама Alt-логика живёт в скрипте АХК, здесь только таймаут и колбэк onFinish(id, 'yes'|'no'|'expire').
@@ -116,12 +116,16 @@
         return (title && text) ? (title + ' — ' + text) : (title || text);
     }
 
-    /* ═══════════════ КАРТОЧКИ-ТАЙМЕРЫ (в стиле родного тоста) ═══════════════ */
-    var timers = {};      // id → { el, iv, remaining, total, nodes... }
+    /* ═══════════════ КАРТОЧКИ-ТАЙМЕРЫ ═══════════════
+       Карточка собирается из ТОЙ ЖЕ разметки и классов, что у родного тоста (MainNotification):
+       main-notification / __body / __icon / __text … — стили, иконка, цвета и шрифт приходят из CSS игры,
+       мы ничего не рисуем сами. Единственное, что добавлено, — обратный отсчёт в тексте.
+       Запасной вариант (если CSS родного тоста на странице не найден): карточка с inline-стилями. */
+    var timers = {};      // id → { card, iv, remaining, total }
     var stackEl = null;
+    var scopeAttr = null; // data-v-xxxxxxxx — scoped-атрибут стилей MainNotification (хэш меняется между сборками игры)
 
     function isMobile() { try { return !!(window.App && window.App.isMobile); } catch (e) { return false; } }
-    function fs() { return isMobile() ? 2.41 : 1.3; }   // размер текста как у MainNotification (vh)
 
     function fmt(s) {
         if (s < 0) s = 0;
@@ -132,23 +136,82 @@
         return (m > 0 ? String(m) + ':' : '') + (ss < 10 ? '0' : '') + ss;
     }
 
+    /* Ищем scoped-атрибут родного тоста: сначала по живому элементу, затем по таблицам стилей */
+    function findScope() {
+        if (scopeAttr) return scopeAttr;
+        try {
+            var el = document.querySelector('.main-notification__body');
+            if (el && el.attributes) {
+                for (var i = 0; i < el.attributes.length; i++) {
+                    if (/^data-v-[0-9a-f]+$/.test(el.attributes[i].name)) return (scopeAttr = el.attributes[i].name);
+                }
+            }
+        } catch (e) {}
+        try {
+            var sheets = document.styleSheets || [];
+            for (var si = 0; si < sheets.length; si++) {
+                var rules; try { rules = sheets[si].cssRules; } catch (e) { continue; }
+                if (!rules) continue;
+                for (var ri = 0; ri < rules.length; ri++) {
+                    var m = /\.main-notification__body\[(data-v-[0-9a-f]+)\]/.exec(rules[ri].selectorText || '');
+                    if (m) return (scopeAttr = m[1]);
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    var TYPE_CLS = ['info', 'success', 'failure', 'warning'];   // индексы совпадают с T_INFO..T_WARNING
+
     function ensureStack() {
         if (stackEl && stackEl.parentNode) return stackEl;
         stackEl = document.createElement('div');
         stackEl.style.cssText =
             'position:fixed;z-index:1100;pointer-events:none;' +
             'left:' + TIMER_LEFT_VW + 'vw;bottom:' + TIMER_BOTTOM_VH + 'vh;' +
-            'display:flex;flex-direction:column-reverse;align-items:flex-start;gap:1vh;';
+            'display:flex;flex-direction:column-reverse;align-items:flex-start;gap:1.48vh;';
         document.body.appendChild(stackEl);
         return stackEl;
     }
 
+    /* Единый интерфейс карточки: paint(title, label, accent) и render(remaining, total) */
+    function buildNativeCard(scope) {
+        function n(cls) { var e = document.createElement('div'); e.className = cls; e.setAttribute(scope, ''); return e; }
+        var root = n('main-notification main-notification_info');
+        root.appendChild(n('main-notification__shadows'));
+        var body = n('main-notification__body');
+        var bg = n('main-notification__inner-bg'); bg.appendChild(n('main-notification__inner-bg-border'));
+        var lw = n('main-notification__light-wrapper'); lw.appendChild(n('main-notification__light'));
+        var icon = n('main-notification__icon');
+        var text = n('main-notification__text');
+        var pat = n('main-notification__pattern'); pat.appendChild(n('main-notification__pattern-content'));
+        body.appendChild(bg); body.appendChild(lw); body.appendChild(icon); body.appendChild(text); body.appendChild(pat);
+        root.appendChild(body);
+        // вход/выход — как у родного (notification-slide-bottom): прозрачность + сдвиг на 4vh за 0.5с
+        root.style.cssText = 'opacity:0;transform:translateY(-4vh);transition:transform .5s ease,opacity .5s ease;';
+        var st = { title: '', label: '', time: '' };
+        function refresh() {
+            text.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
+        }
+        return {
+            el: root, native: true,
+            paint: function (title, label, accent) {
+                st.title = title; st.label = label;
+                root.className = 'main-notification main-notification_' + TYPE_CLS[toastType(accent)];
+                refresh();
+            },
+            render: function (remaining) { st.time = fmt(remaining); refresh(); },
+            show: function () { root.style.opacity = '1'; root.style.transform = 'translateY(0)'; },
+            hide: function () { root.style.opacity = '0'; root.style.transform = 'translateY(-4vh)'; }
+        };
+    }
+
+    /* Запасной вариант без CSS игры */
     function accentOf(a) {
         var c = normHex(a), raw = c.replace('#', '');
         var lum = 0.2126 * parseInt(raw.substr(0, 2), 16) / 255 +
                   0.7152 * parseInt(raw.substr(2, 2), 16) / 255 +
                   0.0722 * parseInt(raw.substr(4, 2), 16) / 255;
-        // слишком тёмные акценты (напр. чисто синий 0000FF) на тёмной карточке не видны — слегка осветляем
         if (lum < 0.15) {
             var out = '#';
             for (var i = 0; i < 3; i++) {
@@ -160,71 +223,42 @@
         }
         return c;
     }
-
-    function buildCard(title, label, accent) {
-        var f = fs();
+    function buildFallbackCard() {
+        var f = isMobile() ? 2.41 : 1.3;
         var root = document.createElement('div');
         root.style.cssText =
-            'box-sizing:border-box;min-width:' + (f * 17) + 'vh;max-width:' + (f * 31) + 'vh;' +
-            'padding:' + (f * 0.85) + 'vh ' + (f * 1.14) + 'vh;border-radius:1.11vh;' +
+            'box-sizing:border-box;max-width:40vh;padding:1.11vh 1.48vh;border-radius:1.11vh;' +
             'background:linear-gradient(127deg,#292524 9.34%,#1c1917 149.66%);' +
             'box-shadow:0 0.09vh 0.74vh 0 #0c0a0666,0 0.09vh 0.09vh 0 #0c0a0699;' +
             'color:#eeeee6;font-family:"Hassle Open Sans","Open Sans",Arial,sans-serif;font-weight:700;' +
-            'font-size:' + f + 'vh;line-height:1.35;opacity:0;transform:translateY(1vh);' +
-            'transition:opacity .3s ease,transform .3s ease;';
-
-        var head = document.createElement('div');
-        head.style.cssText = 'display:flex;align-items:center;gap:' + (f * 0.45) + 'vh;';
-        var dot = document.createElement('div');
-        dot.style.cssText = 'flex-shrink:0;width:' + (f * 0.45) + 'vh;height:' + (f * 0.45) + 'vh;border-radius:50%;';
-        var titleEl = document.createElement('div');
-        titleEl.style.cssText = 'flex:1;min-width:0;overflow-wrap:break-word;';
-        head.appendChild(dot); head.appendChild(titleEl);
-        root.appendChild(head);
-
-        var labelEl = document.createElement('div');
-        labelEl.style.cssText = 'margin-top:' + (f * 0.3) + 'vh;opacity:.8;font-weight:600;overflow-wrap:break-word;';
-        root.appendChild(labelEl);
-
-        var foot = document.createElement('div');
-        foot.style.cssText = 'display:flex;align-items:center;gap:' + (f * 0.5) + 'vh;margin-top:' + (f * 0.5) + 'vh;';
-        var timeEl = document.createElement('div');
-        timeEl.style.cssText = 'min-width:' + (f * 2.8) + 'vh;font-variant-numeric:tabular-nums;';
-        var wrap = document.createElement('div');
-        wrap.style.cssText = 'flex:1;height:' + (f * 0.26) + 'vh;border-radius:' + (f * 0.13) + 'vh;background:rgba(238,238,230,.12);overflow:hidden;';
-        var fill = document.createElement('div');
-        fill.style.cssText = 'height:100%;border-radius:' + (f * 0.13) + 'vh;transition:width 1s linear;';
-        wrap.appendChild(fill);
-        foot.appendChild(timeEl); foot.appendChild(wrap);
-        root.appendChild(foot);
-
-        var card = { el: root, dot: dot, titleEl: titleEl, labelEl: labelEl, timeEl: timeEl, fill: fill };
-        paintCard(card, title, label, accent);
-        return card;
+            'font-size:' + f + 'vh;opacity:0;transform:translateY(-4vh);transition:transform .5s ease,opacity .5s ease;' +
+            'overflow-wrap:break-word;';
+        var st = { title: '', label: '', time: '' };
+        return {
+            el: root, native: false,
+            paint: function (title, label, accent) {
+                st.title = title; st.label = label; root.style.borderLeft = '0.37vh solid ' + accentOf(accent);
+                root.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
+            },
+            render: function (remaining) {
+                st.time = fmt(remaining);
+                root.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
+            },
+            show: function () { root.style.opacity = '1'; root.style.transform = 'translateY(0)'; },
+            hide: function () { root.style.opacity = '0'; root.style.transform = 'translateY(-4vh)'; }
+        };
     }
 
-    function paintCard(card, title, label, accent) {
-        var col = accentOf(accent);
-        card.titleEl.textContent = title;
-        card.titleEl.style.color = col;
-        card.dot.style.background = col;
-        card.dot.style.boxShadow = '0 0 0.8vh ' + col;
-        card.fill.style.background = col;
-        card.labelEl.textContent = label;
-        card.labelEl.style.display = label ? 'block' : 'none';
-    }
-
-    function renderCard(t) {
-        t.card.timeEl.textContent = fmt(t.remaining);
-        var pct = t.total > 0 ? Math.max(0, Math.min(100, (t.remaining / t.total) * 100)) : 0;
-        t.card.fill.style.width = pct + '%';
+    function buildCard() {
+        var scope = findScope();
+        return scope ? buildNativeCard(scope) : buildFallbackCard();
     }
 
     function startTick(id, t) {
         clearInterval(t.iv);
         t.iv = setInterval(function () {
             t.remaining--;
-            renderCard(t);
+            t.card.render(t.remaining, t.total);
             if (t.remaining <= 0) removeTimer(id);
         }, 1000);
     }
@@ -235,9 +269,8 @@
         clearInterval(t.iv);
         delete timers[id];
         var el = t.card.el;
-        el.style.opacity = '0';
-        el.style.transform = 'translateY(1vh)';
-        setTimeout(function () { try { el.remove(); } catch (e) {} }, 320);
+        t.card.hide();
+        setTimeout(function () { try { el.remove(); } catch (e) {} }, 520);
     }
 
     /* ═══════════════ ОФФЕРЫ (подтверждение, Alt-логика снаружи) ═══════════════ */
@@ -274,18 +307,17 @@
         addTimer: function (payload) {
             try {
                 var d = parse(payload); if (!d) return;
-                var title  = strip(d[1]), label = strip(d[2]);
-                var secs   = Number(d[4]) || 60;
-                var total  = Number(d[5]) || secs;
-                var id     = ++last;
-                var card   = buildCard(title, label, d[3]);
-                var t      = { card: card, remaining: secs, total: total, iv: null };
+                var secs  = Number(d[4]) || 60;
+                var total = Number(d[5]) || secs;
+                var id    = ++last;
+                var card  = buildCard();
+                var t     = { card: card, remaining: secs, total: total, iv: null };
                 timers[id] = t;
-                renderCard(t);
+                card.paint(strip(d[1]), strip(d[2]), d[3]);
+                card.render(t.remaining, t.total);
                 ensureStack().appendChild(card.el);
-                var show = function () { card.el.style.opacity = '1'; card.el.style.transform = 'translateY(0)'; };
-                if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { requestAnimationFrame(show); });
-                else setTimeout(show, 16);
+                if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { requestAnimationFrame(function () { card.show(); }); });
+                else setTimeout(function () { card.show(); }, 16);
                 startTick(id, t);
                 return id;
             } catch (e) { console.error('[AhkNotify] addTimer:', e); }
@@ -298,11 +330,10 @@
             try {
                 var d = parse(payload); if (!d) return null;
                 var secs  = Number(d[4]) || 60;
-                var total = Number(d[5]) || t.total || secs;
-                paintCard(t.card, strip(d[1]), strip(d[2]), d[3]);
+                t.total = Number(d[5]) || t.total || secs;
                 t.remaining = secs;
-                t.total = total;
-                renderCard(t);
+                t.card.paint(strip(d[1]), strip(d[2]), d[3]);
+                t.card.render(t.remaining, t.total);
                 startTick(id, t);
                 return id;
             } catch (e) { console.error('[AhkNotify] updateTimer:', e); return null; }
