@@ -1,731 +1,377 @@
-// ZKM Screen Notification — v5.1 "App Match"
-// Редизайн под визуальный язык zkm.js / laws-helper: #141419 фон,
-// #f4f1e1 текст, золотой акцент, светящаяся градиентная полоса
-// сверху вместо плоской рамки.
+// ZKM Screen Notification — v6.0 "Native Toast"
 //
-// ВАЖНО: цвет акцента задаётся ТОЛЬКО через инлайн-стили (не через
-// CSS custom properties/var()) — в этом CEF-движке кастомные CSS-
-// переменные, выставленные из JS через style.setProperty, ведут себя
-// ненадёжно (title проваливался в чёрный, border-top не рисовался
-// вовсе). Сам zkm.css тоже нигде не использует var(--свой-токен) —
-// только один системный var(--fallback-font), который прокидывает
-// сам движок. Поэтому весь акцент — обычные инлайн style="".
+// Раньше здесь был собственный интерфейс уведомлений (~40 КБ JS + ~18 КБ CSS).
+// Теперь это тонкий АДАПТЕР с тем же API: window.ZkmScreenNotification
+// (add / hideAll / addTimer / updateTimer / hideTimer / hideAllTimers /
+//  addOfferChoice / highlightOfferChoice / resolveOfferChoice / hideOfferChoice / hideAllOffers),
+// поэтому вызовы в mvdF.js / fsin.js / pravo.js / fsb.js / fkonst.js менять не нужно.
+//
+//   • add(...)            → РОДНОЙ тост игры: window.pushToast([...])   (стек до 2 шт., иконка и звук по типу)
+//   • addTimer(...)       → компактная карточка-таймер в стиле тоста (inline-стили, без CSS-файла).
+//                           InformationTimer не подходит: он один на всех, а таймеры АХК бывают одновременно
+//                           (отслеживание + КД /setmark + КД штрафа + «Вышел из игры»).
+//   • addOfferChoice(...) → тост с подсказкой «Alt ×1 — отмена, Alt ×2 — подтвердить». Alt-логика живёт
+//                           снаружи (mvdF.js), здесь только таймаут и колбэк onFinish(id, 'yes'|'no'|'expire').
+//
+// Тип тоста выбирается по цвету-акценту из payload:
+//   красный → failure, зелёный → success, оранжевый/золотой → warning, остальное (синий, серый) → info.
+//
+// ВАЖНО: родной тост не умеет убирать ОДИН тост — только clearToasts() (стирает и тосты самой игры).
+// Поэтому hideAll() по умолчанию ничего не стирает (HIDE_ALL_CLEARS = false): старые тосты сами
+// уходят по таймеру, а третий вытесняет самый старый.
 ;(function () {
     'use strict';
 
-    if (window._zkmSNLoaded) return;
-    window._zkmSNLoaded = true;
+    /* ═════════════════════════ НАСТРОЙКИ ═════════════════════════ */
+    // Колонка слева сбоку (как было у Zkm: left, top 54vh).
+    // У родного тоста CUSTOM-позиция — это vw/vh центра по горизонтали и верхней точки по вертикали.
+    // Подбор на месте:  window.pushToast([false, "тест", 0, 5000, 6, [15, 54]])
+    var TOAST_LEFT_VW = 15;
+    var TOAST_LEFT_VH = 54;
 
-    /* Убираем мусор-теги цвета {RRGGBB} из строки */
+    // true — любые позиции из payload (0 сверху / 1 слева / 2 снизу) показывать слева.
+    // false — 1 слева, 0 сверху по центру, 2 снизу по центру.
+    var FORCE_LEFT = true;
+
+    // hideAll() стирает тосты (в т.ч. игровые), если наш тост ещё на экране.
+    var HIDE_ALL_CLEARS = false;
+
+    // Когда оффер закрыт (Alt×2 / Alt×1 / отмена снаружи) — стереть его тост, чтобы подсказка не висела.
+    var CLEAR_ON_OFFER_END = true;
+
+    /* ═════════════════════════ СЛУЖЕБНОЕ ═════════════════════════ */
+    var T_INFO = 0, T_SUCCESS = 1, T_FAILURE = 2, T_WARNING = 3;
+    var P_TOP_CENTER = 1, P_BOTTOM_CENTER = 4, P_CUSTOM = 6;
+
+    var last = 0;                 // счётчик id (общий для таймеров и офферов)
+    var ownToastUntil = 0;        // до какого момента наш тост ещё на экране
+    var warnedNoToast = false;
+
+    /* Убираем мусор: цвет-теги {RRGGBB}, <br> → " · ", любые HTML-теги, &nbsp; */
     function strip(s) {
-        return String(s || '').replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim();
+        return String(s == null ? '' : s)
+            .replace(/\{[0-9A-Fa-f]{6}\}/g, '')
+            .replace(/<br\s*\/?>/gi, ' · ')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
     }
 
-    /* Мягкая замена текста в узле: если текст реально другой — короткий
-       opacity-кроссфейд (120мс из/120мс в), а не мгновенная жёсткая
-       подмена. Если текст совпадает — вообще не трогаем узел (не будет
-       ни мигания, ни лишнего reflow). Используется в updateTimer(), где
-       узел уже на экране и его "дёрганое" обновление особенно заметно. */
-    function swapText(el, newText) {
-        if (!el) return;
-        newText = newText || '';
-        if (el.textContent === newText) return;
-        el.style.transition = 'opacity .12s ease';
-        el.style.opacity = '0';
-        setTimeout(function () {
-            el.textContent = newText;
-            el.style.opacity = '1';
-        }, 120);
+    function parse(payload) {
+        try { return typeof payload === 'string' ? JSON.parse(payload) : payload; }
+        catch (e) { console.error('[ZKM-SN] payload не разобран:', e && e.message, payload); return null; }
     }
 
-    /* Нормализует hex-акцент к палитре приложения (см. zkm.css) */
-    function resolveAccent(hex) {
-        if (!hex) return '#f9b701';
-        var h = String(hex).replace(/^#/, '').padStart(6, '0');
-        var r = parseInt(h.slice(0, 2), 16),
-            g = parseInt(h.slice(2, 4), 16),
-            b = parseInt(h.slice(4, 6), 16);
-        if (r > 160 && r >= g * 1.5 && r >= b * 1.5) return '#e25544'; // красный → сирена
-        if (g > 160 && g >= r * 1.5 && g >= b * 1.5) return '#0a9947'; // зелёный (как fine/yes в приложении)
-        if (b > 160 && b >= r * 2   && b >= g * 1.5) return '#6495ed'; // синий (как "Проц." таб в zkm.js)
-        if (r > 180 && g > 120      && b < 60)        return '#f9b701'; // золото (основной акцент приложения)
-        if (r > 170 && g > 170      && b > 170)       return '#c8cad4'; // серый/нейтральный
-        return '#' + h;
+    /* Цвет-акцент → '#rrggbb' + hue/saturation */
+    function normHex(hex) {
+        var h = String(hex == null ? '' : hex).replace(/^#/, '');
+        if (!/^[0-9a-fA-F]{1,6}$/.test(h)) return '#f9b701';
+        while (h.length < 6) h = '0' + h;
+        return '#' + h.toLowerCase();
+    }
+    function hsv(hex) {
+        var h = hex.replace('#', '');
+        var r = parseInt(h.substr(0, 2), 16) / 255,
+            g = parseInt(h.substr(2, 2), 16) / 255,
+            b = parseInt(h.substr(4, 2), 16) / 255;
+        var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, hue = 0;
+        if (d > 0) {
+            if (mx === r) hue = ((g - b) / d) % 6;
+            else if (mx === g) hue = (b - r) / d + 2;
+            else hue = (r - g) / d + 4;
+            hue *= 60; if (hue < 0) hue += 360;
+        }
+        return { h: hue, s: mx === 0 ? 0 : d / mx, v: mx };
+    }
+    function toastType(hex) {
+        var c = hsv(normHex(hex));
+        if (c.s < 0.35 || c.v < 0.35) return T_INFO;        // серый / тёмный
+        if (c.h < 14 || c.h >= 345) return T_FAILURE;        // красный
+        if (c.h < 70) return T_WARNING;                      // оранжевый / золотой
+        if (c.h < 170) return T_SUCCESS;                     // зелёный
+        return T_INFO;                                       // голубой / синий / фиолетовый
     }
 
-    /* hex → "r, g, b" строка для сборки rgba(...) на лету */
-    function hexToRgbStr(hex) {
-        var h = String(hex).replace('#', '');
-        var r = parseInt(h.substr(0, 2), 16) || 0,
-            g = parseInt(h.substr(2, 2), 16) || 0,
-            b = parseInt(h.substr(4, 2), 16) || 0;
-        return r + ', ' + g + ', ' + b;
+    /* Позиция из payload → [enum, [vw, vh]] для родного pushToast */
+    function toastPos(code) {
+        if (FORCE_LEFT || Number(code) === 1) return [P_CUSTOM, [TOAST_LEFT_VW, TOAST_LEFT_VH]];
+        if (Number(code) === 2) return [P_BOTTOM_CENTER, [0, 0]];
+        return [P_TOP_CENTER, [0, 0]];
     }
 
-    /* Готовый набор инлайн-стилей под конкретный акцент — считаем один
-       раз на уведомление и подставляем во все нужные узлы */
-    function accentKit(accent) {
-        var rgb = hexToRgbStr(accent);
-        return {
-            accent: accent,
-            rgb: rgb,
-            /* Светящаяся градиентная полоса сверху (замена плоскому border-top) */
-            lineStyle:
-                'background:linear-gradient(90deg, transparent, ' + accent + ' 18%, ' + accent + ' 82%, transparent);' +
-                'box-shadow:0 0 1.3vh 0.06vh rgba(' + rgb + ', 0.85);',
-            /* Мягкое цветное свечение внутри карточки под полосой */
-            panelGlow: 'inset 0 3.2vh 4vh -2.7vh rgba(' + rgb + ', 0.28)',
-            dotStyle: 'background:' + accent + ';box-shadow:0 0 0.85vh rgba(' + rgb + ', 0.8);',
-            titleStyle: 'color:' + accent + ';',
-            fillStyle: 'background:' + accent + ';'
-        };
+    function pushNative(text, type, ms, posCode) {
+        ms = Number(ms) || 4000;
+        if (typeof window.pushToast === 'function') {
+            var p = toastPos(posCode);
+            window.pushToast([false, text, type, ms, p[0], p[1]]);
+            ownToastUntil = Math.max(ownToastUntil, Date.now() + ms);
+            return true;
+        }
+        // Запасной путь для старого клиента без ToastNotifications: родной ScreenNotification (тот же формат payload)
+        try {
+            var sn = window.interface && window.interface('ScreenNotification');
+            if (sn && typeof sn.add === 'function') {
+                sn.add(JSON.stringify([1, '', text, '#f9b701', ms]));
+                ownToastUntil = Math.max(ownToastUntil, Date.now() + ms);
+                return true;
+            }
+        } catch (e) {}
+        if (!warnedNoToast) { warnedNoToast = true; console.warn('[ZKM-SN] window.pushToast недоступен — уведомления не показываются'); }
+        return false;
     }
 
-    var BASE_SHADOW =
-        '0 1.6vh 3.9vh rgba(0, 0, 0, 0.52), ' +
-        '0 0.5vh 1.3vh rgba(0, 0, 0, 0.3), ';
-
-    var POS        = { 0: 'top', 1: 'left', 2: 'bottom' };
-    var last       = 0;
-    var queue      = new Map();   // обычные уведомления
-    var timerQueue = new Map();   // таймер-уведомления (не убиваются hideAll)
-    var offerQueue = new Map();   // уведомления-оффер в дизайне Offer.js/Offer.css (addOfferChoice)
-
-    /* ── Стекинг уведомлений в одной точке экрана ────────────────────
-       Раньше если в одной позиции ("left" и т.п.) оказывались два
-       уведомления одновременно (напр. таймер отслеживания + мелкий
-       тост "Автоснаряжение"), их приходилось искусственно прятать по
-       очереди — иначе они бы легли друг на друга. Теперь вместо этого
-       они стекуются: новое уведомление занимает "точку привязки"
-       (offset 0), а более старые плавно отъезжают от неё на суммарную
-       высоту предыдущих карточек + зазор — т.е. новое появляется НАД
-       предыдущим, а не вместо него.
-
-       ВАЖНО: оффсет пишется ОБЫЧНЫМ инлайн-стилем (el.style.top /
-       el.style.bottom с готовым calc()-значением), а НЕ через CSS
-       custom property/var() — в этом CEF-движке var(), выставленный
-       из JS через style.setProperty, ведёт себя ненадёжно (см. шапку
-       файла). Ровно та же причина, по которой акцентные цвета везде
-       идут через инлайн style="", а не через var().
-
-       posStacks[pos] — массив {id, el}, индекс 0 = самое новое.
-    ─────────────────────────────────────────────────────────────── */
-    var posStacks    = { top: [], left: [], bottom: [] };
-    var STACK_GAP_VH = 1;
-
-    /* Защитный МИНИМУМ высоты карточки при расчёте оффсета. offsetHeight
-       читается сразу после appendChild — в этом CEF-движке рендер с
-       backdrop-filter/кастомными шрифтами не всегда успевает досчитаться
-       к этому моменту, и синхронный замер может вернуть высоту меньше
-       реальной (в одном из тестов — почти нулевую), из-за чего соседняя
-       карточка сдвигалась недостаточно и они визуально перекрывались.
-       Поэтому берём max(реальный offsetHeight, этот пол) — если замер
-       окажется маленьким/некорректным, отступа всё равно хватит на
-       самую скромную карточку (шапка + 1 строка текста). Если контент
-       реально больше — используется настоящая (большая) высота. */
-    var STACK_MIN_HEIGHT_VH = 8;
-
-    /* Базовые "точки привязки" — должны совпадать со значениями
-       top/bottom из .zkm-sn--top/left/bottom в CSS */
-    var POS_BASE_VH  = { top: 8.8, left: 54, bottom: 5.93 };
-    var POS_PROP     = { top: 'top', left: 'top', bottom: 'bottom' };
-
-    function vhToPx(v) {
-        return (document.documentElement.clientHeight || window.innerHeight || 800) * v / 100;
-    }
-
-    function restack(pos) {
-        var arr = posStacks[pos];
-        if (!arr) return;
-        var prop   = POS_PROP[pos] || 'top';
-        var baseVh = POS_BASE_VH[pos] || 0;
-        var offset = 0;
-        var gap    = vhToPx(STACK_GAP_VH);
-        var minH   = vhToPx(STACK_MIN_HEIGHT_VH);
-        for (var i = 0; i < arr.length; i++) {
-            var el = arr[i].el;
-            el.style[prop] = 'calc(' + baseVh + 'vh + ' + Math.round(offset) + 'px)';
-            offset += Math.max(el.offsetHeight, minH) + gap;
+    function clearOwnToasts() {
+        if (Date.now() < ownToastUntil && typeof window.clearToasts === 'function') {
+            try { window.clearToasts(); } catch (e) {}
+            ownToastUntil = 0;
         }
     }
 
-    /* Пересчитываем не один раз, а с "довесками" через кадр и через
-       небольшую задержку — на случай, если реальная высота карточки
-       (напр. из-за переноса длинного текста на несколько строк или
-       догрузки шрифта) станет известна не сразу, а чуть позже первого
-       синхронного замера. Раз посчитанный МИНИМУМ (см. выше) уже не
-       даёт карточкам слипнуться даже до этой донастройки. */
-    function scheduleRestack(pos) {
-        restack(pos);
-        requestAnimationFrame(function () { restack(pos); });
-        setTimeout(function () { restack(pos); }, 90);
+    function joinText(title, text) {
+        title = strip(title); text = strip(text);
+        return (title && text) ? (title + ' — ' + text) : (title || text);
     }
 
-    function addToStack(pos, id, el) {
-        if (!posStacks[pos]) posStacks[pos] = [];
-        posStacks[pos].unshift({ id: id, el: el });
-        scheduleRestack(pos);
-    }
+    /* ═══════════════ КАРТОЧКИ-ТАЙМЕРЫ (в стиле родного тоста) ═══════════════ */
+    var timers = {};      // id → { el, iv, remaining, total, nodes... }
+    var stackEl = null;
 
-    function removeFromStack(pos, id) {
-        var arr = posStacks[pos];
-        if (!arr) return;
-        for (var i = 0; i < arr.length; i++) {
-            if (arr[i].id === id) { arr.splice(i, 1); break; }
+    function isMobile() { try { return !!(window.App && window.App.isMobile); } catch (e) { return false; } }
+    function fs() { return isMobile() ? 2.41 : 1.3; }   // размер текста как у MainNotification (vh)
+
+    function fmt(s) {
+        if (s < 0) s = 0;
+        if (typeof window.getTimeFormatSeconds === 'function') {
+            try { return window.getTimeFormatSeconds(s, true); } catch (e) {}
         }
-        scheduleRestack(pos);
+        var m = Math.floor(s / 60), ss = s % 60;
+        return (m > 0 ? String(m) + ':' : '') + (ss < 10 ? '0' : '') + ss;
     }
 
-    function removeSN(id) {
-        var item = queue.get(id);
-        if (!item) return;
-        clearTimeout(item.t);
-        queue.delete(id);
-        removeFromStack(item.pos, id);
-        item.el.classList.add('zkm-sn--leave');
-        setTimeout(function () {
-            try { item.el.remove(); } catch (_) {}
-        }, 260);
+    function ensureStack() {
+        if (stackEl && stackEl.parentNode) return stackEl;
+        stackEl = document.createElement('div');
+        stackEl.style.cssText =
+            'position:fixed;z-index:99999;pointer-events:none;' +
+            'left:' + TOAST_LEFT_VW + 'vw;bottom:' + (100 - TOAST_LEFT_VH + 1.5) + 'vh;' +
+            'transform:translateX(-50%);display:flex;flex-direction:column-reverse;align-items:center;gap:1vh;';
+        document.body.appendChild(stackEl);
+        return stackEl;
+    }
+
+    function accentOf(a) {
+        var c = normHex(a), raw = c.replace('#', '');
+        var lum = 0.2126 * parseInt(raw.substr(0, 2), 16) / 255 +
+                  0.7152 * parseInt(raw.substr(2, 2), 16) / 255 +
+                  0.0722 * parseInt(raw.substr(4, 2), 16) / 255;
+        // слишком тёмные акценты (напр. чисто синий 0000FF) на тёмной карточке не видны — слегка осветляем
+        if (lum < 0.15) {
+            var out = '#';
+            for (var i = 0; i < 3; i++) {
+                var v = parseInt(raw.substr(i * 2, 2), 16);
+                v = Math.min(255, Math.round(v + (255 - v) * 0.45));
+                out += (v < 16 ? '0' : '') + v.toString(16);
+            }
+            return out;
+        }
+        return c;
+    }
+
+    function buildCard(title, label, accent) {
+        var f = fs();
+        var root = document.createElement('div');
+        root.style.cssText =
+            'box-sizing:border-box;min-width:' + (f * 17) + 'vh;max-width:' + (f * 31) + 'vh;' +
+            'padding:' + (f * 0.85) + 'vh ' + (f * 1.14) + 'vh;border-radius:1.11vh;' +
+            'background:linear-gradient(127deg,#292524 9.34%,#1c1917 149.66%);' +
+            'box-shadow:0 0.09vh 0.74vh 0 #0c0a0666,0 0.09vh 0.09vh 0 #0c0a0699;' +
+            'color:#eeeee6;font-family:"Hassle Open Sans","Open Sans",Arial,sans-serif;font-weight:700;' +
+            'font-size:' + f + 'vh;line-height:1.35;opacity:0;transform:translateY(1vh);' +
+            'transition:opacity .3s ease,transform .3s ease;';
+
+        var head = document.createElement('div');
+        head.style.cssText = 'display:flex;align-items:center;gap:' + (f * 0.45) + 'vh;';
+        var dot = document.createElement('div');
+        dot.style.cssText = 'flex-shrink:0;width:' + (f * 0.45) + 'vh;height:' + (f * 0.45) + 'vh;border-radius:50%;';
+        var titleEl = document.createElement('div');
+        titleEl.style.cssText = 'flex:1;min-width:0;overflow-wrap:break-word;';
+        head.appendChild(dot); head.appendChild(titleEl);
+        root.appendChild(head);
+
+        var labelEl = document.createElement('div');
+        labelEl.style.cssText = 'margin-top:' + (f * 0.3) + 'vh;opacity:.8;font-weight:600;overflow-wrap:break-word;';
+        root.appendChild(labelEl);
+
+        var foot = document.createElement('div');
+        foot.style.cssText = 'display:flex;align-items:center;gap:' + (f * 0.5) + 'vh;margin-top:' + (f * 0.5) + 'vh;';
+        var timeEl = document.createElement('div');
+        timeEl.style.cssText = 'min-width:' + (f * 2.8) + 'vh;font-variant-numeric:tabular-nums;';
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'flex:1;height:' + (f * 0.26) + 'vh;border-radius:' + (f * 0.13) + 'vh;background:rgba(238,238,230,.12);overflow:hidden;';
+        var fill = document.createElement('div');
+        fill.style.cssText = 'height:100%;border-radius:' + (f * 0.13) + 'vh;transition:width 1s linear;';
+        wrap.appendChild(fill);
+        foot.appendChild(timeEl); foot.appendChild(wrap);
+        root.appendChild(foot);
+
+        var card = { el: root, dot: dot, titleEl: titleEl, labelEl: labelEl, timeEl: timeEl, fill: fill };
+        paintCard(card, title, label, accent);
+        return card;
+    }
+
+    function paintCard(card, title, label, accent) {
+        var col = accentOf(accent);
+        card.titleEl.textContent = title;
+        card.titleEl.style.color = col;
+        card.dot.style.background = col;
+        card.dot.style.boxShadow = '0 0 0.8vh ' + col;
+        card.fill.style.background = col;
+        card.labelEl.textContent = label;
+        card.labelEl.style.display = label ? 'block' : 'none';
+    }
+
+    function renderCard(t) {
+        t.card.timeEl.textContent = fmt(t.remaining);
+        var pct = t.total > 0 ? Math.max(0, Math.min(100, (t.remaining / t.total) * 100)) : 0;
+        t.card.fill.style.width = pct + '%';
+    }
+
+    function startTick(id, t) {
+        clearInterval(t.iv);
+        t.iv = setInterval(function () {
+            t.remaining--;
+            renderCard(t);
+            if (t.remaining <= 0) removeTimer(id);
+        }, 1000);
     }
 
     function removeTimer(id) {
-        var item = timerQueue.get(id);
-        if (!item) return;
-        clearInterval(item.iv);
-        timerQueue.delete(id);
-        removeFromStack(item.pos, id);
-        item.el.classList.add('zkm-sn--leave');
-        setTimeout(function () {
-            try { item.el.remove(); } catch (_) {}
-        }, 260);
+        var t = timers[id];
+        if (!t) return;
+        clearInterval(t.iv);
+        delete timers[id];
+        var el = t.card.el;
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(1vh)';
+        setTimeout(function () { try { el.remove(); } catch (e) {} }, 320);
     }
 
-    var CLOCK_SVG =
-        '<svg class="zkm-sn__timer-icon" viewBox="0 0 16 16" fill="none" ' +
-            'xmlns="http://www.w3.org/2000/svg">' +
-            '<circle cx="8" cy="8.5" r="5.4" stroke="currentColor" stroke-width="1.2"/>' +
-            '<path d="M8 5.6V8.5l2 1.4" stroke="currentColor" ' +
-                'stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>' +
-            '<path d="M8 2.1v1" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/>' +
-        '</svg>';
+    /* ═══════════════ ОФФЕРЫ (подтверждение, Alt-логика снаружи) ═══════════════ */
+    var offers = {};      // id → { t, onFinish }
 
-    /* Иконки да/нет для addChoice — вместо текстовых плашек "ALT ×1/×2" */
-    var CROSS_SVG =
-        '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-            '<path d="M4.2 4.2L11.8 11.8M11.8 4.2L4.2 11.8" stroke="currentColor" ' +
-                'stroke-width="1.6" stroke-linecap="round"/>' +
-        '</svg>';
-
-    var CHECK_SVG =
-        '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-            '<path d="M3.6 8.6L6.6 11.6L12.4 4.8" stroke="currentColor" ' +
-                'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' +
-        '</svg>';
-
-    function fmt(s) {
-        if (typeof window.getTimeFormatSeconds === 'function') {
-            return window.getTimeFormatSeconds(s, true);
+    function finishOffer(id, result, silent) {
+        var o = offers[id];
+        if (!o) return;
+        clearTimeout(o.t);
+        delete offers[id];
+        if (CLEAR_ON_OFFER_END) clearOwnToasts();
+        if (!silent && typeof o.onFinish === 'function') {
+            try { o.onFinish(id, result); } catch (e) { console.error('[ZKM-SN] onFinish:', e); }
         }
-        var m  = Math.floor(s / 60);
-        var ss = s % 60;
-        return (m > 0 ? String(m) + ':' : '') +
-               (ss < 10 ? '0' : '') + ss;
     }
 
+    /* ═══════════════════════════ ПУБЛИЧНЫЙ API ═══════════════════════════ */
     var ZkmSN = {
+        /* [position, title, text, accent, durationMs] */
         add: function (payload) {
             try {
-                var d      = JSON.parse(payload);
-                var pos    = POS[d[0]] || 'top';
-                var title  = strip(d[1]);
-                var text   = strip(d[2]);
-                var accent = resolveAccent(d[3]);
-                var dur    = Number(d[4]) || 3000;
-                var id     = ++last;
-                var kit    = accentKit(accent);
-
-                var isSiren = (accent === '#e25544');
-
-                /* ── Верхний акцент ────────────────────────────────────
-                   Обычное уведомление: тонкая светящаяся градиентная
-                   полоса (совр. "glow line" приём).
-                   Сирена: полноценный каскадный lightbar 6 сегментов —
-                   единственный случай, где это оправдано.
-                ─────────────────────────────────────────────────── */
-                var barHtml = isSiren
-                    ? '<div class="zkm-sn__lightbar">' +
-                          '<div class="zkm-sn__lb-s1"></div>' +
-                          '<div class="zkm-sn__lb-s2"></div>' +
-                          '<div class="zkm-sn__lb-s3"></div>' +
-                          '<div class="zkm-sn__lb-s4"></div>' +
-                          '<div class="zkm-sn__lb-s5"></div>' +
-                          '<div class="zkm-sn__lb-s6"></div>' +
-                      '</div>'
-                    : '<div class="zkm-sn__accent-line" style="' + kit.lineStyle + '"></div>';
-
-                var lineHtml = text.split(/<br\s*\/?>/i).map(function (l) {
-                    return '<span class="zkm-sn__text-line">' + (l || '&zwj;') + '</span>';
-                }).join('');
-
-                var el = document.createElement('div');
-                el.className = 'zkm-sn zkm-sn--' + pos + ' zkm-sn--enter'
-                             + (isSiren ? ' zkm-sn--siren' : '');
-                el.style.boxShadow = isSiren ? '' : (BASE_SHADOW + kit.panelGlow);
-
-                el.innerHTML =
-                    barHtml +
-                    '<div class="zkm-sn__body">' +
-                        '<div class="zkm-sn__header">' +
-                            '<div class="zkm-sn__dot" style="' + kit.dotStyle + '"></div>' +
-                            '<div class="zkm-sn__title" style="' + kit.titleStyle + '">' + title + '</div>' +
-                        '</div>' +
-                        '<div class="zkm-sn__text">' + lineHtml + '</div>' +
-                    '</div>';
-
-                document.body.appendChild(el);
-                addToStack(pos, id, el);
-
-                requestAnimationFrame(function () {
-                    requestAnimationFrame(function () {
-                        el.classList.remove('zkm-sn--enter');
-                    });
-                });
-
-                queue.set(id, {
-                    el: el,
-                    pos: pos,
-                    t:  setTimeout(function () { removeSN(id); }, dur)
-                });
-
-            } catch (e) {
-                console.error('[ZKM-SN] add:', e);
-            }
+                var d = parse(payload); if (!d) return;
+                var text = joinText(d[1], d[2]);
+                if (!text) return;
+                pushNative(text, toastType(d[3]), Number(d[4]) || 3000, d[0]);
+            } catch (e) { console.error('[ZKM-SN] add:', e); }
         },
 
         hideAll: function () {
-            Array.from(queue.keys()).forEach(removeSN);
+            if (HIDE_ALL_CLEARS) clearOwnToasts();
         },
 
-        /* ── Таймер-уведомление ────────────────────────────────────────
-           Payload: [position, title, label, accent, seconds, totalSeconds?]
-           totalSeconds — необязательный 6-й элемент: полная длительность
-           цикла (напр. интервал /setmark = 31с), по которой считается
-           заполнение прогресс-бара. Если не передан — используется сам
-           seconds (старое поведение, полностью обратно совместимо).
-           Нужен для updateTimer(): когда снаружи периодически освежают
-           один и тот же таймер новым "остатком" от общего цикла, бар
-           должен ПРОДОЛЖАТЬ движение от текущей точки, а не прыгать на
-           100% и снова считать вниз.
-        ─────────────────────────────────────────────────────────────── */
+        /* [position, title, label, accent, seconds, totalSeconds?] → id */
         addTimer: function (payload) {
             try {
-                var d      = JSON.parse(payload);
-                var pos    = POS[d[0]] || 'bottom';
-                var title  = strip(d[1]);
-                var label  = strip(d[2]);
-                var accent = resolveAccent(d[3]);
+                var d = parse(payload); if (!d) return;
+                var title  = strip(d[1]), label = strip(d[2]);
                 var secs   = Number(d[4]) || 60;
                 var total  = Number(d[5]) || secs;
                 var id     = ++last;
-                var kit    = accentKit(accent);
-
-                var remaining  = secs;
-                var startWidth = Math.max(0, Math.min(100, (remaining / total) * 100));
-
-                var el = document.createElement('div');
-                el.className = 'zkm-sn zkm-sn--' + pos +
-                               ' zkm-sn--enter zkm-sn--timer-notif';
-                el.style.boxShadow = BASE_SHADOW + kit.panelGlow;
-
-                el.innerHTML =
-                    '<div class="zkm-sn__accent-line" style="' + kit.lineStyle + '"></div>' +
-                    '<div class="zkm-sn__body">' +
-                        '<div class="zkm-sn__header">' +
-                            '<div class="zkm-sn__dot" style="' + kit.dotStyle + '"></div>' +
-                            '<div class="zkm-sn__title" style="' + kit.titleStyle + '">' + title + '</div>' +
-                        '</div>' +
-                        (label
-                            ? '<div class="zkm-sn__text">' +
-                              '<span class="zkm-sn__text-line">' + label + '</span>' +
-                              '</div>'
-                            : '') +
-                        '<div class="zkm-sn__timer-row">' +
-                            CLOCK_SVG +
-                            '<div class="zkm-sn__timer-time"></div>' +
-                            '<div class="zkm-sn__timer-bar-wrap">' +
-                                '<div class="zkm-sn__timer-bar-fill" style="width:' + startWidth + '%;' + kit.fillStyle + '"></div>' +
-                            '</div>' +
-                        '</div>' +
-                    '</div>';
-
-                document.body.appendChild(el);
-                addToStack(pos, id, el);
-
-                var timeEl = el.querySelector('.zkm-sn__timer-time');
-                var fillEl = el.querySelector('.zkm-sn__timer-bar-fill');
-                if (timeEl) timeEl.textContent = fmt(remaining);
-
-                requestAnimationFrame(function () {
-                    requestAnimationFrame(function () {
-                        el.classList.remove('zkm-sn--enter');
-                    });
-                });
-
-                var iv = setInterval(function () {
-                    remaining--;
-                    if (timeEl) timeEl.textContent = fmt(remaining);
-                    if (fillEl) fillEl.style.width =
-                        Math.max(0, (remaining / total) * 100) + '%';
-                    if (remaining <= 0) {
-                        clearInterval(iv);
-                        removeTimer(id);
-                    }
-                }, 1000);
-
-                timerQueue.set(id, { el: el, iv: iv, total: total, pos: pos });
+                var card   = buildCard(title, label, d[3]);
+                var t      = { card: card, remaining: secs, total: total, iv: null };
+                timers[id] = t;
+                renderCard(t);
+                ensureStack().appendChild(card.el);
+                var show = function () { card.el.style.opacity = '1'; card.el.style.transform = 'translateY(0)'; };
+                if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { requestAnimationFrame(show); });
+                else setTimeout(show, 16);
+                startTick(id, t);
                 return id;
-
-            } catch (e) {
-                console.error('[ZKM-SN] addTimer:', e);
-            }
+            } catch (e) { console.error('[ZKM-SN] addTimer:', e); }
         },
 
-        /* ── Уведомление-выбор ──────────────────────────────────────────
-           Payload: [position, title, noLabel, yesLabel, accent, seconds]
-        ─────────────────────────────────────────────────────────────── */
+        /* Обновить уже висящий таймер без пересоздания. null — такого таймера нет (вызывающий создаст новый). */
+        updateTimer: function (id, payload) {
+            var t = timers[id];
+            if (!t) return null;
+            try {
+                var d = parse(payload); if (!d) return null;
+                var secs  = Number(d[4]) || 60;
+                var total = Number(d[5]) || t.total || secs;
+                paintCard(t.card, strip(d[1]), strip(d[2]), d[3]);
+                t.remaining = secs;
+                t.total = total;
+                renderCard(t);
+                startTick(id, t);
+                return id;
+            } catch (e) { console.error('[ZKM-SN] updateTimer:', e); return null; }
+        },
+
+        hideTimer: function (id) { removeTimer(id); },
+
+        hideAllTimers: function () { Object.keys(timers).forEach(removeTimer); },
+
+        /* [position, title, noLabel, yesLabel, accent, seconds] — выбор «Да/Нет» (в АХК не используется) */
         addChoice: function (payload, onFinish) {
             try {
-                var d       = JSON.parse(payload);
-                var pos     = POS[d[0]] || 'bottom';
-                var title   = strip(d[1]);
-                var noLabel = strip(d[2]) || 'Нет';
-                var yesLabel= strip(d[3]) || 'Да';
-                var accent  = resolveAccent(d[4]);
-                var secs    = Number(d[5]) || 7;
-                var id      = ++last;
-                var kit     = accentKit(accent);
-
-                var remaining = secs;
-
-                var el = document.createElement('div');
-                el.className = 'zkm-sn zkm-sn--' + pos +
-                               ' zkm-sn--enter zkm-sn--choice';
-                el.style.boxShadow = BASE_SHADOW + kit.panelGlow;
-
-                el.innerHTML =
-                    '<div class="zkm-sn__accent-line" style="' + kit.lineStyle + '"></div>' +
-                    '<div class="zkm-sn__body">' +
-                        '<div class="zkm-sn__header">' +
-                            '<div class="zkm-sn__dot" style="' + kit.dotStyle + '"></div>' +
-                            '<div class="zkm-sn__title" style="' + kit.titleStyle + '">' + title + '</div>' +
-                        '</div>' +
-                        '<div class="zkm-sn__choice-row">' +
-                            '<div class="zkm-sn__choice-opt zkm-sn__choice-opt--no">' +
-                                '<div class="zkm-sn__choice-icon">' + CROSS_SVG + '</div>' +
-                                '<div class="zkm-sn__choice-info">' +
-                                    '<span class="zkm-sn__choice-label">' + noLabel + '</span>' +
-                                    '<span class="zkm-sn__choice-key">Alt<b>×1</b></span>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div class="zkm-sn__choice-opt zkm-sn__choice-opt--yes">' +
-                                '<div class="zkm-sn__choice-icon">' + CHECK_SVG + '</div>' +
-                                '<div class="zkm-sn__choice-info">' +
-                                    '<span class="zkm-sn__choice-label">' + yesLabel + '</span>' +
-                                    '<span class="zkm-sn__choice-key">Alt<b>×2</b></span>' +
-                                '</div>' +
-                            '</div>' +
-                        '</div>' +
-                        '<div class="zkm-sn__timer-row">' +
-                            CLOCK_SVG +
-                            '<div class="zkm-sn__timer-time"></div>' +
-                            '<div class="zkm-sn__timer-bar-wrap">' +
-                                '<div class="zkm-sn__timer-bar-fill" style="width:100%;' + kit.fillStyle + '"></div>' +
-                            '</div>' +
-                        '</div>' +
-                    '</div>';
-
-                document.body.appendChild(el);
-                addToStack(pos, id, el);
-
-                var timeEl = el.querySelector('.zkm-sn__timer-time');
-                var fillEl = el.querySelector('.zkm-sn__timer-bar-fill');
-                if (timeEl) timeEl.textContent = fmt(remaining);
-
-                requestAnimationFrame(function () {
-                    requestAnimationFrame(function () {
-                        el.classList.remove('zkm-sn--enter');
-                    });
-                });
-
-                var iv = setInterval(function () {
-                    remaining--;
-                    if (timeEl) timeEl.textContent = fmt(remaining);
-                    if (fillEl) fillEl.style.width =
-                        Math.max(0, (remaining / secs) * 100) + '%';
-
-                    if (remaining <= 2 && remaining > 0) {
-                        if (fillEl) fillEl.classList.add('zkm-sn__timer-bar-fill--urgent');
-                        if (timeEl) timeEl.classList.add('zkm-sn__timer-time--urgent');
-                    }
-
-                    if (remaining <= 0) {
-                        clearInterval(iv);
-                        removeTimer(id);
-                        if (typeof onFinish === 'function') {
-                            try { onFinish(id); } catch (e) {}
-                        }
-                    }
-                }, 1000);
-
-                timerQueue.set(id, { el: el, iv: iv, pos: pos });
-                return id;
-
-            } catch (e) {
-                console.error('[ZKM-SN] addChoice:', e);
-            }
+                var d = parse(payload); if (!d) return;
+                var secs = Number(d[5]) || 7;
+                var no = strip(d[2]) || 'Нет', yes = strip(d[3]) || 'Да';
+                return ZkmSN.addOfferChoice(JSON.stringify([d[1], no + ' / ' + yes, secs]), onFinish);
+            } catch (e) { console.error('[ZKM-SN] addChoice:', e); }
         },
 
-        /* ══════════════════════════════════════════════════════════════
-           OFFER-УВЕДОМЛЕНИЕ — addOfferChoice()
-           Дизайн один-в-один скопирован из Offer.js/Offer.css игрового
-           интерфейса (тот же скоуп data-v-b87ae6b4, те же классы .offer /
-           .offer__container / .offer__btn и т.д., тот же slide-enter/leave)
-           — но это НЕ Vue-компонент, а ванильный DOM-узел, потому что
-           открывается прямо здесь, в ZKM, а не через window.openInterface.
-
-           Круглые кнопки "N"/"Y" кликабельны мышью (как в оригинальном
-           Offer), а снаружи (напр. mvdF.js) можно управлять тем же
-           уведомлением программно — напр. чтобы завязать подтверждение
-           на двойное нажатие Alt вместо клика:
-             var id = sn.addOfferChoice(
-                 '["Проверка документов","Alt ×1 — отмена, Alt ×2 — подтвердить",10]',
-                 function (id, result) { ... } // result: 'yes' | 'no' | 'expire'
-             );
-             sn.highlightOfferChoice(id, 'no', true);   // подсветить N (как при удержании клавиши)
-             sn.resolveOfferChoice(id, 'yes');           // закрыть как будто нажали Y
-             sn.hideOfferChoice(id);                     // закрыть молча, без onFinish
-
-           Payload: ["title", "textHtml", seconds, noBtnText?, yesBtnText?]
-           noBtnText/yesBtnText — необязательные подписи на круглых кнопках
-           (по умолчанию "1"/"2" — под реальный способ ответа: Alt ×1/×2).
-           В оригинальном Offer.js там стояли буквы N/Y — подписи под
-           клавиши Y/N, которых в этом уведомлении нет физически, поэтому
-           здесь по умолчанию подписи заменены на цифры кол-ва нажатий Alt.
-        ─────────────────────────────────────────────────────────────── */
+        /* ["title", "text", seconds, noBtnText?, yesBtnText?] → id.
+           onFinish(id, 'yes'|'no'|'expire'). Тост показывает подсказку, решение приходит снаружи
+           (resolveOfferChoice) или по таймауту. */
         addOfferChoice: function (payload, onFinish) {
             try {
-                var d       = JSON.parse(payload);
-                var title   = strip(d[0]);
-                var text    = d[1] || ''; // идёт как innerHTML — как t.text в Offer.js
-                var secs    = Number(d[2]) || 10;
-                var noText  = d[3] != null && d[3] !== '' ? strip(d[3]) : '1';
-                var yesText = d[4] != null && d[4] !== '' ? strip(d[4]) : '2';
-                var id      = ++last;
-
-                var el = document.createElement('div');
-                el.className = 'offer iface-container zkm-sn-offer';
-                el.setAttribute('data-v-b87ae6b4', '');
-                el.innerHTML =
-                    '<div class="offer__container slide-enter-from slide-enter-active" data-v-b87ae6b4>' +
-                        '<div class="offer__container__before" data-v-b87ae6b4></div>' +
-                        '<div class="offer__content" data-v-b87ae6b4>' +
-                            '<div class="offer__content-background" data-v-b87ae6b4></div>' +
-                            '<div class="offer__btn zkm-sn-offer__no" data-v-b87ae6b4>' +
-                                '<div class="offer__btn__text" data-v-b87ae6b4>' + noText + '</div>' +
-                            '</div>' +
-                            '<div class="offer__data" data-v-b87ae6b4>' +
-                                '<div class="offer__title" data-v-b87ae6b4></div>' +
-                                '<div class="offer__text" data-v-b87ae6b4></div>' +
-                            '</div>' +
-                            '<div class="offer__btn zkm-sn-offer__yes" data-v-b87ae6b4>' +
-                                '<div class="offer__btn__text" data-v-b87ae6b4>' + yesText + '</div>' +
-                            '</div>' +
-                        '</div>' +
-                    '</div>';
-
-                el.querySelector('.offer__title').textContent = title;
-                el.querySelector('.offer__text').innerHTML    = text;
-
-                document.body.appendChild(el);
-
-                var box    = el.querySelector('.offer__container');
-                var noBtn  = el.querySelector('.zkm-sn-offer__no');
-                var yesBtn = el.querySelector('.zkm-sn-offer__yes');
-
-                requestAnimationFrame(function () {
-                    requestAnimationFrame(function () { box.classList.remove('slide-enter-from'); });
-                });
-
-                var resolved = false;
-                function finish(result) {
-                    if (resolved) return;
-                    resolved = true;
-                    var item = offerQueue.get(id);
-                    if (item) clearTimeout(item.t);
-                    offerQueue.delete(id);
-
-                    box.classList.remove('slide-enter-from', 'slide-enter-active');
-                    box.classList.add('slide-leave-active', 'slide-leave-to');
-                    setTimeout(function () { try { el.remove(); } catch (_) {} }, 280);
-
-                    if (typeof onFinish === 'function') {
-                        try { onFinish(id, result); } catch (e) {}
-                    }
-                }
-
-                noBtn.addEventListener('click', function () { finish('no'); });
-                yesBtn.addEventListener('click', function () { finish('yes'); });
-
-                var t = setTimeout(function () { finish('expire'); }, secs * 1000);
-                offerQueue.set(id, { el: el, box: box, noBtn: noBtn, yesBtn: yesBtn, finish: finish, t: t });
-
+                var d = parse(payload); if (!d) return;
+                var secs = Number(d[2]) || 10;
+                var id = ++last;
+                pushNative(joinText(d[0], d[1]), T_INFO, secs * 1000, 1);
+                offers[id] = {
+                    onFinish: onFinish,
+                    t: setTimeout(function () { finishOffer(id, 'expire'); }, secs * 1000)
+                };
                 return id;
-            } catch (e) {
-                console.error('[ZKM-SN] addOfferChoice:', e);
-            }
+            } catch (e) { console.error('[ZKM-SN] addOfferChoice:', e); }
         },
 
-        /* Подсветка кнопки N/Y — аналог isActiveNoBtn/isActiveYesBtn из
-           Offer.js (там переключались по удержанию клавиш Y/N; здесь
-           вызывающий код сам решает, когда подсвечивать — напр. по Alt) */
-        highlightOfferChoice: function (id, which, on) {
-            var item = offerQueue.get(id);
-            if (!item) return;
-            var btn = which === 'yes' ? item.yesBtn : item.noBtn;
-            if (btn) btn.classList.toggle('offer__btn_active', !!on);
-        },
+        /* Подсветки кнопок в тосте нет — оставлено для совместимости с вызовами из АХК */
+        highlightOfferChoice: function () {},
 
-        /* Закрывает уведомление программно с результатом 'yes'/'no' —
-           так, как будто пользователь кликнул по соответствующей кнопке.
-           Используется, когда решение принято не кликом, а иначе
-           (напр. двойным нажатием Alt снаружи в mvdF.js) */
+        /* Закрыть как будто выбрали «Да»/«Нет» */
         resolveOfferChoice: function (id, which) {
-            var item = offerQueue.get(id);
-            if (!item) return;
-            item.finish(which === 'yes' ? 'yes' : 'no');
+            finishOffer(id, which === 'yes' ? 'yes' : 'no', false);
         },
 
-        /* Закрывает уведомление молча, БЕЗ вызова onFinish — для случаев
-           отмены "снаружи" (напр. ответ сервера обогнал закрытие) */
-        hideOfferChoice: function (id) {
-            var item = offerQueue.get(id);
-            if (!item) return;
-            var t = item.t;
-            clearTimeout(t);
-            offerQueue.delete(id);
-            item.box.classList.remove('slide-enter-from', 'slide-enter-active');
-            item.box.classList.add('slide-leave-active', 'slide-leave-to');
-            setTimeout(function () { try { item.el.remove(); } catch (_) {} }, 280);
-        },
-
-        /* ── Обновление уже открытого таймер-уведомления БЕЗ пересоздания
-           DOM-узла (а значит без leave/enter анимации). Используется,
-           когда снаружи (mvdF.js) нужно просто освежить текст/оставшееся
-           время у уведомления, которое и так висит на экране.
-
-           Прогресс-бар считается от total (см. addTimer) — если total
-           не передан явно, используется предыдущий total этого таймера
-           (а не текущий secs), иначе бар при каждом обновлении прыгал
-           бы на 100% вместо того чтобы продолжать плавно идти вниз.
-
-           Текст (заголовок/подпись) меняется мгновенно, ЕСЛИ реально
-           изменился — короткий opacity-кроссфейд, а не жёсткая замена,
-           чтобы обновление не выглядело "дёргано". Если текст не
-           поменялся — вообще не трогаем узел, чтобы не было лишнего
-           reflow/мигания.
-
-           Возвращает id при успехе, null — если такого таймера нет
-           (тогда вызывающий код должен создать новый через addTimer). ── */
-        updateTimer: function (id, payload) {
-            var item = timerQueue.get(id);
-            if (!item) return null;
-
-            try {
-                var d      = JSON.parse(payload);
-                var title  = strip(d[1]);
-                var label  = strip(d[2]);
-                var accent = resolveAccent(d[3]);
-                var secs   = Number(d[4]) || 60;
-                var total  = Number(d[5]) || item.total || secs;
-                var kit    = accentKit(accent);
-
-                var el      = item.el;
-                var titleEl = el.querySelector('.zkm-sn__title');
-                var textEl  = el.querySelector('.zkm-sn__text-line');
-                var lineEl  = el.querySelector('.zkm-sn__accent-line');
-                var dotEl   = el.querySelector('.zkm-sn__dot');
-                var fillEl  = el.querySelector('.zkm-sn__timer-bar-fill');
-                var timeEl  = el.querySelector('.zkm-sn__timer-time');
-
-                /* Мягкая смена текста — только если реально другой текст */
-                swapText(titleEl, title);
-                swapText(textEl, label);
-
-                if (titleEl) titleEl.style.color = accent;
-                if (lineEl)  lineEl.setAttribute('style', kit.lineStyle);
-                if (dotEl)   dotEl.setAttribute('style', kit.dotStyle);
-                if (fillEl)  fillEl.style.background = accent;
-                el.style.boxShadow = BASE_SHADOW + kit.panelGlow;
-
-                /* сбрасываем urgent-состояние — оно относилось к старому отсчёту */
-                if (fillEl) fillEl.classList.remove('zkm-sn__timer-bar-fill--urgent');
-                if (timeEl) timeEl.classList.remove('zkm-sn__timer-time--urgent');
-
-                clearInterval(item.iv);
-                item.total = total;
-
-                var remaining = secs;
-                if (timeEl) timeEl.textContent = fmt(remaining);
-                /* Ставим долю от ПОЛНОГО цикла, а не от текущего secs —
-                   бар продолжает движение с той же точки, без прыжка на 100% */
-                if (fillEl) fillEl.style.width =
-                    Math.max(0, Math.min(100, (remaining / total) * 100)) + '%';
-
-                item.iv = setInterval(function () {
-                    remaining--;
-                    if (timeEl) timeEl.textContent = fmt(remaining);
-                    if (fillEl) fillEl.style.width =
-                        Math.max(0, (remaining / total) * 100) + '%';
-                    if (remaining <= 0) {
-                        clearInterval(item.iv);
-                        removeTimer(id);
-                    }
-                }, 1000);
-
-                /* высота карточки могла измениться (другая длина текста) —
-                   пересчитываем офсеты соседей по стеку. Небольшая задержка,
-                   чтобы успел пройти opacity-кроссфейд текста в swapText(). */
-                setTimeout(function () { scheduleRestack(item.pos); }, 140);
-
-                return id;
-            } catch (e) {
-                console.error('[ZKM-SN] updateTimer:', e);
-                return null;
-            }
-        },
-
-        hideTimer: function (id) {
-            removeTimer(id);
-        },
-
-        hideAllTimers: function () {
-            Array.from(timerQueue.keys()).forEach(removeTimer);
-        },
+        /* Закрыть молча — БЕЗ onFinish */
+        hideOfferChoice: function (id) { finishOffer(id, 'no', true); },
 
         hideAllOffers: function () {
-            Array.from(offerQueue.keys()).forEach(function (id) {
-                var item = offerQueue.get(id);
-                if (item) item.finish('expire');
-            });
+            Object.keys(offers).forEach(function (k) { finishOffer(Number(k), 'expire', false); });
         }
     };
 
-    /* ── Регистрация как ОТДЕЛЬНЫЙ namespace ──────────────────────
-       ВАЖНО: не подменяет глобальный родной 'ScreenNotification' —
-       родные уведомления игры продолжают работать как обычно.
-       МВД-код обращается явно через window.ZkmScreenNotification.
-    ─────────────────────────────────────────────────────────────── */
     window.ZkmScreenNotification = ZkmSN;
-    console.log('[ZKM-SN] v5.1 готов (акцент через инлайн-стили — надёжно в этом CEF, без CSS var())');
-
+    console.log('[ZKM-SN] v6.0 готов (родные тосты игры: window.pushToast)');
 })();
