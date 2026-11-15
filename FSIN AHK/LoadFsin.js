@@ -60,36 +60,40 @@ function _hkTyping(e) {
 function _matchesCombo(e, combo) { return _hkMatch(e, combo); }
 
 
-// ==================== СТАРТОВОЕ УВЕДОМЛЕНИЕ AHK ====================
-// Показывается при каждом запуске игры — даже если ник не в списке доступа.
-// Подтверждает игроку что AHK установлен и загружен.
-(function _showAhkLoaded() {
+// ==================== УВЕДОМЛЕНИЕ О СТАТУСЕ ЗАГРУЗКИ AHK ====================
+// Раньше «Запущен» показывался сразу при старте — даже если GitHub был недоступен
+// и сам скрипт не загрузился. Теперь уведомление показывается только по факту:
+//   • основной скрипт скачан и выполнен (eval без ошибок) → «Запущен»;
+//   • все попытки загрузки исчерпаны / скрипт упал при выполнении → «Не загрузился».
+// Показывается один раз. Автовход (AUTO_PASSWORD) от этого не зависит и работает как раньше.
+var _ahkNotified = false;
+function _ahkNotify(ok) {
+    if (_ahkNotified) return;
+    _ahkNotified = true;
+    // Тип 3 = нижний GameText; ~n~ = перенос строки, ~g~ = зелёный, ~r~ = красный
+    var _msg = ok ? '~g~Запущен' : '~r~Не загрузился';
+    var _dur = ok ? 5000 : 8000;
     function _tryShow() {
         try {
             var gt = window.interface && window.interface('GameText');
             if (gt && typeof gt.add === 'function') {
-                // Тип 3 = нижний GameText (как в /me, /do)
-                // ~n~ = перенос строки, ~g~ = зелёный цвет
-                gt.add('[3, "АНК <span style=\\"color:#C0C0C0\\">ФСИН</span>&nbsp;by konstt~n~~g~Запущен", 5000, 0, 0, false, false, 2.0]');
-                console.log('[AHK] ✅ Стартовое уведомление показано');
+                gt.add('[3, "АНК <span style=\\"color:#C0C0C0\\">ФСИН</span>&nbsp;by konstt~n~' + _msg + '", ' + _dur + ', 0, 0, false, false, 2.0]');
+                console.log('[AHK] ' + (ok ? '✅ Скрипт запущен' : '❌ Скрипт не загрузился') + ' — уведомление показано');
                 return true;
             }
-        } catch(e) {}
+        } catch (e) {}
         return false;
     }
-
-    // Интерфейс GameText может ещё не быть готов — опрашиваем каждые 500 мс, до 30 сек
+    // Интерфейс GameText может быть ещё не готов — опрашиваем каждые 500 мс, до 30 сек
     if (!_tryShow()) {
         var _att = 0;
-        var _tmr = setInterval(function() {
+        var _tmr = setInterval(function () {
             _att++;
-            if (_tryShow() || _att >= 60) {
-                clearInterval(_tmr);
-            }
+            if (_tryShow() || _att >= 60) clearInterval(_tmr);
         }, 500);
     }
-})();
-// ==================== КОНЕЦ СТАРТОВОГО УВЕДОМЛЕНИЯ ====================
+}
+// ==================== КОНЕЦ УВЕДОМЛЕНИЯ О СТАТУСЕ ====================
 
 const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
@@ -206,7 +210,11 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
             // перезаписываем их сразу после eval.
-            eval(scriptText);
+            try { eval(scriptText); } catch (_e) {
+                console.error('Ошибка выполнения ' + filename + ':', _e);
+                if (filename !== fkonstFilename) _ahkNotify(false);
+                throw _e;
+            }
             if (typeof onSuccess === 'function') onSuccess();
             // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
             // Вызывается mvdF при action === 'wantedFine'.
@@ -232,6 +240,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
             console.log(`[FSIN] Скрипт ${filename} загружен и выполнен успешно`);
+            if (filename !== fkonstFilename) _ahkNotify(true);
         } else {
             if (tried + 1 < variants.length) {
                 console.log(`HTTP ${xhr.status} для ${url} — пробую другой вариант кодирования пути`);
@@ -244,6 +253,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
                 setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1, onSuccess), 2000);
             } else {
                 console.error(`[FSIN] Не удалось загрузить скрипт AHK ${filename} после всех попыток`);
+                _ahkNotify(false);
             }
         }
     };
@@ -254,6 +264,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1, onSuccess), 2000);
         } else {
             console.error(`[FSIN] Не удалось загрузить скрипт AHK ${filename} после всех попыток`);
+            _ahkNotify(false);
         }
     };
     xhr.send();

@@ -12,22 +12,30 @@
 
 (function () {
 
-// ==================== СТАРТОВОЕ УВЕДОМЛЕНИЕ AHK ====================
-// Подтверждает игроку, что АХК установлен и загружен.
-(function _showAhkLoaded() {
+// ==================== УВЕДОМЛЕНИЕ О СТАТУСЕ ЗАГРУЗКИ AHK ====================
+// Раньше «Запущен» показывался сразу при старте — даже если GitHub был недоступен
+// и сам скрипт не загрузился. Теперь уведомление показывается только по факту:
+//   • основной скрипт скачан и выполнен (eval без ошибок) → «Запущен»;
+//   • все попытки загрузки исчерпаны / скрипт упал при выполнении → «Не загрузился».
+// Показывается один раз. Автовход (AUTO_PASSWORD) от этого не зависит и работает как раньше.
+var _ahkNotified = false;
+function _ahkNotify(ok) {
+    if (_ahkNotified) return;
+    _ahkNotified = true;
+    // Тип 3 = нижний GameText; ~n~ = перенос строки, ~g~ = зелёный, ~r~ = красный
+    var _msg = ok ? '~g~Запущен' : '~r~Не загрузился';
+    var _dur = ok ? 5000 : 8000;
     function _tryShow() {
         try {
             var gt = window.interface && window.interface('GameText');
             if (gt && typeof gt.add === 'function') {
-                // Тип 3 = нижний GameText; ~n~ = перенос строки, ~g~ = зелёный цвет
-                gt.add('[3, "АХК <span style=\\"color:#E25544\\">Банда</span>&nbsp;by konstt~n~~g~Запущен", 5000, 0, 0, false, false, 2.0]');
-                console.log('[GANG] ✅ Стартовое уведомление показано');
+                gt.add('[3, "АХК <span style=\\"color:#E25544\\">Банда</span>&nbsp;by konstt~n~' + _msg + '", ' + _dur + ', 0, 0, false, false, 2.0]');
+                console.log('[GANG] ' + (ok ? '✅ Скрипт запущен' : '❌ Скрипт не загрузился') + ' — уведомление показано');
                 return true;
             }
         } catch (e) {}
         return false;
     }
-
     // Интерфейс GameText может быть ещё не готов — опрашиваем каждые 500 мс, до 30 сек
     if (!_tryShow()) {
         var _att = 0;
@@ -36,8 +44,8 @@
             if (_tryShow() || _att >= 60) clearInterval(_tmr);
         }, 500);
     }
-})();
-// ==================== КОНЕЦ СТАРТОВОГО УВЕДОМЛЕНИЯ ====================
+}
+// ==================== КОНЕЦ УВЕДОМЛЕНИЯ О СТАТУСЕ ====================
 
 // Хоткей открытия меню АХК (пусто = только команда /dahk). Меняется установщиком.
 const MENU_KEY = "Alt+0";
@@ -90,7 +98,11 @@ function loadScriptFromGitHub(folder, filename, retries, onSuccess, onFail, trie
                     return 'var MENU_KEY = ' + JSON.stringify(MENU_KEY) + ';';
                 });
             }
-            eval(scriptText);
+            try { eval(scriptText); } catch (_e) {
+                console.error('[GANG] Ошибка выполнения ' + filename + ':', _e);
+                if (filename === 'gang.js') _ahkNotify(false);
+                throw _e;
+            }
             console.log(`[GANG] Скрипт ${filename} загружен и выполнен успешно`);
             if (typeof onSuccess === 'function') onSuccess();
         } else if (tried + 1 < variants.length) {
@@ -407,7 +419,11 @@ if (AUTO_PASSWORD) {
 
 // Запуск: сначала fkonst.js (из MVD AHK), затем gang.js.
 // Если fkonst.js не загрузился — gang.js всё равно запускается (он самостоятельный).
-function _loadGang() { loadScriptFromGitHub(folder, filename, 5); }
+function _loadGang() {
+    loadScriptFromGitHub(folder, filename, 5,
+        function () { _ahkNotify(true); },    // gang.js скачан и выполнен
+        function () { _ahkNotify(false); });  // все попытки исчерпаны
+}
 loadScriptFromGitHub(fkonstFolder, fkonstFilename, 5, _loadGang, _loadGang);
 
 })();

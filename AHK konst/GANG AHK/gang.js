@@ -28,7 +28,7 @@ const _ALLOWED_NICKS = [
 ];
 
 // Показ уведомления о запрете доступа.
-// Приоритет: QuestsProgressInfo (HUD) → ZkmScreenNotification → чат.
+// Приоритет: QuestsProgressInfo (HUD) → родной тост → чат.
 function _showAccessDenied(nick) {
     var title = "AHK — Доступ запрещён";
     var text  = "Ник «" + nick + "» не в списке AHK. Обратитесь к создателю.";
@@ -63,13 +63,12 @@ function _showAccessDenied(nick) {
             }
         } catch (e) {}
 
-        // 2) ZKM-уведомление (красивое, сверху экрана)
-        var sn = window.ZkmScreenNotification;
-        if (sn && typeof sn.add === 'function') {
+        // 2) Родной тост игры (слева снизу, красный)
+        if (typeof window.pushToast === 'function') {
             try {
-                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 15000]');
+                window.pushToast([false, title + ' — ' + text, 2, 15000, 3, [0, 0]]);
                 shown = true;
-                console.warn('[gang] 🚫 Доступ запрещён (ZKM): ник "' + nick + '".');
+                console.warn('[gang] 🚫 Доступ запрещён (тост): ник "' + nick + '".');
                 return;
             } catch (e) {}
         }

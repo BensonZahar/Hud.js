@@ -1,6 +1,438 @@
 // ⚠️ ЧТО ЭТО ЗА ФАЙЛ fsb.js — ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ ФСБ И ФУНКЦИЙ ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ.
 
 // ПРОВЕРКА НИКА Добавляй/убирай ники здесь.
+// ═══════════ AhkNotify: уведомления АХК на родном тосте игры (заменяет ZkmScreenNotification) ═══════════
+// AhkNotify — уведомления АХК на РОДНОМ тосте игры (window.pushToast), позиция: слева снизу.
+//
+// Родные ToastNotifications (js/css игры) НЕ меняются. Здесь только:
+//   • тонкая обёртка над window.pushToast с тем же API, что был у старого Zkm-уведомления
+//     (add / hideAll / addTimer / updateTimer / hideTimer / hideAllTimers /
+//      addOfferChoice / highlightOfferChoice / resolveOfferChoice / hideOfferChoice / hideAllOffers),
+//   • карточки-таймеры из разметки/классов самого родного тоста (у него таймера нет; InformationTimer один на всех, а таймеры АХК
+//     бывают одновременно: отслеживание + КД /setmark + КД штрафа + «Вышел из игры»),
+//   • «оффер» (проверка документов / цитирование): тост с подсказкой «Alt ×1 — отмена, Alt ×2 — подтвердить»;
+//     сама Alt-логика живёт в скрипте АХК, здесь только таймаут и колбэк onFinish(id, 'yes'|'no'|'expire').
+//
+// Тип тоста выбирается по цвету-акценту из payload:
+//   красный → failure, зелёный → success, оранжевый/золотой → warning, остальное (синий, серый) → info.
+//
+// Родной тост нельзя убрать по одному — только clearToasts() (стирает и тосты самой игры),
+// поэтому hideAll() по умолчанию ничего не стирает: тосты уходят сами по таймеру,
+// третий вытесняет самый старый.
+;(function () {
+    if (window.AhkNotify) return;   // уже определён другим скриптом АХК — не дублируем
+    'use strict';
+
+    /* ═════════════════════════ НАСТРОЙКИ ═════════════════════════ */
+    // Позиция родного тоста: 0 TOP_LEFT, 1 TOP_CENTER, 2 TOP_RIGHT, 3 BOTTOM_LEFT, 4 BOTTOM_CENTER, 5 BOTTOM_RIGHT.
+    // Позиции из payload ([0|1|2, ...]) игнорируются — все уведомления слева снизу.
+    var TOAST_POS = 3;
+
+    // Карточки-таймеры стоят над колонкой тостов: левый край = левый край родного тоста (7vw),
+    // низ = верх колонки тостов (12.59vh + отступ 1.48vh) + небольшой зазор.
+    var TIMER_LEFT_VW   = 7;
+    var TIMER_BOTTOM_VH = 15.6;
+
+    // hideAll() стирает тосты (в т.ч. игровые), если наш тост ещё на экране.
+    var HIDE_ALL_CLEARS = false;
+
+    // Когда оффер закрыт (Alt×2 / Alt×1 / отмена снаружи) — стереть его тост, чтобы подсказка не висела.
+    var CLEAR_ON_OFFER_END = true;
+
+    /* ═════════════════════════ СЛУЖЕБНОЕ ═════════════════════════ */
+    var T_INFO = 0, T_SUCCESS = 1, T_FAILURE = 2, T_WARNING = 3;
+
+    var last = 0;                 // счётчик id (общий для таймеров и офферов)
+    var ownToastUntil = 0;        // до какого момента наш тост ещё на экране
+    var warnedNoToast = false;
+
+    /* Убираем мусор: цвет-теги {RRGGBB}, <br> → " · ", любые HTML-теги, &nbsp; */
+    function strip(s) {
+        return String(s == null ? '' : s)
+            .replace(/\{[0-9A-Fa-f]{6}\}/g, '')
+            .replace(/<br\s*\/?>/gi, ' · ')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function parse(payload) {
+        try { return typeof payload === 'string' ? JSON.parse(payload) : payload; }
+        catch (e) { console.error('[AhkNotify] payload не разобран:', e && e.message, payload); return null; }
+    }
+
+    /* Цвет-акцент → '#rrggbb' + hue/saturation */
+    function normHex(hex) {
+        var h = String(hex == null ? '' : hex).replace(/^#/, '');
+        if (!/^[0-9a-fA-F]{1,6}$/.test(h)) return '#f9b701';
+        while (h.length < 6) h = '0' + h;
+        return '#' + h.toLowerCase();
+    }
+    function hsv(hex) {
+        var h = hex.replace('#', '');
+        var r = parseInt(h.substr(0, 2), 16) / 255,
+            g = parseInt(h.substr(2, 2), 16) / 255,
+            b = parseInt(h.substr(4, 2), 16) / 255;
+        var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, hue = 0;
+        if (d > 0) {
+            if (mx === r) hue = ((g - b) / d) % 6;
+            else if (mx === g) hue = (b - r) / d + 2;
+            else hue = (r - g) / d + 4;
+            hue *= 60; if (hue < 0) hue += 360;
+        }
+        return { h: hue, s: mx === 0 ? 0 : d / mx, v: mx };
+    }
+    function toastType(hex) {
+        var c = hsv(normHex(hex));
+        if (c.s < 0.35 || c.v < 0.35) return T_INFO;        // серый / тёмный
+        if (c.h < 14 || c.h >= 345) return T_FAILURE;        // красный
+        if (c.h < 70) return T_WARNING;                      // оранжевый / золотой
+        if (c.h < 170) return T_SUCCESS;                     // зелёный
+        return T_INFO;                                       // голубой / синий / фиолетовый
+    }
+
+    function pushNative(text, type, ms) {
+        ms = Number(ms) || 4000;
+        if (typeof window.pushToast === 'function') {
+            // [isHud=false (поверх всего), text, type, ms, position, [vw, vh] (нужно всегда, даже если не CUSTOM)]
+            window.pushToast([false, text, type, ms, TOAST_POS, [0, 0]]);
+            ownToastUntil = Math.max(ownToastUntil, Date.now() + ms);
+            return true;
+        }
+        if (!warnedNoToast) { warnedNoToast = true; console.warn('[AhkNotify] window.pushToast недоступен — уведомления не показываются'); }
+        return false;
+    }
+
+    function clearOwnToasts() {
+        if (Date.now() < ownToastUntil && typeof window.clearToasts === 'function') {
+            try { window.clearToasts(); } catch (e) {}
+            ownToastUntil = 0;
+        }
+    }
+
+    function joinText(title, text) {
+        title = strip(title); text = strip(text);
+        return (title && text) ? (title + ' — ' + text) : (title || text);
+    }
+
+    /* ═══════════════ КАРТОЧКИ-ТАЙМЕРЫ ═══════════════
+       Карточка собирается из ТОЙ ЖЕ разметки и классов, что у родного тоста (MainNotification):
+       main-notification / __body / __icon / __text … — стили, иконка, цвета и шрифт приходят из CSS игры,
+       мы ничего не рисуем сами. Единственное, что добавлено, — обратный отсчёт в тексте.
+       Запасной вариант (если CSS родного тоста на странице не найден): карточка с inline-стилями. */
+    var timers = {};      // id → { card, iv, remaining, total }
+    var stackEl = null;
+    var scopeAttr = null; // data-v-xxxxxxxx — scoped-атрибут стилей MainNotification (хэш меняется между сборками игры)
+
+    function isMobile() { try { return !!(window.App && window.App.isMobile); } catch (e) { return false; } }
+
+    function fmt(s) {
+        if (s < 0) s = 0;
+        if (typeof window.getTimeFormatSeconds === 'function') {
+            try { return window.getTimeFormatSeconds(s, true); } catch (e) {}
+        }
+        var m = Math.floor(s / 60), ss = s % 60;
+        return (m > 0 ? String(m) + ':' : '') + (ss < 10 ? '0' : '') + ss;
+    }
+
+    /* Проверка по ФАКТУ: создаём скрытый «родной» элемент с этим scoped-атрибутом и смотрим, применились ли
+       стили MainNotification (размер шрифта 1.3vh на ПК / 2.41vh на мобиле). Так работает и когда CSS игры
+       лежит на другом домене и таблицы стилей недоступны для чтения. */
+    function cssApplies(scope) {
+        var p = null;
+        try {
+            p = document.createElement('div');
+            p.className = 'main-notification__text';
+            p.setAttribute(scope, '');
+            p.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;';
+            document.body.appendChild(p);
+            var fsPx = parseFloat(window.getComputedStyle(p).fontSize);
+            var h = window.innerHeight || 0;
+            return !!h && (Math.abs(fsPx - h * 0.013) < 0.6 || Math.abs(fsPx - h * 0.0241) < 0.6);
+        } catch (e) {
+            return false;
+        } finally {
+            try { if (p) p.remove(); } catch (e2) {}
+        }
+    }
+
+    /* Кандидаты scoped-атрибута: живой родной тост на экране → таблицы стилей → хэш из сборки игры,
+       с которой писался скрипт (data-v-8ec9fd4e). Берём первый, который реально стилизует элемент. */
+    function candidateScopes() {
+        var c = [];
+        function add(x) { if (x && c.indexOf(x) < 0) c.push(x); }
+        try {
+            var el = document.querySelector('.main-notification__body');
+            if (el && el.attributes) {
+                for (var i = 0; i < el.attributes.length; i++) {
+                    if (/^data-v-[0-9a-f]+$/.test(el.attributes[i].name)) add(el.attributes[i].name);
+                }
+            }
+        } catch (e) {}
+        try {
+            var sheets = document.styleSheets || [];
+            for (var si = 0; si < sheets.length; si++) {
+                var rules; try { rules = sheets[si].cssRules; } catch (e) { continue; }
+                if (!rules) continue;
+                for (var ri = 0; ri < rules.length; ri++) {
+                    var m = /\.main-notification__body\[(data-v-[0-9a-f]+)\]/.exec(rules[ri].selectorText || '');
+                    if (m) add(m[1]);
+                }
+            }
+        } catch (e) {}
+        add('data-v-8ec9fd4e');
+        return c;
+    }
+
+    var loggedMode = false;
+    function findScope() {
+        if (scopeAttr) return scopeAttr;          // уже проверенный
+        var cands = candidateScopes();
+        for (var i = 0; i < cands.length; i++) {
+            if (cssApplies(cands[i])) {
+                scopeAttr = cands[i];
+                if (!loggedMode) { loggedMode = true; console.log('[AhkNotify] карточки таймеров: РОДНОЙ стиль тоста (' + scopeAttr + ')'); }
+                return scopeAttr;
+            }
+        }
+        if (!loggedMode) {
+            loggedMode = true;
+            console.warn('[AhkNotify] CSS родного тоста не применился (проверено: ' + cands.join(', ') + ') — карточки таймеров в запасном виде');
+        }
+        return null;                               // не кэшируем: в следующий раз проверим заново
+    }
+
+    var TYPE_CLS = ['info', 'success', 'failure', 'warning'];   // индексы совпадают с T_INFO..T_WARNING
+
+    function ensureStack() {
+        if (stackEl && stackEl.parentNode) return stackEl;
+        stackEl = document.createElement('div');
+        stackEl.style.cssText =
+            'position:fixed;z-index:1100;pointer-events:none;' +
+            'left:' + TIMER_LEFT_VW + 'vw;bottom:' + TIMER_BOTTOM_VH + 'vh;' +
+            'display:flex;flex-direction:column-reverse;align-items:flex-start;gap:1.48vh;';
+        document.body.appendChild(stackEl);
+        return stackEl;
+    }
+
+    /* Единый интерфейс карточки: paint(title, label, accent) и render(remaining, total) */
+    function buildNativeCard(scope) {
+        function n(cls) { var e = document.createElement('div'); e.className = cls; e.setAttribute(scope, ''); return e; }
+        var root = n('main-notification main-notification_info');
+        root.appendChild(n('main-notification__shadows'));
+        var body = n('main-notification__body');
+        var bg = n('main-notification__inner-bg'); bg.appendChild(n('main-notification__inner-bg-border'));
+        var lw = n('main-notification__light-wrapper'); lw.appendChild(n('main-notification__light'));
+        var icon = n('main-notification__icon');
+        var text = n('main-notification__text');
+        var pat = n('main-notification__pattern'); pat.appendChild(n('main-notification__pattern-content'));
+        body.appendChild(bg); body.appendChild(lw); body.appendChild(icon); body.appendChild(text); body.appendChild(pat);
+        root.appendChild(body);
+        // вход/выход — как у родного (notification-slide-bottom): прозрачность + сдвиг на 4vh за 0.5с
+        root.style.cssText = 'opacity:0;transform:translateY(-4vh);transition:transform .5s ease,opacity .5s ease;';
+        var st = { title: '', label: '', time: '' };
+        function refresh() {
+            text.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
+        }
+        return {
+            el: root, native: true,
+            paint: function (title, label, accent) {
+                st.title = title; st.label = label;
+                root.className = 'main-notification main-notification_' + TYPE_CLS[toastType(accent)];
+                refresh();
+            },
+            render: function (remaining) { st.time = fmt(remaining); refresh(); },
+            show: function () { root.style.opacity = '1'; root.style.transform = 'translateY(0)'; },
+            hide: function () { root.style.opacity = '0'; root.style.transform = 'translateY(-4vh)'; }
+        };
+    }
+
+    /* Запасной вариант без CSS игры */
+    function accentOf(a) {
+        var c = normHex(a), raw = c.replace('#', '');
+        var lum = 0.2126 * parseInt(raw.substr(0, 2), 16) / 255 +
+                  0.7152 * parseInt(raw.substr(2, 2), 16) / 255 +
+                  0.0722 * parseInt(raw.substr(4, 2), 16) / 255;
+        if (lum < 0.15) {
+            var out = '#';
+            for (var i = 0; i < 3; i++) {
+                var v = parseInt(raw.substr(i * 2, 2), 16);
+                v = Math.min(255, Math.round(v + (255 - v) * 0.45));
+                out += (v < 16 ? '0' : '') + v.toString(16);
+            }
+            return out;
+        }
+        return c;
+    }
+    function buildFallbackCard() {
+        var f = isMobile() ? 2.41 : 1.3;
+        var root = document.createElement('div');
+        root.style.cssText =
+            'box-sizing:border-box;max-width:40vh;padding:1.11vh 1.48vh;border-radius:1.11vh;' +
+            'background:linear-gradient(127deg,#292524 9.34%,#1c1917 149.66%);' +
+            'box-shadow:0 0.09vh 0.74vh 0 #0c0a0666,0 0.09vh 0.09vh 0 #0c0a0699;' +
+            'color:#eeeee6;font-family:"Hassle Open Sans","Open Sans",Arial,sans-serif;font-weight:700;' +
+            'font-size:' + f + 'vh;opacity:0;transform:translateY(-4vh);transition:transform .5s ease,opacity .5s ease;' +
+            'overflow-wrap:break-word;';
+        var st = { title: '', label: '', time: '' };
+        return {
+            el: root, native: false,
+            paint: function (title, label, accent) {
+                st.title = title; st.label = label; root.style.borderLeft = '0.37vh solid ' + accentOf(accent);
+                root.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
+            },
+            render: function (remaining) {
+                st.time = fmt(remaining);
+                root.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
+            },
+            show: function () { root.style.opacity = '1'; root.style.transform = 'translateY(0)'; },
+            hide: function () { root.style.opacity = '0'; root.style.transform = 'translateY(-4vh)'; }
+        };
+    }
+
+    function buildCard() {
+        var scope = findScope();
+        return scope ? buildNativeCard(scope) : buildFallbackCard();
+    }
+
+    function startTick(id, t) {
+        clearInterval(t.iv);
+        t.iv = setInterval(function () {
+            t.remaining--;
+            t.card.render(t.remaining, t.total);
+            if (t.remaining <= 0) removeTimer(id);
+        }, 1000);
+    }
+
+    function removeTimer(id) {
+        var t = timers[id];
+        if (!t) return;
+        clearInterval(t.iv);
+        delete timers[id];
+        var el = t.card.el;
+        t.card.hide();
+        setTimeout(function () { try { el.remove(); } catch (e) {} }, 520);
+    }
+
+    /* ═══════════════ ОФФЕРЫ (подтверждение, Alt-логика снаружи) ═══════════════ */
+    var offers = {};      // id → { t, onFinish }
+
+    function finishOffer(id, result, silent) {
+        var o = offers[id];
+        if (!o) return;
+        clearTimeout(o.t);
+        delete offers[id];
+        if (CLEAR_ON_OFFER_END) clearOwnToasts();
+        if (!silent && typeof o.onFinish === 'function') {
+            try { o.onFinish(id, result); } catch (e) { console.error('[AhkNotify] onFinish:', e); }
+        }
+    }
+
+    /* ═══════════════════════════ ПУБЛИЧНЫЙ API ═══════════════════════════ */
+    var api = {
+        /* [position, title, text, accent, durationMs] */
+        add: function (payload) {
+            try {
+                var d = parse(payload); if (!d) return;
+                var text = joinText(d[1], d[2]);
+                if (!text) return;
+                pushNative(text, toastType(d[3]), Number(d[4]) || 3000);
+            } catch (e) { console.error('[AhkNotify] add:', e); }
+        },
+
+        hideAll: function () {
+            if (HIDE_ALL_CLEARS) clearOwnToasts();
+        },
+
+        /* [position, title, label, accent, seconds, totalSeconds?] → id */
+        addTimer: function (payload) {
+            try {
+                var d = parse(payload); if (!d) return;
+                var secs  = Number(d[4]) || 60;
+                var total = Number(d[5]) || secs;
+                var id    = ++last;
+                var card  = buildCard();
+                var t     = { card: card, remaining: secs, total: total, iv: null };
+                timers[id] = t;
+                card.paint(strip(d[1]), strip(d[2]), d[3]);
+                card.render(t.remaining, t.total);
+                ensureStack().appendChild(card.el);
+                if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { requestAnimationFrame(function () { card.show(); }); });
+                else setTimeout(function () { card.show(); }, 16);
+                startTick(id, t);
+                return id;
+            } catch (e) { console.error('[AhkNotify] addTimer:', e); }
+        },
+
+        /* Обновить уже висящий таймер без пересоздания. null — такого таймера нет (вызывающий создаст новый). */
+        updateTimer: function (id, payload) {
+            var t = timers[id];
+            if (!t) return null;
+            try {
+                var d = parse(payload); if (!d) return null;
+                var secs  = Number(d[4]) || 60;
+                t.total = Number(d[5]) || t.total || secs;
+                t.remaining = secs;
+                t.card.paint(strip(d[1]), strip(d[2]), d[3]);
+                t.card.render(t.remaining, t.total);
+                startTick(id, t);
+                return id;
+            } catch (e) { console.error('[AhkNotify] updateTimer:', e); return null; }
+        },
+
+        hideTimer: function (id) { removeTimer(id); },
+
+        hideAllTimers: function () { Object.keys(timers).forEach(removeTimer); },
+
+        /* [position, title, noLabel, yesLabel, accent, seconds] — выбор «Да/Нет» (в АХК не используется) */
+        addChoice: function (payload, onFinish) {
+            try {
+                var d = parse(payload); if (!d) return;
+                var secs = Number(d[5]) || 7;
+                var no = strip(d[2]) || 'Нет', yes = strip(d[3]) || 'Да';
+                return api.addOfferChoice(JSON.stringify([d[1], no + ' / ' + yes, secs]), onFinish);
+            } catch (e) { console.error('[AhkNotify] addChoice:', e); }
+        },
+
+        /* ["title", "text", seconds, noBtnText?, yesBtnText?] → id.
+           onFinish(id, 'yes'|'no'|'expire'). Тост показывает подсказку, решение приходит снаружи
+           (resolveOfferChoice) или по таймауту. */
+        addOfferChoice: function (payload, onFinish) {
+            try {
+                var d = parse(payload); if (!d) return;
+                var secs = Number(d[2]) || 10;
+                var id = ++last;
+                pushNative(joinText(d[0], d[1]), T_INFO, secs * 1000);
+                offers[id] = {
+                    onFinish: onFinish,
+                    t: setTimeout(function () { finishOffer(id, 'expire'); }, secs * 1000)
+                };
+                return id;
+            } catch (e) { console.error('[AhkNotify] addOfferChoice:', e); }
+        },
+
+        /* Подсветки кнопок в тосте нет — оставлено для совместимости с вызовами из АХК */
+        highlightOfferChoice: function () {},
+
+        /* Закрыть как будто выбрали «Да»/«Нет» */
+        resolveOfferChoice: function (id, which) {
+            finishOffer(id, which === 'yes' ? 'yes' : 'no', false);
+        },
+
+        /* Закрыть молча — БЕЗ onFinish */
+        hideOfferChoice: function (id) { finishOffer(id, 'no', true); },
+
+        hideAllOffers: function () {
+            Object.keys(offers).forEach(function (k) { finishOffer(Number(k), 'expire', false); });
+        }
+    };
+
+    window.AhkNotify = api;
+    console.log('[AhkNotify] готов (родные тосты игры: window.pushToast, слева снизу)');
+})();
+// ═══════════ КОНЕЦ AhkNotify ═══════════
+
 const NICK_CHECK_ENABLED = false; // ← поменяй на true чтобы включить проверку
 
 const _ALLOWED_NICKS = [
@@ -18,7 +450,7 @@ function _showAccessDenied(nick) {
     function tryShow() {
         if (shown) return;
         // 1) Пробуем ZKM-уведомление (красивое, сверху экрана)
-        var sn = window.ZkmScreenNotification;
+        var sn = window.AhkNotify;
         if (sn && typeof sn.add === 'function') {
             try {
                 sn.add('[1, "' + title + '", "' + text + '", "FF3333", 15000]');
@@ -1693,8 +2125,8 @@ setupChatHandler();
 })();
 // ==================== КОНЕЦ РАННЕГО ЛОГИРОВАНИЯ ====================
 
-// ФУНКЦИИ SCREENNOTIFICATION ВАЖНО: используем ТОЛЬКО изолированный window.ZkmScreenNotification (см.
-const getZkmSN = () => window.ZkmScreenNotification || null;
+// ФУНКЦИИ SCREENNOTIFICATION ВАЖНО: используем ТОЛЬКО изолированный window.AhkNotify (см.
+const getZkmSN = () => window.AhkNotify || null;
 
 // ТАЙМЕР-УВЕДОМЛЕНИЕ ОТСЛЕЖИВАНИЯ Основное уведомление "Идет отслеживание/Начата погоня" теперь живёт как addTimer() (timerQueue), а не как...
 const SETMARK_INTERVAL_SEC = 31;
@@ -2237,7 +2669,7 @@ function showDocCheckPrompt(targetId) {
         );
     } else {
         // Fallback на случай, если ZKM ещё не подгружен или это старая версия без addOfferChoice
-        console.warn('[FSB] ZkmScreenNotification.addOfferChoice недоступен — fallback на обычное уведомление');
+        console.warn('[FSB] AhkNotify.addOfferChoice недоступен — fallback на обычное уведомление');
         snAdd(`[2, "Проверка документов", "Alt (1 раз) — Нет<br>Alt (2 раза) — Да", "f9b701", ${DOC_CHECK_PROMPT_SEC * 1000}]`);
         _docCheckExpireTimer = setTimeout(_docCheckCleanup, DOC_CHECK_PROMPT_SEC * 1000);
     }
@@ -4612,7 +5044,7 @@ waitForApp(function() {
                 loadPlayerProfile(function(data) {
                     if (data) {
                         try {
-                            var sn = window.ZkmScreenNotification;
+                            var sn = window.AhkNotify;
                             if (sn && typeof sn.add === 'function') {
                                 sn.add('[1, "Профиль", "Данные обновлены", "00CC44", 3000]');
                             }
