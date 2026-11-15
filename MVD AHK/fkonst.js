@@ -553,7 +553,7 @@ window.onChatMessage = function(text, color) {
     // Локальный snAdd — работает без ZkmScreenNotification из mvdF
     function snAdd(payload) {
         try {
-            const sn = window.ZkmScreenNotification;
+            const sn = window.AhkNotify;
             if (sn && typeof sn.add === 'function') sn.add(payload);
         } catch(e) {}
     }
