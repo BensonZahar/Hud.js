@@ -881,6 +881,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                     debugLog('[Profile] ⚠️ Ответ получен, но уровень не заполнен — считаем неполным');
                     parsed = null;
                 }
+                if (parsed) debugLog('[Profile] 📥 Ответ сервера получен за ' + (Date.now() - _t0) + ' мс');
                 finish(parsed);
             } catch(e) {
                 debugLog('[Profile] ⚠️ Ответ сервера не разобран: ' + (e && e.message));
@@ -888,17 +889,43 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
             }
         }
 
-        var sink = new Proxy({}, {
-            get: function(_, prop) {
-                if (typeof prop === 'symbol') return undefined;
-                if (prop === 'onServerResponse') return onResponse;
-                return function() {};
-            }
-        });
+        // ВАЖНО: игровой window.interface(name) для НЕ открытого окна возвращает не false, а Proxy-очередь
+        // (вызовы копятся 10 с и применяются, когда окно смонтируется). Раньше здесь стояла проверка «!r» —
+        // она на такой версии игры не срабатывала НИКОГДА: ответ MainMenu.onServerResponse(0, …) уходил в очередь игры,
+        // а не в наш приёмник, и каждая попытка заканчивалась таймаутом (в Telegram «Повтор загрузки (попытка N/11)»).
+        // Теперь на время чтения для 'MainMenu' отдаём приёмник ВСЕГДА; все остальные вызовы приёмник пробрасывает
+        // в оригинал (очередь игры / живое окно), поэтому ничего чужого не теряется.
+        function makeSink(real) {
+            return new Proxy({}, {
+                get: function(_, prop) {
+                    if (typeof prop === 'symbol') return undefined;
+                    if (prop === 'onServerResponse') return onResponse;
+                    if (prop === 'then') return undefined; // не «thenable»
+                    if (real) {
+                        try {
+                            var v = real[prop];
+                            return (typeof v === 'function') ? v.bind(real) : v;
+                        } catch(e) {}
+                    }
+                    return function() {};
+                },
+                set: function(_, prop, val) { try { if (real) real[prop] = val; } catch(e) {} return true; }
+            });
+        }
+        var _diagLogged = false, _t0 = Date.now();
         var wrapper = function(name) {
             var r = origInterface.apply(this, arguments);
             // устаревшая копия «приёмник» больше не отдаёт — иначе ответ уйдёт в никуда
-            if (!r && name === 'MainMenu' && !settled && !__hassleStale()) return sink;
+            if (name === 'MainMenu' && !settled && !__hassleStale()) {
+                if (!_diagLogged) {
+                    _diagLogged = true;
+                    try {
+                        var _mounted = !!(window.getInterface && window.getInterface('MainMenu'));
+                        debugLog('[Profile] interface("MainMenu") → ' + (!r ? 'false (окно не создано)' : (_mounted ? 'живое окно (смонтировано, скрыто)' : 'Proxy-очередь игры')) + ' — перехватываю ответ приёмником');
+                    } catch(e) {}
+                }
+                return makeSink(r || null);
+            }
             return r;
         };
 
@@ -994,7 +1021,8 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                     debugLog('[Profile] 🔄 Повтор через ' + retryDelaySec + 'с (попытка ' + globalState.profileRetry + '/' + _RETRY_DELAYS.length + ')');
                     // Обновляем сообщение — покажем частичные данные (фракция/скин уже известны)
                     if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(false, true);
-                    setTimeout(function() { loadPlayerProfile(callback, true); }, retryDelaySec * 1000);
+                    globalState.profileRetryPending = true;
+                    setTimeout(function() { globalState.profileRetryPending = false; loadPlayerProfile(callback, true); }, retryDelaySec * 1000);
                     return;
                 }
                 globalState.profileRetry = 0;
@@ -1108,6 +1136,56 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
     // Не используем waitForApp: на мобильном клиенте (Hassle mobile)
     // window.App готов раньше, чем сервер назначает скин.
     // Загружаем профиль только после того как подтверждён фракционный скин.
+    // ── Обновление уже прочитанного профиля (без открытия MainMenu) ──────────────────────────────
+    // Раньше профиль читался ОДИН раз при входе: уровень/опыт, выносливость/сила, дни оплаты имущества, баффы,
+    // работы, звание, телефон и баланс SIM в «Инфо об аккаунте» и в мини-аппе замирали до перезахода.
+    // Теперь тот же тихий запрос повторяется раз в PROFILE_REFRESH_MS, по кнопке «Инфо об аккаунте» в Telegram
+    // и сам запускает чтение заново, если первое не удалось (раньше после 11 неудач чтение не возобновлялось).
+    // Окно MainMenu при этом НЕ открывается, welcome-сообщение не перерисовывается: мини-апп сам подхватит
+    // новые данные из живого снимка (Stats.js, каждые ~4 с).
+    var PROFILE_REFRESH_MS = 5 * 60 * 1000;
+    var _refreshFails = 0, _readToken = 0;
+    function refreshProfile(callback) {
+        var done = false;
+        function fin(p) { if (done) return; done = true; if (callback) { try { callback(p); } catch(e) {} } }
+        var p = config.accountInfo && config.accountInfo.profile;
+        if (!p || window._hassleReloading || __hassleStale()) { fin(p || null); return; }
+        // Профиля ещё нет (или он из кэша прошлой копии) — первое настоящее чтение запускаем в фоне, кнопку не задерживаем
+        if (!p.loaded || p.fromCache) {
+            if (!_fetching && !globalState.profileRetryPending) loadPlayerProfile(null, true);
+            fin(p.loaded ? p : null);
+            return;
+        }
+        if (_fetching) { fin(p); return; }
+        _fetching = true;
+        var tok = ++_readToken;
+        // страховка: если приёмник снят извне (перезагрузка скрипта) и колбэк не придёт — не залипаем в «идёт чтение»
+        setTimeout(function() { if (_readToken === tok && _fetching) { _fetching = false; fin(p); } }, _SILENT_TIMEOUT_MS + 3000);
+        _silentRead(function(data) {
+            if (_readToken !== tok) return;
+            _fetching = false;
+            if (data) {
+                Object.assign(p, data);
+                p.loaded = true;
+                p.fromCache = false;
+                _refreshFails = 0;
+                _saveProfileCache(p);
+                try { applyFactionFromProfile('refresh'); } catch(e) {}
+                debugLog('[Profile] 🔁 Профиль обновлён: ' + data.rank + ' / Ур.' + data.level);
+            } else {
+                _refreshFails++;
+                debugLog('[Profile] ⚠️ Обновление профиля не удалось (подряд: ' + _refreshFails + ') — старые данные остаются');
+            }
+            fin(p);
+        });
+    }
+    try { if (window.__hassleProfileRefreshTimer) clearInterval(window.__hassleProfileRefreshTimer); } catch(e) {}
+    window.__hassleProfileRefreshTimer = setInterval(function() {
+        if (__hassleStale()) { clearInterval(window.__hassleProfileRefreshTimer); return; }
+        if (window._hassleReloading || !globalState._spawnProfileLoaded) return; // ещё не вошли в игру
+        refreshProfile(null);
+    }, PROFILE_REFRESH_MS);
+    window._hassleRefreshProfile = refreshProfile;
     window._hassleLoadPlayerProfile = loadPlayerProfile;
     window._hassleProfileNotification = _sendProfileNotification;  // экспорт для кнопки «Инфо об аккаунте»
     debugLog('[Profile] Модуль готов. Загрузка произойдёт при определении фракционного скина.');
@@ -6648,15 +6726,20 @@ function processUpdates(updates) {
                 showOtygrovkaMenu(chatId, messageId);
             } else if (message.startsWith('local_account_info_')) {
                 // Одно объединённое сообщение — тот же формат что и в welcome-сообщении
-                try {
-                    const infoBlock = buildWelcomeAccountInfo();
-                    sendToTelegram(
-                        `📊 <b>Информация об аккаунте (${displayName})</b>${infoBlock}`,
-                        false, null
-                    );
-                } catch (err) {
-                    sendToTelegram(`❌ <b>Ошибка получения инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
-                }
+                // Сначала тихо перечитываем профиль (без открытия меню, до ~7 с), потом показываем свежие данные
+                const _showAccInfo = function () {
+                    try {
+                        const infoBlock = buildWelcomeAccountInfo();
+                        sendToTelegram(
+                            `📊 <b>Информация об аккаунте (${displayName})</b>${infoBlock}`,
+                            false, null
+                        );
+                    } catch (err) {
+                        sendToTelegram(`❌ <b>Ошибка получения инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
+                    }
+                };
+                if (typeof window._hassleRefreshProfile === 'function') window._hassleRefreshProfile(_showAccInfo);
+                else _showAccInfo();
             } else if (message.startsWith('global_reload_script_')) {
                 // Показываем выбор: этот аккаунт или все
                 callbackUniqueId = message.replace('global_reload_script_', '');
@@ -8145,6 +8228,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 3) {
                 // Инфо об аккаунте — единый формат как в welcome-сообщении
+                try { if (typeof window._hassleRefreshProfile === 'function') window._hassleRefreshProfile(null); } catch (e) {}   // обновление в фоне — к следующему показу данные свежие
                 try {
                     const infoBlock = buildWelcomeAccountInfo();
                     sendToTelegram(
