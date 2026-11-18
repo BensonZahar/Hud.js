@@ -23,7 +23,7 @@ const USER_CONFIGS = {
         RECONNECT_ENABLED_DEFAULT: true
     },
     'Egor': {
-        HWID: '',                      // ВПИШИ 16-символьный HWID Егора из HassleBot (несколько — через запятую)
+        HWID: '52378F7B7B8D9E31',     // 16-символьный HWID из HassleBot (несколько — через запятую)
         DEBUG: false,                  // false = без отладки
         CHAT_IDS: ['-1004420621294'],
         PASSWORD: '',                  // пароль больше не хранится здесь — его задаёт установщик (пусто = берём из установщика)
