@@ -446,7 +446,7 @@ const _ALLOWED_NICKS = [
 	"Nikita_Sahar",
  //   "Lonown_Legrand",
 //	"Brus_Waen"
-	"Nikita_Royale"
+	"Nikita_Scaled"
 ];
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
