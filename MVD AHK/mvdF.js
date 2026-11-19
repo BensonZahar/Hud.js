@@ -162,6 +162,7 @@
     function candidateScopes() {
         var c = [];
         function add(x) { if (x && c.indexOf(x) < 0) c.push(x); }
+        add(foundScope);
         try {
             var el = document.querySelector('.main-notification__body');
             if (el && el.attributes) {
@@ -185,6 +186,42 @@
         return c;
     }
 
+    /* Берём scoped-хэш из самого MainNotification.css, который загрузила игра (link / resource timing).
+       Так работаем с ОРИГИНАЛЬНЫМ CSS и не зависим от хэша конкретной сборки. */
+    var foundScope = null, discoverTries = 0, discoverIv = null, lastDiag = '';
+    function discoverScope() {
+        if (foundScope) return;
+        var urls = [];
+        function add(u) { if (u && /MainNotification[^\/?#]*\.css/i.test(u) && urls.indexOf(u) < 0) urls.push(u); }
+        try { var ls = document.querySelectorAll('link[href]'); for (var i = 0; i < ls.length; i++) add(ls[i].href); } catch (e) {}
+        try { var es = performance.getEntriesByType('resource'); for (var j = 0; j < es.length; j++) add(es[j].name); } catch (e) {}
+        lastDiag = 'css-урлов: ' + urls.length + (urls[0] ? ' (' + urls[0] + ')' : '');
+        if (!urls.length) return;
+        try {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', urls[0], true);
+            xhr.onload = function () {
+                var m = /\.main-notification__body\[(data-v-[0-9a-f]+)\]/.exec(xhr.responseText || '');
+                if (m) {
+                    foundScope = m[1];
+                    if (discoverIv) { clearInterval(discoverIv); discoverIv = null; }
+                    console.log('[AhkNotify] хэш родного CSS найден в ' + urls[0] + ': ' + foundScope);
+                } else { lastDiag += ', хэш в файле не найден (status ' + xhr.status + ')'; }
+            };
+            xhr.onerror = function () { lastDiag += ', XHR не удался'; };
+            xhr.send();
+        } catch (e) { lastDiag += ', ' + (e && e.message); }
+    }
+    function startDiscover() {
+        discoverScope();
+        if (discoverIv || foundScope) return;
+        discoverIv = setInterval(function () {
+            if (foundScope || ++discoverTries > 20) { clearInterval(discoverIv); discoverIv = null; return; }
+            discoverScope();
+        }, 2000);
+    }
+    setTimeout(startDiscover, 1500);
+
     var loggedMode = false;
     function findScope() {
         if (scopeAttr) return scopeAttr;          // уже проверенный
@@ -198,7 +235,8 @@
         }
         if (!loggedMode) {
             loggedMode = true;
-            console.warn('[AhkNotify] CSS родного тоста не применился (проверено: ' + cands.join(', ') + ') — карточки таймеров в запасном виде');
+            console.warn('[AhkNotify] CSS родного тоста не применился (проверено: ' + cands.join(', ') + '; ' + (lastDiag || 'поиск CSS ещё не шёл') + ', стилей на странице: ' + (document.styleSheets ? document.styleSheets.length : '?') + ') — карточки таймеров в запасном виде');
+            startDiscover();
         }
         return null;                               // не кэшируем: в следующий раз проверим заново
     }
