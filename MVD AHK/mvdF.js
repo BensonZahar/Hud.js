@@ -285,7 +285,7 @@
             text.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
         }
         return {
-            el: root, native: true,
+            el: root, native: true, textEl: text, extraVh: 5.09,   // 5.09vh = иконка 1.67 + отступ 0.46 + паддинги 2×1.48
             paint: function (title, label, accent) {
                 st.title = title; st.label = label;
                 root.className = 'main-notification main-notification_' + TYPE_CLS[toastType(accent)];
@@ -326,7 +326,7 @@
             'overflow-wrap:break-word;';
         var st = { title: '', label: '', time: '' };
         return {
-            el: root, native: false,
+            el: root, native: false, textEl: root, extraVh: 0,
             paint: function (title, label, accent) {
                 st.title = title; st.label = label; root.style.borderLeft = '0.37vh solid ' + accentOf(accent);
                 root.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
@@ -501,21 +501,32 @@
        Саму настройку не портим — на широком мониторе она останется как задана; сдвиг только для показа.
        fitL/fitB — реально применённые значения. Вызывается при показе/обновлении карточек и смене размера окна. */
     var fitL = TIMER_LEFT_VH, fitB = TIMER_BOTTOM_VH;
+    /* Ширина самой широкой карточки (px): ширина ТЕКСТА + иконка/паддинги (в vh). Контейнер-стек не меряем —
+       в Gameface он может тянуться до края экрана и давал ложное «не помещается» (карточку прижимало влево). */
+    function cardsSize() {
+        var H = window.innerHeight || 1080, w = 0, h = 0, n = 0;
+        Object.keys(timers).forEach(function (k) {
+            try {
+                var c = timers[k].card, tr = c.textEl.getBoundingClientRect(), er = c.el.getBoundingClientRect();
+                var cw = tr.width + c.extraVh / 100 * H;
+                if (cw > w) w = cw;
+                h += (er.height || 0); n++;
+            } catch (e) {}
+        });
+        if (n > 1) h += (n - 1) * 1.48 / 100 * H;      // gap между карточками
+        return { w: w, h: h };
+    }
     function applyPos() {
         clampPos();
         var l = TIMER_LEFT_VH, b = TIMER_BOTTOM_VH;
         if (stackEl) {
             try {
-                stackEl.style.left = 'calc(' + l + 'vh + var(--special-offset, 0vw))'; stackEl.style.bottom = b + 'vh';
                 var W = window.innerWidth || 1920, H = window.innerHeight || 1080;
-                var r = stackEl.getBoundingClientRect(), right = r.right;
-                var kids = stackEl.children;
-                for (var i = 0; i < kids.length; i++) {
-                    var kr = kids[i].getBoundingClientRect();
-                    if (kr.right > right) right = kr.right;
-                }
-                if (right > W) l = Math.max(0, l - (right - W) / H * 100);
-                if (r.top < 0) b = Math.max(0, b + r.top / H * 100);
+                var off = 0;
+                try { off = (parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--special-offset')) || 0) / 100 * W; } catch (e) {}
+                var sz = cardsSize();
+                if (sz.w > 0) { var maxL = (W - sz.w - off) / H * 100; if (l > maxL) l = Math.max(0, maxL); }
+                if (sz.h > 0) { var maxB = 100 - sz.h / H * 100;       if (b > maxB) b = Math.max(0, maxB); }
                 stackEl.style.left = 'calc(' + l + 'vh + var(--special-offset, 0vw))'; stackEl.style.bottom = b + 'vh';
             } catch (e) {}
         }
