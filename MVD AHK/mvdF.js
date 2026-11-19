@@ -474,6 +474,121 @@
         }
     };
 
+
+    /* ═══════════ ТЕСТ: перенос карточек-таймеров (/tpos) ═══════════
+       /tpos            — режим переноса: тестовая карточка, тащить мышью или стрелками (Shift — крупнее), Enter/Esc — готово;
+                          итоговые координаты выводятся тостом и в консоль ([AhkNotify] Позиция …)
+       /tpos 7 15.6     — задать вручную: left (vw) и bottom (vh) — применяется сразу
+       /tpos reset      — вернуть значения по умолчанию
+       Позиция запоминается в localStorage (только для теста), пока в код не впишут постоянные TIMER_LEFT_VW / TIMER_BOTTOM_VH. */
+    var DEF_LEFT_VW = TIMER_LEFT_VW, DEF_BOTTOM_VH = TIMER_BOTTOM_VH, POS_KEY = 'ahk_timer_pos';
+    try {
+        var _sp = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+        if (_sp && isFinite(_sp[0]) && isFinite(_sp[1])) { TIMER_LEFT_VW = +_sp[0]; TIMER_BOTTOM_VH = +_sp[1]; }
+    } catch (e) {}
+
+    function r2(x) { return Math.round(x * 100) / 100; }
+    function clampPos() {
+        TIMER_LEFT_VW = Math.max(0, Math.min(100, TIMER_LEFT_VW));
+        TIMER_BOTTOM_VH = Math.max(0, Math.min(100, TIMER_BOTTOM_VH));
+    }
+    function applyPos() {
+        clampPos();
+        if (stackEl) { stackEl.style.left = TIMER_LEFT_VW + 'vw'; stackEl.style.bottom = TIMER_BOTTOM_VH + 'vh'; }
+    }
+    function savePos(reset) {
+        try { if (reset) localStorage.removeItem(POS_KEY); else localStorage.setItem(POS_KEY, JSON.stringify([r2(TIMER_LEFT_VW), r2(TIMER_BOTTOM_VH)])); } catch (e) {}
+    }
+    function reportPos(title) {
+        var t = 'left=' + r2(TIMER_LEFT_VW) + 'vw, bottom=' + r2(TIMER_BOTTOM_VH) + 'vh';
+        console.log('[AhkNotify] ' + title + ': ' + t);
+        pushNative(title + ': ' + t, T_INFO, 15000);
+    }
+
+    var editSt = null;
+    function endEdit() {
+        if (!editSt) return;
+        var e = editSt; editSt = null;
+        window.removeEventListener('mousemove', e.onMove, true);
+        window.removeEventListener('mouseup', e.onUp, true);
+        window.removeEventListener('keydown', e.onKey, true);
+        try { e.st.removeEventListener('mousedown', e.onDown, true); } catch (x) {}
+        try {
+            e.st.style.pointerEvents = 'none'; e.st.style.cursor = ''; e.st.style.outline = ''; e.st.style.userSelect = '';
+            e.lab.remove();
+        } catch (x) {}
+        removeTimer(e.demoId);
+        applyPos(); savePos(false);
+        reportPos('Позиция таймера');
+    }
+    function startEdit() {
+        if (editSt) return;
+        var demoId = api.addTimer('[1, "Идет отслеживание", "Тест [22] — метка через", "FF0000", 3600, 3600]');
+        var st = ensureStack();
+        applyPos();
+        st.style.pointerEvents = 'auto'; st.style.cursor = 'move'; st.style.userSelect = 'none';
+        st.style.outline = '0.1vh dashed #f9b701';
+        var lab = document.createElement('div');
+        lab.style.cssText = 'position:fixed;z-index:1101;left:50%;top:2vh;transform:translateX(-50%);padding:1vh 1.5vh;' +
+            'border-radius:1vh;background:rgba(0,0,0,.8);color:#fff;font:700 1.4vh "Hassle Open Sans","Open Sans",Arial,sans-serif;' +
+            'pointer-events:none;white-space:nowrap;';
+        document.body.appendChild(lab);
+        function upd() {
+            lab.textContent = 'left: ' + r2(TIMER_LEFT_VW) + 'vw   bottom: ' + r2(TIMER_BOTTOM_VH) +
+                'vh   |   мышь — тащить, стрелки — двигать (Shift ×8), Enter/Esc — готово';
+        }
+        var drag = null;
+        function onDown(ev) {
+            if (ev.button != null && ev.button !== 0) return;
+            drag = { x: ev.clientX, y: ev.clientY, l: TIMER_LEFT_VW, b: TIMER_BOTTOM_VH };
+            try { ev.preventDefault(); } catch (x) {}
+        }
+        function onMove(ev) {
+            if (!drag) return;
+            var W = window.innerWidth || 1920, H = window.innerHeight || 1080;
+            TIMER_LEFT_VW = drag.l + (ev.clientX - drag.x) / W * 100;
+            TIMER_BOTTOM_VH = drag.b - (ev.clientY - drag.y) / H * 100;
+            applyPos(); upd();
+        }
+        function onUp() { drag = null; }
+        function onKey(ev) {
+            var k = ev.keyCode || 0, step = ev.shiftKey ? 2 : 0.25;
+            if (k === 37) TIMER_LEFT_VW -= step;
+            else if (k === 39) TIMER_LEFT_VW += step;
+            else if (k === 38) TIMER_BOTTOM_VH += step;
+            else if (k === 40) TIMER_BOTTOM_VH -= step;
+            else if (k === 13 || k === 27) { endEdit(); try { ev.preventDefault(); ev.stopPropagation(); } catch (x) {} return; }
+            else return;
+            try { ev.preventDefault(); ev.stopPropagation(); } catch (x) {}
+            applyPos(); upd();
+        }
+        st.addEventListener('mousedown', onDown, true);
+        window.addEventListener('mousemove', onMove, true);
+        window.addEventListener('mouseup', onUp, true);
+        window.addEventListener('keydown', onKey, true);
+        editSt = { st: st, lab: lab, demoId: demoId, onDown: onDown, onMove: onMove, onUp: onUp, onKey: onKey };
+        upd();
+    }
+
+    /* args — массив строк после "/tpos" */
+    api.tpos = function (args) {
+        try {
+            args = args || [];
+            if (!args.length) { if (editSt) endEdit(); else startEdit(); return; }
+            if (/^(reset|сброс)$/i.test(args[0])) {
+                if (editSt) endEdit();
+                TIMER_LEFT_VW = DEF_LEFT_VW; TIMER_BOTTOM_VH = DEF_BOTTOM_VH;
+                applyPos(); savePos(true); reportPos('Позиция сброшена');
+                return;
+            }
+            var l = parseFloat(String(args[0]).replace(',', '.')), b = parseFloat(String(args[1]).replace(',', '.'));
+            if (!isFinite(l) || !isFinite(b)) { pushNative('/tpos — режим переноса; /tpos 7 15.6 — left(vw) bottom(vh); /tpos reset', T_INFO, 8000); return; }
+            TIMER_LEFT_VW = l; TIMER_BOTTOM_VH = b;
+            applyPos(); savePos(false); reportPos('Позиция таймера');
+        } catch (e) { console.error('[AhkNotify] tpos:', e); }
+    };
+    /* ═══════════ КОНЕЦ /tpos ═══════════ */
+
     window.AhkNotify = api;
     console.log('[AhkNotify] готов (родные тосты игры: window.pushToast, слева снизу)');
 })();
@@ -4963,6 +5078,10 @@ waitForApp(function() {
     window.sendChatInput = function(cmd) {
         if (typeof cmd === 'string') {
             var trimmed = cmd.trim().toLowerCase();
+            if (/^\/tpos(\s|$)/.test(trimmed)) {
+                try { window.AhkNotify && window.AhkNotify.tpos(cmd.trim().split(/\s+/).slice(1)); } catch (e) {}
+                return;
+            }
             if (trimmed === '/mmenu') {
                 // Принудительный сброс — перечитать данные
                 window._mvdFirstName = null;
