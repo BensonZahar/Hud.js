@@ -139,6 +139,7 @@
     /* Проверка по ФАКТУ: создаём скрытый «родной» элемент с этим scoped-атрибутом и смотрим, применились ли
        стили MainNotification (размер шрифта 1.3vh на ПК / 2.41vh на мобиле). Так работает и когда CSS игры
        лежит на другом домене и таблицы стилей недоступны для чтения. */
+    var probeInfo = '';
     function cssApplies(scope) {
         var p = null;
         try {
@@ -147,8 +148,10 @@
             p.setAttribute(scope, '');
             p.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;';
             document.body.appendChild(p);
-            var fsPx = parseFloat(window.getComputedStyle(p).fontSize);
+            var fsRaw = window.getComputedStyle(p).fontSize;
+            var fsPx = parseFloat(fsRaw);
             var h = window.innerHeight || 0;
+            probeInfo = 'fontSize=' + fsRaw + ', innerHeight=' + h;
             return !!h && (Math.abs(fsPx - h * 0.013) < 0.6 || Math.abs(fsPx - h * 0.0241) < 0.6);
         } catch (e) {
             return false;
@@ -225,6 +228,11 @@
     var loggedMode = false;
     function findScope() {
         if (scopeAttr) return scopeAttr;          // уже проверенный
+        if (foundScope) {                          // хэш прочитан из загруженного игрой MainNotification.css — проба не нужна
+            scopeAttr = foundScope;
+            if (!loggedMode) { loggedMode = true; console.log('[AhkNotify] карточки таймеров: РОДНОЙ стиль тоста (' + scopeAttr + ', хэш из css игры; проба: ' + (probeInfo || 'не делалась') + ')'); }
+            return scopeAttr;
+        }
         var cands = candidateScopes();
         for (var i = 0; i < cands.length; i++) {
             if (cssApplies(cands[i])) {
@@ -235,7 +243,7 @@
         }
         if (!loggedMode) {
             loggedMode = true;
-            console.warn('[AhkNotify] CSS родного тоста не применился (проверено: ' + cands.join(', ') + '; ' + (lastDiag || 'поиск CSS ещё не шёл') + ', стилей на странице: ' + (document.styleSheets ? document.styleSheets.length : '?') + ') — карточки таймеров в запасном виде');
+            console.warn('[AhkNotify] CSS родного тоста не применился (проверено: ' + cands.join(', ') + '; ' + (lastDiag || 'поиск CSS ещё не шёл') + '; проба: ' + probeInfo + ', стилей на странице: ' + (document.styleSheets ? document.styleSheets.length : '?') + ') — карточки таймеров в запасном виде');
             startDiscover();
         }
         return null;                               // не кэшируем: в следующий раз проверим заново
