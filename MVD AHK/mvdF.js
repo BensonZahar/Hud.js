@@ -28,9 +28,11 @@
     // Позиции из payload ([0|1|2, ...]) игнорируются — все уведомления слева снизу.
     var TOAST_POS = 3;
 
-    // Карточки-таймеры стоят над колонкой тостов: левый край = левый край родного тоста (7vw),
+    // Карточки-таймеры стоят над колонкой тостов (левый край ≈ левый край родного тоста, 7vw на 16:9),
     // низ = верх колонки тостов (12.59vh + отступ 1.48vh) + небольшой зазор.
-    var TIMER_LEFT_VW   = 7;
+    // Позиция в vh по обеим осям (так привязаны HUD-интерфейсы игры: InformationTimer left:35vh, ScreenNotification left:4.26vh),
+    // плюс --special-offset (безопасная зона на телефонах с вырезом). 12.44vh ≈ прежние 7vw на экране 16:9.
+    var TIMER_LEFT_VH   = 12.44;
     var TIMER_BOTTOM_VH = 15.6;
 
     // hideAll() стирает тосты (в т.ч. игровые), если наш тост ещё на экране.
@@ -256,7 +258,7 @@
         stackEl = document.createElement('div');
         stackEl.style.cssText =
             'position:fixed;z-index:1100;pointer-events:none;' +
-            'left:' + TIMER_LEFT_VW + 'vw;bottom:' + TIMER_BOTTOM_VH + 'vh;' +
+            'left:calc(' + TIMER_LEFT_VH + 'vh + var(--special-offset, 0vw));bottom:' + TIMER_BOTTOM_VH + 'vh;' +
             'display:flex;flex-direction:column-reverse;align-items:flex-start;gap:1.48vh;';
         document.body.appendChild(stackEl);
         return stackEl;
@@ -272,6 +274,7 @@
         var lw = n('main-notification__light-wrapper'); lw.appendChild(n('main-notification__light'));
         var icon = n('main-notification__icon');
         var text = n('main-notification__text');
+        text.style.whiteSpace = 'nowrap';
         var pat = n('main-notification__pattern'); pat.appendChild(n('main-notification__pattern-content'));
         body.appendChild(bg); body.appendChild(lw); body.appendChild(icon); body.appendChild(text); body.appendChild(pat);
         root.appendChild(body);
@@ -347,7 +350,6 @@
         t.iv = setInterval(function () {
             t.remaining--;
             t.card.render(t.remaining, t.total);
-            applyPos();
             if (t.remaining <= 0) removeTimer(id);
         }, 1000);
     }
@@ -359,7 +361,7 @@
         delete timers[id];
         var el = t.card.el;
         t.card.hide();
-        setTimeout(function () { try { el.remove(); } catch (e) {} applyPos(); }, 520);
+        setTimeout(function () { try { el.remove(); } catch (e) {} }, 520);
     }
 
     /* ═══════════════ ОФФЕРЫ (подтверждение, Alt-логика снаружи) ═══════════════ */
@@ -424,7 +426,6 @@
                 t.remaining = secs;
                 t.card.paint(strip(d[1]), strip(d[2]), d[3]);
                 t.card.render(t.remaining, t.total);
-                applyPos();
                 startTick(id, t);
                 return id;
             } catch (e) { console.error('[AhkNotify] updateTimer:', e); return null; }
@@ -481,30 +482,31 @@
     /* ═══════════ ТЕСТ: перенос карточек-таймеров (/tpos) ═══════════
        /tpos            — режим переноса: тестовая карточка, тащить мышью или стрелками (Shift — крупнее), Enter/Esc — готово;
                           итоговые координаты выводятся тостом и в консоль ([AhkNotify] Позиция …)
-       /tpos 7 15.6     — задать вручную: left (vw) и bottom (vh) — применяется сразу
+       /tpos 12.44 15.6 — задать вручную: left (vh) и bottom (vh) — применяется сразу
        /tpos reset      — вернуть значения по умолчанию
-       Позиция запоминается в localStorage (только для теста), пока в код не впишут постоянные TIMER_LEFT_VW / TIMER_BOTTOM_VH. */
-    var DEF_LEFT_VW = TIMER_LEFT_VW, DEF_BOTTOM_VH = TIMER_BOTTOM_VH, POS_KEY = 'ahk_timer_pos';
+       Позиция запоминается в localStorage (только для теста), пока в код не впишут постоянные TIMER_LEFT_VH / TIMER_BOTTOM_VH. */
+    var DEF_LEFT_VW = TIMER_LEFT_VH, DEF_BOTTOM_VH = TIMER_BOTTOM_VH, POS_KEY = 'ahk_timer_pos2';
     try {
         var _sp = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
-        if (_sp && isFinite(_sp[0]) && isFinite(_sp[1])) { TIMER_LEFT_VW = +_sp[0]; TIMER_BOTTOM_VH = +_sp[1]; }
+        if (_sp && isFinite(_sp[0]) && isFinite(_sp[1])) { TIMER_LEFT_VH = +_sp[0]; TIMER_BOTTOM_VH = +_sp[1]; }
     } catch (e) {}
 
     function r2(x) { return Math.round(x * 100) / 100; }
     function clampPos() {
-        TIMER_LEFT_VW = Math.max(0, Math.min(100, TIMER_LEFT_VW));
+        var maxL = (window.innerWidth || 1920) / (window.innerHeight || 1080) * 100;
+        TIMER_LEFT_VH = Math.max(0, Math.min(maxL, TIMER_LEFT_VH));
         TIMER_BOTTOM_VH = Math.max(0, Math.min(100, TIMER_BOTTOM_VH));
     }
-    /* Подгонка под экран: позиция из настроек (vw/vh) сдвигается так, чтобы карточка целиком помещалась.
+    /* Подгонка под экран: позиция из настроек (vh/vh) сдвигается так, чтобы карточка целиком помещалась.
        Саму настройку не портим — на широком мониторе она останется как задана; сдвиг только для показа.
        fitL/fitB — реально применённые значения. Вызывается при показе/обновлении карточек и смене размера окна. */
-    var fitL = TIMER_LEFT_VW, fitB = TIMER_BOTTOM_VH;
+    var fitL = TIMER_LEFT_VH, fitB = TIMER_BOTTOM_VH;
     function applyPos() {
         clampPos();
-        var l = TIMER_LEFT_VW, b = TIMER_BOTTOM_VH;
+        var l = TIMER_LEFT_VH, b = TIMER_BOTTOM_VH;
         if (stackEl) {
             try {
-                stackEl.style.left = l + 'vw'; stackEl.style.bottom = b + 'vh';
+                stackEl.style.left = 'calc(' + l + 'vh + var(--special-offset, 0vw))'; stackEl.style.bottom = b + 'vh';
                 var W = window.innerWidth || 1920, H = window.innerHeight || 1080;
                 var r = stackEl.getBoundingClientRect(), right = r.right;
                 var kids = stackEl.children;
@@ -512,21 +514,21 @@
                     var kr = kids[i].getBoundingClientRect();
                     if (kr.right > right) right = kr.right;
                 }
-                if (right > W) l = Math.max(0, l - (right - W) / W * 100);
+                if (right > W) l = Math.max(0, l - (right - W) / H * 100);
                 if (r.top < 0) b = Math.max(0, b + r.top / H * 100);
-                stackEl.style.left = l + 'vw'; stackEl.style.bottom = b + 'vh';
+                stackEl.style.left = 'calc(' + l + 'vh + var(--special-offset, 0vw))'; stackEl.style.bottom = b + 'vh';
             } catch (e) {}
         }
         fitL = l; fitB = b;
     }
     /* принять применённые значения как настройку (после ручного переноса) */
-    function adoptFit() { if (stackEl && stackEl.children.length) { TIMER_LEFT_VW = fitL; TIMER_BOTTOM_VH = fitB; } }
+    function adoptFit() { if (stackEl && stackEl.children.length) { TIMER_LEFT_VH = fitL; TIMER_BOTTOM_VH = fitB; } }
     try { window.addEventListener('resize', function () { applyPos(); }); } catch (e) {}
     function savePos(reset) {
-        try { if (reset) localStorage.removeItem(POS_KEY); else localStorage.setItem(POS_KEY, JSON.stringify([r2(TIMER_LEFT_VW), r2(TIMER_BOTTOM_VH)])); } catch (e) {}
+        try { if (reset) localStorage.removeItem(POS_KEY); else localStorage.setItem(POS_KEY, JSON.stringify([r2(TIMER_LEFT_VH), r2(TIMER_BOTTOM_VH)])); } catch (e) {}
     }
     function reportPos(title) {
-        var t = 'left=' + r2(TIMER_LEFT_VW) + 'vw, bottom=' + r2(TIMER_BOTTOM_VH) + 'vh';
+        var t = 'left=' + r2(TIMER_LEFT_VH) + 'vh, bottom=' + r2(TIMER_BOTTOM_VH) + 'vh';
         console.log('[AhkNotify] ' + title + ': ' + t);
         pushNative(title + ': ' + t, T_INFO, 15000);
     }
@@ -560,27 +562,27 @@
             'pointer-events:none;white-space:nowrap;';
         document.body.appendChild(lab);
         function upd() {
-            lab.textContent = 'left: ' + r2(fitL) + 'vw   bottom: ' + r2(fitB) +
+            lab.textContent = 'left: ' + r2(fitL) + 'vh   bottom: ' + r2(fitB) +
                 'vh   |   мышь — тащить, стрелки — двигать (Shift ×8), Enter/Esc — готово';
         }
         var drag = null;
         function onDown(ev) {
             if (ev.button != null && ev.button !== 0) return;
-            drag = { x: ev.clientX, y: ev.clientY, l: TIMER_LEFT_VW, b: TIMER_BOTTOM_VH };
+            drag = { x: ev.clientX, y: ev.clientY, l: TIMER_LEFT_VH, b: TIMER_BOTTOM_VH };
             try { ev.preventDefault(); } catch (x) {}
         }
         function onMove(ev) {
             if (!drag) return;
-            var W = window.innerWidth || 1920, H = window.innerHeight || 1080;
-            TIMER_LEFT_VW = drag.l + (ev.clientX - drag.x) / W * 100;
+            var H = window.innerHeight || 1080;
+            TIMER_LEFT_VH = drag.l + (ev.clientX - drag.x) / H * 100;
             TIMER_BOTTOM_VH = drag.b - (ev.clientY - drag.y) / H * 100;
             applyPos(); upd();
         }
         function onUp() { if (!drag) return; drag = null; applyPos(); adoptFit(); applyPos(); upd(); }
         function onKey(ev) {
             var k = ev.keyCode || 0, step = ev.shiftKey ? 2 : 0.25;
-            if (k === 37) TIMER_LEFT_VW -= step;
-            else if (k === 39) TIMER_LEFT_VW += step;
+            if (k === 37) TIMER_LEFT_VH -= step;
+            else if (k === 39) TIMER_LEFT_VH += step;
             else if (k === 38) TIMER_BOTTOM_VH += step;
             else if (k === 40) TIMER_BOTTOM_VH -= step;
             else if (k === 13 || k === 27) { endEdit(); try { ev.preventDefault(); ev.stopPropagation(); } catch (x) {} return; }
@@ -603,13 +605,13 @@
             if (!args.length) { if (editSt) endEdit(); else startEdit(); return; }
             if (/^(reset|сброс)$/i.test(args[0])) {
                 if (editSt) endEdit();
-                TIMER_LEFT_VW = DEF_LEFT_VW; TIMER_BOTTOM_VH = DEF_BOTTOM_VH;
+                TIMER_LEFT_VH = DEF_LEFT_VW; TIMER_BOTTOM_VH = DEF_BOTTOM_VH;
                 applyPos(); savePos(true); reportPos('Позиция сброшена');
                 return;
             }
             var l = parseFloat(String(args[0]).replace(',', '.')), b = parseFloat(String(args[1]).replace(',', '.'));
-            if (!isFinite(l) || !isFinite(b)) { pushNative('/tpos — режим переноса; /tpos 7 15.6 — left(vw) bottom(vh); /tpos reset', T_INFO, 8000); return; }
-            TIMER_LEFT_VW = l; TIMER_BOTTOM_VH = b;
+            if (!isFinite(l) || !isFinite(b)) { pushNative('/tpos — режим переноса; /tpos 12.44 15.6 — left(vh) bottom(vh); /tpos reset', T_INFO, 8000); return; }
+            TIMER_LEFT_VH = l; TIMER_BOTTOM_VH = b;
             applyPos(); adoptFit(); savePos(false); reportPos('Позиция таймера');
         } catch (e) { console.error('[AhkNotify] tpos:', e); }
     };
