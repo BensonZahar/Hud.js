@@ -751,6 +751,15 @@ setTimeout(function() {
 // Скины ПРАВИТЕЛЬСТВО: 57♂ 141♀ 147♂ 164♀ 165♂ 187♂ 208♂ 227♂ 16360♀
 const pravoSkins = [57, 141, 147, 164, 165, 187, 208, 227, 16360];
 
+// Скин Лицензёра (женский): 141♀ — входит в pravoSkins, поэтому для Лицензёра с этим скином
+// работают все функции (Interactions, /givelic, круговое меню, быстрая выдача, хоткеи).
+const LICENSOR_SKIN_FEMALE = 141;
+window.LICENSOR_SKIN_FEMALE = LICENSOR_SKIN_FEMALE;
+
+// Женские скины из pravoSkins (141♀ 164♀ 16360♀) — для правки родов в тексте (благодарен → благодарна).
+const pravoFemaleSkins = [141, 164, 16360];
+window._isPravoFemaleSkin = function() { return pravoFemaleSkins.includes(skinId); };
+
 // Хелпер для проверки правительственного скина — используется и в LoadPravo.js
 window._isPravoSkin = function() { return pravoSkins.includes(skinId); };
 
@@ -844,6 +853,7 @@ function _isGrabAllowedRank() {
 }
 // Проверяет, является ли текущее звание «Лицензёр» — открывает доступ к /givelic меню.
 // Учитываем оба написания: Лицензёр / Лицензер (е/ё).
+// Скины Лицензёра: женский — 141 (LICENSOR_SKIN_FEMALE), он есть в pravoSkins.
 function _isLicensorRank() {
     var r = (window._pravoRank || '').trim();
     return /Лицензёр/i.test(r) || /Лицензер/i.test(r);
@@ -3981,7 +3991,10 @@ const setupChatHandler = () => {
                             // защита от дубля одного и того же сообщения
                             if (!(window._pravoTeaLast && window._pravoTeaLast.nick === _tNick && _tNow - window._pravoTeaLast.t < 5000)) {
                                 window._pravoTeaLast = { nick: _tNick, t: _tNow };
-                                const _tText = '/n ' + String(window.PRAVO_TEA_TEXT).split('{nick}').join(_tNick);
+                                let _tBody = String(window.PRAVO_TEA_TEXT).split('{nick}').join(_tNick);
+                                // женский скин → «благодарна» вместо «благодарен»
+                                if (window._isPravoFemaleSkin()) _tBody = _tBody.replace(/благодарен/gi, function(m) { return m[0] === 'Б' ? 'Благодарна' : 'благодарна'; });
+                                const _tText = '/n ' + _tBody;
                                 const _tSend = () => {
                                     const _w = _pravoFloodWait(1);   // антифлуд: не раздуваем счётчик
                                     if (_w > 0) { setTimeout(_tSend, _w + 5); return; }
