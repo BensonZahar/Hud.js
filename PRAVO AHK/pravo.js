@@ -444,7 +444,7 @@ const _ALLOWED_NICKS = [
 	"Kiramo_Vultures",
 	"Sonya_Paradoxsi",
 	"Extreme_Emergency",
-	"Migera_Millionare"
+	"Migera_Millionaire"
 ];
 
 // Показ уведомления о запрете доступа.
