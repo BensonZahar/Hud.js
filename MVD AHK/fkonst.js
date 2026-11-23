@@ -2,7 +2,7 @@
 const NICK_CHECK_ENABLED = true; // ← поменяй на false чтобы выключить проверку
 
 const _ALLOWED_NICKS = [
-    "Konst_Konstov",
+    "Deni_Unreal",
     "Fura_Morales",
     "Casper_Paradise",
     "Denis_Galievskiy",
