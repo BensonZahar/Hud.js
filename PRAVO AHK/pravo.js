@@ -445,7 +445,8 @@ const _ALLOWED_NICKS = [
 	"Sonya_Paradoxsi",
 	"Extreme_Emergency",
 	"Migera_Millionaire",
-	"Kostya_Winstone"
+	"Kostya_Winstone",
+	"Sergei_Burgers"
 ];
 
 // Показ уведомления о запрете доступа.
