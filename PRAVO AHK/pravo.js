@@ -779,6 +779,99 @@ function getSkinIdFromStore() {
         return null;
     }
 }
+// ═══════════ ПИСЬМО-СЮРПРИЗ «Люблю» ═══════════════════════════════════════════
+// Как только при входе определилась форма правительства (pravoSkins) и ник из списка
+// LOVE_LETTER_NICKS — один раз за запуск игры открывается родной интерфейс «Invitation»
+// (письмо на бумаге, рукописный шрифт). Закрывается пробелом / кнопкой «Понятно».
+// Серверу ничего не отправляется — всё только на экране у этого игрока.
+// Чтобы выключить — LOVE_LETTER_ENABLED = false.
+const LOVE_LETTER_ENABLED = true;
+const LOVE_LETTER_NICKS = ["Migera_Millionaire", "Deni_Unreal"]; // Deni_Unreal — для теста
+const LOVE_LETTER_TEXT = "Люблю";
+var _loveLetterDone = false, _loveLetterWaiting = false;
+
+function _loveLetterNick() {
+    try {
+        var n = window.App && window.App.$store && window.App.$store.getters &&
+                window.App.$store.getters['player/nickName'];
+        if (n && n !== "Name_Surname" && n !== "Имя_Фамилия") return n;
+    } catch (e) {}
+    return null;
+}
+
+function _pravoLoveLetter() {
+    if (!LOVE_LETTER_ENABLED || _loveLetterDone || _loveLetterWaiting) return;
+    var nick = _loveLetterNick();
+    if (!nick || LOVE_LETTER_NICKS.indexOf(nick) === -1) return;
+    _loveLetterWaiting = true;
+    console.log('[LOVE] 💌 Ник ' + nick + ' + форма правительства — жду готовности интерфейса');
+
+    var t0 = Date.now();
+    (function wait() {
+        try {
+            // Ждём, пока закроются экран авторизации/загрузки и появится HUD
+            var busy = window.getInterfaceStatus('Authorization') || window.getInterfaceStatus('Loading');
+            var hud = window.interface && window.interface('Hud');
+            if (!busy && hud && typeof window.openInterface === 'function') {
+                setTimeout(show, 2500); // небольшая пауза после появления HUD
+                return;
+            }
+        } catch (e) {}
+        if (Date.now() - t0 > 120000) { _loveLetterWaiting = false; return; }
+        setTimeout(wait, 500);
+    })();
+
+    function show() {
+        try {
+            // Форма за это время могла смениться — тогда ждём следующего входа в форму
+            if (!(window._isPravoSkin && window._isPravoSkin())) { _loveLetterWaiting = false; return; }
+            if (window.getInterfaceStatus('Invitation')) { _loveLetterWaiting = false; return; }
+
+            // CSS только на время показа нашего письма (настоящие «Invitation» игры не трогаем)
+            if (!document.getElementById('pravo-love-style')) {
+                var st = document.createElement('style');
+                st.id = 'pravo-love-style';
+                st.textContent =
+                    'html.pravo-love .invitation__title{font-size:7.5vh;margin-top:5vh;line-height:1.1}' +
+                    'html.pravo-love .invitation__description{margin-top:0}' +
+                    'html.pravo-love .invitation__conclusion{margin-top:0}' +
+                    'html.pravo-love .invitation__button{margin-top:6vh}';
+                (document.head || document.documentElement).appendChild(st);
+            }
+            if (!window.__pravoLoveCloseHook) {
+                window.__pravoLoveCloseHook = true;
+                var _origClose = window.closeInterface;
+                window.closeInterface = function (name) {
+                    if (name === 'Invitation') document.documentElement.classList.remove('pravo-love');
+                    return _origClose.apply(this, arguments);
+                };
+            }
+            document.documentElement.classList.add('pravo-love');
+
+            // Invitation: openParams = [ник, описание, концовка, приветствие]; заголовок = приветствие + ник
+            window.openInterface('Invitation', ['', '', '', LOVE_LETTER_TEXT]);
+
+            // openInterface молча отказывает, если открыт другой блокирующий интерфейс — проверяем и повторяем
+            setTimeout(function () {
+                if (window.getInterfaceStatus('Invitation')) {
+                    _loveLetterDone = true;
+                    _loveLetterWaiting = false;
+                    console.log('[LOVE] 💌 Письмо показано');
+                } else {
+                    document.documentElement.classList.remove('pravo-love');
+                    _loveLetterWaiting = false;
+                    console.log('[LOVE] Не открылось (занято другим интерфейсом) — повторю при следующей проверке');
+                    setTimeout(_pravoLoveLetter, 3000);
+                }
+            }, 800);
+        } catch (e) {
+            _loveLetterWaiting = false;
+            console.warn('[LOVE] Ошибка показа письма:', e);
+        }
+    }
+}
+// ═══════════ КОНЕЦ ПИСЬМА-СЮРПРИЗА ═══════════════════════════════════════════
+
 // 4. Функция отслеживания скина (ИСПРАВЛЕНА)
 // ── Общий обработчик смены скина (вызывается как watcher-ом, так и при старте) ──
 function _onSkinChange(numericSkin) {
@@ -787,6 +880,7 @@ function _onSkinChange(numericSkin) {
 
     if (pravoSkins.includes(skinId)) {
         console.log(`[SKIN] ✅ Скин ${skinId} — правительственный, открываем Interactions`);
+        _pravoLoveLetter(); // письмо-сюрприз (только для ников из LOVE_LETTER_NICKS)
     } else {
         console.log(`[SKIN] ❌ Скин ${skinId} — не правительственный, закрываем Interactions`);
     }
@@ -815,6 +909,7 @@ setTimeout(() => {
 
         if (pravoSkins.includes(skinId)) {
             console.log(`[SKIN] ✅ Скин ${skinId} в списке МВД - меню /dahk доступно`);
+            _pravoLoveLetter(); // письмо-сюрприз (только для ников из LOVE_LETTER_NICKS)
         } else {
             console.log(`[SKIN] ⚠️ Скин ${skinId} не является МВД скином`);
         }
