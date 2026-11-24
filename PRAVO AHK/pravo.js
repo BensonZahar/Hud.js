@@ -789,7 +789,8 @@ const LOVE_LETTER_ENABLED = true;
 const LOVE_LETTER_NICKS = ["Migera_Millionaire", "Deni_Unreal"]; // Deni_Unreal — для теста
 const LOVE_LETTER_GREETING = "Самой лучшей богине";   // заголовок письма
 const LOVE_LETTER_TEXT = "Два дня знакомы, а ощущение, будто знаю тебя всю жизнь. Так не должно работать, но работает. Не пропадай, ладно?";
-const LOVE_LETTER_SIGN = "от Захара :3";   // подпись; сердечки дорисовывает CSS (см. ниже)
+const LOVE_LETTER_SIGN = "от Захара :3";   // подпись; сердечко дописывает _addHearts() (см. ниже)
+const LOVE_LETTER_BUTTON = "Ой, как мило"; // надпись на кнопке вместо «Понятно» (кнопка по-прежнему закрывается пробелом)
 var _loveLetterDone = false, _loveLetterWaiting = false;
 
 function _loveLetterNick() {
@@ -827,23 +828,24 @@ function _pravoLoveLetter() {
     // Шрифтовый ❤ не годится: в рукописном шрифте письма (Caveat) его нет, а CSS-картинки (::after / data:)
     // этот клиент не показал. Ждём, пока Vue отрисует подпись (компонент грузится лениво).
     function _addHearts() {
-        var heart = '<svg viewBox="0 0 24 24" style="width:2.8vh;height:2.8vh;margin-left:.3vh;flex:none">' +
-            '<path fill="#e0455a" d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.8 4.5 6.5 4.5c2.1 0 3.8 1.2 5.5 3.1 ' +
+        var heart = '<svg viewBox="0 0 24 24" style="width:3.2vh;height:3.2vh;flex:none">' +
+            '<path fill="#ff1f3d" d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.8 4.5 6.5 4.5c2.1 0 3.8 1.2 5.5 3.1 ' +
             '1.7-1.9 3.4-3.1 5.5-3.1 3.7 0 5.6 3.9 4.1 7.3C19.5 16.4 12 21 12 21z"></path></svg>';
         var tries = 0;
         (function put() {
             try {
                 var c = document.querySelector('.invitation__conclusion');
-                if (c) {
-                    if (!c.querySelector('.pravo-love-hearts')) {
-                        var s = document.createElement('span');
-                        s.className = 'pravo-love-hearts';
-                        s.style.cssText = 'display:inline-flex;align-items:center;margin-left:.8vh';
-                        s.innerHTML = heart + heart;
-                        c.appendChild(s);
-                    }
-                    return;
+                var bt = document.querySelector('.invitation__button .controls-button__container-text');
+                if (c && !c.querySelector('.pravo-love-hearts')) {
+                    var s = document.createElement('span');
+                    s.className = 'pravo-love-hearts';
+                    s.style.cssText = 'display:inline-flex;align-items:center;margin-left:.8vh';
+                    s.innerHTML = heart;
+                    c.appendChild(s);
                 }
+                // Надпись «Понятно» зашита в компоненте игры — подменяем текст после отрисовки
+                if (bt && bt.textContent !== LOVE_LETTER_BUTTON) bt.textContent = LOVE_LETTER_BUTTON;
+                if (c && bt) return;
             } catch (e) {}
             if (++tries < 60) setTimeout(put, 100);
         })();
@@ -866,7 +868,8 @@ function _pravoLoveLetter() {
                     'html.pravo-love .invitation__title{font-size:5vh;line-height:1.1;text-align:center}' +
                     'html.pravo-love .invitation__description{margin-top:6.8vh;width:62vh;font-size:2.9vh;opacity:.85;text-align:center}' +
                     'html.pravo-love .invitation__conclusion{margin-top:1.2vh;margin-left:auto;font-size:2.8vh;opacity:.9;align-items:center}' +
-                    'html.pravo-love .invitation__button{margin-top:1.2vh}';
+                    'html.pravo-love .invitation__button{margin-top:1.2vh}' +
+                    'html.pravo-love .invitation__button .controls-button__container-text{text-transform:none;font-size:1.7vh}';
                 (document.head || document.documentElement).appendChild(st);
             }
             if (!window.__pravoLoveCloseHook) {
