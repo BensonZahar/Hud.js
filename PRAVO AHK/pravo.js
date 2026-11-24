@@ -787,7 +787,9 @@ function getSkinIdFromStore() {
 // Чтобы выключить — LOVE_LETTER_ENABLED = false.
 const LOVE_LETTER_ENABLED = true;
 const LOVE_LETTER_NICKS = ["Migera_Millionaire", "Deni_Unreal"]; // Deni_Unreal — для теста
-const LOVE_LETTER_TEXT = "Люблю";
+const LOVE_LETTER_GREETING = "Самой лучшей богине";   // заголовок письма
+const LOVE_LETTER_TEXT = "Два дня знакомы, а ощущение, будто знаю тебя всю жизнь. Так не должно работать, но работает. Не пропадай, ладно?";
+const LOVE_LETTER_SIGN = "от Захара :3";   // подпись; сердечки дорисовывает CSS (см. ниже)
 var _loveLetterDone = false, _loveLetterWaiting = false;
 
 function _loveLetterNick() {
@@ -831,11 +833,18 @@ function _pravoLoveLetter() {
             if (!document.getElementById('pravo-love-style')) {
                 var st = document.createElement('style');
                 st.id = 'pravo-love-style';
+                // Высоту письма не увеличиваем (фон бумаги фиксированный): крупнее заголовок и текст,
+                // но отступ над текстом меньше, чем в оригинале (8vh → 3vh).
+                // Сердечки — SVG-картинкой (в шрифте Caveat символа ❤ нет, на разных клиентах он мог бы не показаться).
+                var _heart = "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>" +
+                    "<path fill='%23e0455a' d='M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.8 4.5 6.5 4.5c2.1 0 3.8 1.2 5.5 3.1 " +
+                    "1.7-1.9 3.4-3.1 5.5-3.1 3.7 0 5.6 3.9 4.1 7.3C19.5 16.4 12 21 12 21z'/></svg>\")";
                 st.textContent =
-                    'html.pravo-love .invitation__title{font-size:7.5vh;margin-top:5vh;line-height:1.1}' +
-                    'html.pravo-love .invitation__description{margin-top:0}' +
-                    'html.pravo-love .invitation__conclusion{margin-top:0}' +
-                    'html.pravo-love .invitation__button{margin-top:6vh}';
+                    'html.pravo-love .invitation__title{font-size:5vh;line-height:1.1;text-align:center}' +
+                    'html.pravo-love .invitation__description{margin-top:3vh;width:62vh;font-size:2.9vh;opacity:.85;text-align:center}' +
+                    'html.pravo-love .invitation__conclusion{margin-left:auto;font-size:2.8vh;opacity:.9;align-items:center}' +
+                    'html.pravo-love .invitation__conclusion::after{content:"";display:inline-block;width:5.8vh;height:2.8vh;' +
+                    'margin-left:.8vh;background:' + _heart + ' left center/2.8vh 2.8vh repeat-x}';
                 (document.head || document.documentElement).appendChild(st);
             }
             if (!window.__pravoLoveCloseHook) {
@@ -849,7 +858,7 @@ function _pravoLoveLetter() {
             document.documentElement.classList.add('pravo-love');
 
             // Invitation: openParams = [ник, описание, концовка, приветствие]; заголовок = приветствие + ник
-            window.openInterface('Invitation', ['', '', '', LOVE_LETTER_TEXT]);
+            window.openInterface('Invitation', ['', LOVE_LETTER_TEXT, LOVE_LETTER_SIGN, LOVE_LETTER_GREETING]);
 
             // openInterface молча отказывает, если открыт другой блокирующий интерфейс — проверяем и повторяем
             setTimeout(function () {
