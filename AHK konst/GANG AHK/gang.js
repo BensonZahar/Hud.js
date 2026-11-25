@@ -63,9 +63,16 @@ function _showAccessDenied(nick) {
             }
         } catch (e) {}
 
-        // 2) Родной тост игры (слева снизу, красный)
+        // 2) Родной тост игры (красный). Позиция — как у остальных АХК: left 0vh, верх тоста на уровне bottom 32.56vh + высота тоста.
         if (typeof window.pushToast === 'function') {
             try {
+                try {
+                    var _st = document.getElementById('ahk-toast-pos');
+                    if (!_st) { _st = document.createElement('style'); _st.id = 'ahk-toast-pos'; (document.head || document.documentElement).appendChild(_st); }
+                    // bottom = TIMER_BOTTOM_VH (32.56) + TOAST_H_VH (4.08) − высота .toast-wrapper (1.48)
+                    _st.textContent = '.toast-stack_bottom-left{left:calc(0vh + var(--special-offset, 0vw)) !important;bottom:35.16vh !important;right:auto !important;top:auto !important;}';
+                    setTimeout(function () { try { if (_st.parentNode) _st.parentNode.removeChild(_st); } catch (e) {} }, 18000);
+                } catch (e) {}
                 window.pushToast([false, title + ' — ' + text, 2, 15000, 3, [0, 0]]);
                 shown = true;
                 console.warn('[gang] 🚫 Доступ запрещён (тост): ник "' + nick + '".');

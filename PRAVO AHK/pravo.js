@@ -28,10 +28,17 @@
     // Позиции из payload ([0|1|2, ...]) игнорируются — все уведомления слева снизу.
     var TOAST_POS = 3;
 
-    // Карточки-таймеры стоят над колонкой тостов: левый край = левый край родного тоста (7vw),
+    // Карточки-таймеры стоят над колонкой тостов (левый край ≈ левый край родного тоста, 7vw на 16:9),
     // низ = верх колонки тостов (12.59vh + отступ 1.48vh) + небольшой зазор.
-    var TIMER_LEFT_VW   = 7;
-    var TIMER_BOTTOM_VH = 15.6;
+    // Позиция в vh по обеим осям (так привязаны HUD-интерфейсы игры: InformationTimer left:35vh, ScreenNotification left:4.26vh),
+    // плюс --special-offset (безопасная зона на телефонах с вырезом). 12.44vh ≈ прежние 7vw на экране 16:9.
+    var TIMER_LEFT_VH   = 0;
+    var TIMER_BOTTOM_VH = 32.56;
+
+    // Обычные тосты ставятся в ТУ ЖЕ точку, что и таймеры (TIMER_LEFT_VH / TIMER_BOTTOM_VH, их двигает /tpos):
+    // левый край = left, ВЕРХ тоста = верх карточки-таймера. TOAST_H_VH — высота родного тоста (≈ карточки таймера),
+    // если тост сидит чуть выше/ниже таймера — поправьте на 0.2–0.5.
+    var TOAST_H_VH = 4.08;
 
     // hideAll() стирает тосты (в т.ч. игровые), если наш тост ещё на экране.
     var HIDE_ALL_CLEARS = false;
@@ -92,9 +99,34 @@
         return T_INFO;                                       // голубой / синий / фиолетовый
     }
 
+    /* Родной тост «снизу слева» стоит по CSS (left:7vw; bottom:12.59vh). CUSTOM-позиция центрирует колонку по центру,
+       и левый край гуляет от длины текста — поэтому вместо неё временно подменяем CSS колонки .toast-stack_bottom-left:
+       левый край = TIMER_LEFT_VH, верх тоста = верх карточки-таймера. Стиль живёт, пока на экране наш тост (+3 с на анимацию ухода). */
+    var toastStyleEl = null, toastStyleTimer = null, toastStyleUntil = 0;
+    function applyToastPos(ms) {
+        try {
+            var bottom = TIMER_BOTTOM_VH + TOAST_H_VH - 1.48;      // 1.48vh — высота .toast-wrapper; тост растёт вниз от его верха
+            var css = '.toast-stack_bottom-left{left:calc(' + (Math.round(TIMER_LEFT_VH * 100) / 100) + 'vh + var(--special-offset, 0vw)) !important;' +
+                      'bottom:' + (Math.round(bottom * 100) / 100) + 'vh !important;right:auto !important;top:auto !important;}';
+            if (!toastStyleEl || !toastStyleEl.parentNode) {
+                toastStyleEl = document.createElement('style');
+                toastStyleEl.id = 'ahk-toast-pos';
+                (document.head || document.documentElement).appendChild(toastStyleEl);
+            }
+            toastStyleEl.textContent = css;
+            toastStyleUntil = Math.max(toastStyleUntil, Date.now() + ms + 3000);
+            clearTimeout(toastStyleTimer);
+            toastStyleTimer = setTimeout(function () {
+                try { if (toastStyleEl && toastStyleEl.parentNode) toastStyleEl.parentNode.removeChild(toastStyleEl); } catch (e) {}
+                toastStyleEl = null;
+            }, Math.max(0, toastStyleUntil - Date.now()));
+        } catch (e) { console.error('[AhkNotify] applyToastPos:', e); }
+    }
+
     function pushNative(text, type, ms) {
         ms = Number(ms) || 4000;
         if (typeof window.pushToast === 'function') {
+            applyToastPos(ms);
             // [isHud=false (поверх всего), text, type, ms, position, [vw, vh] (нужно всегда, даже если не CUSTOM)]
             window.pushToast([false, text, type, ms, TOAST_POS, [0, 0]]);
             ownToastUntil = Math.max(ownToastUntil, Date.now() + ms);
@@ -139,6 +171,7 @@
     /* Проверка по ФАКТУ: создаём скрытый «родной» элемент с этим scoped-атрибутом и смотрим, применились ли
        стили MainNotification (размер шрифта 1.3vh на ПК / 2.41vh на мобиле). Так работает и когда CSS игры
        лежит на другом домене и таблицы стилей недоступны для чтения. */
+    var probeInfo = '';
     function cssApplies(scope) {
         var p = null;
         try {
@@ -147,8 +180,10 @@
             p.setAttribute(scope, '');
             p.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;';
             document.body.appendChild(p);
-            var fsPx = parseFloat(window.getComputedStyle(p).fontSize);
+            var fsRaw = window.getComputedStyle(p).fontSize;
+            var fsPx = parseFloat(fsRaw);
             var h = window.innerHeight || 0;
+            probeInfo = 'fontSize=' + fsRaw + ', innerHeight=' + h;
             return !!h && (Math.abs(fsPx - h * 0.013) < 0.6 || Math.abs(fsPx - h * 0.0241) < 0.6);
         } catch (e) {
             return false;
@@ -162,6 +197,7 @@
     function candidateScopes() {
         var c = [];
         function add(x) { if (x && c.indexOf(x) < 0) c.push(x); }
+        add(foundScope);
         try {
             var el = document.querySelector('.main-notification__body');
             if (el && el.attributes) {
@@ -185,9 +221,50 @@
         return c;
     }
 
+    /* Берём scoped-хэш из самого MainNotification.css, который загрузила игра (link / resource timing).
+       Так работаем с ОРИГИНАЛЬНЫМ CSS и не зависим от хэша конкретной сборки. */
+    var foundScope = null, discoverTries = 0, discoverIv = null, lastDiag = '';
+    function discoverScope() {
+        if (foundScope) return;
+        var urls = [];
+        function add(u) { if (u && /MainNotification[^\/?#]*\.css/i.test(u) && urls.indexOf(u) < 0) urls.push(u); }
+        try { var ls = document.querySelectorAll('link[href]'); for (var i = 0; i < ls.length; i++) add(ls[i].href); } catch (e) {}
+        try { var es = performance.getEntriesByType('resource'); for (var j = 0; j < es.length; j++) add(es[j].name); } catch (e) {}
+        lastDiag = 'css-урлов: ' + urls.length + (urls[0] ? ' (' + urls[0] + ')' : '');
+        if (!urls.length) return;
+        try {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', urls[0], true);
+            xhr.onload = function () {
+                var m = /\.main-notification__body\[(data-v-[0-9a-f]+)\]/.exec(xhr.responseText || '');
+                if (m) {
+                    foundScope = m[1];
+                    if (discoverIv) { clearInterval(discoverIv); discoverIv = null; }
+                    console.log('[AhkNotify] хэш родного CSS найден в ' + urls[0] + ': ' + foundScope);
+                } else { lastDiag += ', хэш в файле не найден (status ' + xhr.status + ')'; }
+            };
+            xhr.onerror = function () { lastDiag += ', XHR не удался'; };
+            xhr.send();
+        } catch (e) { lastDiag += ', ' + (e && e.message); }
+    }
+    function startDiscover() {
+        discoverScope();
+        if (discoverIv || foundScope) return;
+        discoverIv = setInterval(function () {
+            if (foundScope || ++discoverTries > 20) { clearInterval(discoverIv); discoverIv = null; return; }
+            discoverScope();
+        }, 2000);
+    }
+    setTimeout(startDiscover, 1500);
+
     var loggedMode = false;
     function findScope() {
         if (scopeAttr) return scopeAttr;          // уже проверенный
+        if (foundScope) {                          // хэш прочитан из загруженного игрой MainNotification.css — проба не нужна
+            scopeAttr = foundScope;
+            if (!loggedMode) { loggedMode = true; console.log('[AhkNotify] карточки таймеров: РОДНОЙ стиль тоста (' + scopeAttr + ', хэш из css игры; проба: ' + (probeInfo || 'не делалась') + ')'); }
+            return scopeAttr;
+        }
         var cands = candidateScopes();
         for (var i = 0; i < cands.length; i++) {
             if (cssApplies(cands[i])) {
@@ -198,7 +275,8 @@
         }
         if (!loggedMode) {
             loggedMode = true;
-            console.warn('[AhkNotify] CSS родного тоста не применился (проверено: ' + cands.join(', ') + ') — карточки таймеров в запасном виде');
+            console.warn('[AhkNotify] CSS родного тоста не применился (проверено: ' + cands.join(', ') + '; ' + (lastDiag || 'поиск CSS ещё не шёл') + '; проба: ' + probeInfo + ', стилей на странице: ' + (document.styleSheets ? document.styleSheets.length : '?') + ') — карточки таймеров в запасном виде');
+            startDiscover();
         }
         return null;                               // не кэшируем: в следующий раз проверим заново
     }
@@ -210,7 +288,7 @@
         stackEl = document.createElement('div');
         stackEl.style.cssText =
             'position:fixed;z-index:1100;pointer-events:none;' +
-            'left:' + TIMER_LEFT_VW + 'vw;bottom:' + TIMER_BOTTOM_VH + 'vh;' +
+            'left:calc(' + TIMER_LEFT_VH + 'vh + var(--special-offset, 0vw));bottom:' + TIMER_BOTTOM_VH + 'vh;' +
             'display:flex;flex-direction:column-reverse;align-items:flex-start;gap:1.48vh;';
         document.body.appendChild(stackEl);
         return stackEl;
@@ -226,6 +304,7 @@
         var lw = n('main-notification__light-wrapper'); lw.appendChild(n('main-notification__light'));
         var icon = n('main-notification__icon');
         var text = n('main-notification__text');
+        text.style.whiteSpace = 'nowrap';
         var pat = n('main-notification__pattern'); pat.appendChild(n('main-notification__pattern-content'));
         body.appendChild(bg); body.appendChild(lw); body.appendChild(icon); body.appendChild(text); body.appendChild(pat);
         root.appendChild(body);
@@ -236,7 +315,7 @@
             text.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
         }
         return {
-            el: root, native: true,
+            el: root, native: true, textEl: text, extraVh: 5.09,   // 5.09vh = иконка 1.67 + отступ 0.46 + паддинги 2×1.48
             paint: function (title, label, accent) {
                 st.title = title; st.label = label;
                 root.className = 'main-notification main-notification_' + TYPE_CLS[toastType(accent)];
@@ -277,7 +356,7 @@
             'overflow-wrap:break-word;';
         var st = { title: '', label: '', time: '' };
         return {
-            el: root, native: false,
+            el: root, native: false, textEl: root, extraVh: 0,
             paint: function (title, label, accent) {
                 st.title = title; st.label = label; root.style.borderLeft = '0.37vh solid ' + accentOf(accent);
                 root.textContent = st.title + (st.label ? ' — ' + st.label : '') + (st.time ? ' ' + st.time : '');
@@ -358,6 +437,7 @@
                 card.paint(strip(d[1]), strip(d[2]), d[3]);
                 card.render(t.remaining, t.total);
                 ensureStack().appendChild(card.el);
+                applyPos();
                 if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { requestAnimationFrame(function () { card.show(); }); });
                 else setTimeout(function () { card.show(); }, 16);
                 startTick(id, t);
@@ -427,6 +507,156 @@
             Object.keys(offers).forEach(function (k) { finishOffer(Number(k), 'expire', false); });
         }
     };
+
+
+    /* ═══════════ ТЕСТ: перенос карточек-таймеров (/tpos) ═══════════
+       /tpos            — режим переноса: тестовая карточка, тащить мышью или стрелками (Shift — крупнее), Enter/Esc — готово;
+                          итоговые координаты выводятся тостом и в консоль ([AhkNotify] Позиция …)
+       /tpos 12.44 15.6 — задать вручную: left (vh) и bottom (vh) — применяется сразу
+       /tpos reset      — вернуть значения по умолчанию
+       Позиция запоминается в localStorage (только для теста), пока в код не впишут постоянные TIMER_LEFT_VH / TIMER_BOTTOM_VH. */
+    var DEF_LEFT_VW = TIMER_LEFT_VH, DEF_BOTTOM_VH = TIMER_BOTTOM_VH, POS_KEY = 'ahk_timer_pos2';
+    try {
+        var _sp = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+        if (_sp && isFinite(_sp[0]) && isFinite(_sp[1])) { TIMER_LEFT_VH = +_sp[0]; TIMER_BOTTOM_VH = +_sp[1]; }
+    } catch (e) {}
+
+    function r2(x) { return Math.round(x * 100) / 100; }
+    function clampPos() {
+        var maxL = (window.innerWidth || 1920) / (window.innerHeight || 1080) * 100;
+        TIMER_LEFT_VH = Math.max(0, Math.min(maxL, TIMER_LEFT_VH));
+        TIMER_BOTTOM_VH = Math.max(0, Math.min(100, TIMER_BOTTOM_VH));
+    }
+    /* Подгонка под экран: позиция из настроек (vh/vh) сдвигается так, чтобы карточка целиком помещалась.
+       Саму настройку не портим — на широком мониторе она останется как задана; сдвиг только для показа.
+       fitL/fitB — реально применённые значения. Вызывается при показе/обновлении карточек и смене размера окна. */
+    var fitL = TIMER_LEFT_VH, fitB = TIMER_BOTTOM_VH;
+    /* Ширина самой широкой карточки (px): ширина ТЕКСТА + иконка/паддинги (в vh). Контейнер-стек не меряем —
+       в Gameface он может тянуться до края экрана и давал ложное «не помещается» (карточку прижимало влево). */
+    function cardsSize() {
+        var H = window.innerHeight || 1080, w = 0, h = 0, n = 0;
+        Object.keys(timers).forEach(function (k) {
+            try {
+                var c = timers[k].card, tr = c.textEl.getBoundingClientRect(), er = c.el.getBoundingClientRect();
+                var cw = tr.width + c.extraVh / 100 * H;
+                if (cw > w) w = cw;
+                h += (er.height || 0); n++;
+            } catch (e) {}
+        });
+        if (n > 1) h += (n - 1) * 1.48 / 100 * H;      // gap между карточками
+        return { w: w, h: h };
+    }
+    function applyPos() {
+        clampPos();
+        var l = TIMER_LEFT_VH, b = TIMER_BOTTOM_VH;
+        if (stackEl) {
+            try {
+                var W = window.innerWidth || 1920, H = window.innerHeight || 1080;
+                var off = 0;
+                try { off = (parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--special-offset')) || 0) / 100 * W; } catch (e) {}
+                var sz = cardsSize();
+                if (sz.w > 0) { var maxL = (W - sz.w - off) / H * 100; if (l > maxL) l = Math.max(0, maxL); }
+                if (sz.h > 0) { var maxB = 100 - sz.h / H * 100;       if (b > maxB) b = Math.max(0, maxB); }
+                stackEl.style.left = 'calc(' + l + 'vh + var(--special-offset, 0vw))'; stackEl.style.bottom = b + 'vh';
+            } catch (e) {}
+        }
+        fitL = l; fitB = b;
+    }
+    /* принять применённые значения как настройку (после ручного переноса) */
+    function adoptFit() { if (stackEl && stackEl.children.length) { TIMER_LEFT_VH = fitL; TIMER_BOTTOM_VH = fitB; } }
+    try { window.addEventListener('resize', function () { applyPos(); }); } catch (e) {}
+    function savePos(reset) {
+        try { if (reset) localStorage.removeItem(POS_KEY); else localStorage.setItem(POS_KEY, JSON.stringify([r2(TIMER_LEFT_VH), r2(TIMER_BOTTOM_VH)])); } catch (e) {}
+    }
+    function reportPos(title) {
+        var t = 'left=' + r2(TIMER_LEFT_VH) + 'vh, bottom=' + r2(TIMER_BOTTOM_VH) + 'vh';
+        console.log('[AhkNotify] ' + title + ': ' + t);
+        pushNative(title + ': ' + t, T_INFO, 15000);
+    }
+
+    var editSt = null;
+    function endEdit() {
+        if (!editSt) return;
+        var e = editSt; editSt = null;
+        window.removeEventListener('mousemove', e.onMove, true);
+        window.removeEventListener('mouseup', e.onUp, true);
+        window.removeEventListener('keydown', e.onKey, true);
+        try { e.st.removeEventListener('mousedown', e.onDown, true); } catch (x) {}
+        try {
+            e.st.style.pointerEvents = 'none'; e.st.style.cursor = ''; e.st.style.outline = ''; e.st.style.userSelect = '';
+            e.lab.remove();
+        } catch (x) {}
+        applyPos(); adoptFit(); savePos(false);
+        removeTimer(e.demoId);
+        reportPos('Позиция таймера');
+    }
+    function startEdit() {
+        if (editSt) return;
+        var demoId = api.addTimer('[1, "Идет отслеживание", "Тест [22] — метка через", "FF0000", 3600, 3600]');
+        var st = ensureStack();
+        applyPos();
+        st.style.pointerEvents = 'auto'; st.style.cursor = 'move'; st.style.userSelect = 'none';
+        st.style.outline = '0.1vh dashed #f9b701';
+        var lab = document.createElement('div');
+        lab.style.cssText = 'position:fixed;z-index:1101;left:50%;top:2vh;transform:translateX(-50%);padding:1vh 1.5vh;' +
+            'border-radius:1vh;background:rgba(0,0,0,.8);color:#fff;font:700 1.4vh "Hassle Open Sans","Open Sans",Arial,sans-serif;' +
+            'pointer-events:none;white-space:nowrap;';
+        document.body.appendChild(lab);
+        function upd() {
+            lab.textContent = 'left: ' + r2(fitL) + 'vh   bottom: ' + r2(fitB) +
+                'vh   |   мышь — тащить, стрелки — двигать (Shift ×8), Enter/Esc — готово';
+        }
+        var drag = null;
+        function onDown(ev) {
+            if (ev.button != null && ev.button !== 0) return;
+            drag = { x: ev.clientX, y: ev.clientY, l: TIMER_LEFT_VH, b: TIMER_BOTTOM_VH };
+            try { ev.preventDefault(); } catch (x) {}
+        }
+        function onMove(ev) {
+            if (!drag) return;
+            var H = window.innerHeight || 1080;
+            TIMER_LEFT_VH = drag.l + (ev.clientX - drag.x) / H * 100;
+            TIMER_BOTTOM_VH = drag.b - (ev.clientY - drag.y) / H * 100;
+            applyPos(); upd();
+        }
+        function onUp() { if (!drag) return; drag = null; applyPos(); adoptFit(); applyPos(); upd(); }
+        function onKey(ev) {
+            var k = ev.keyCode || 0, step = ev.shiftKey ? 2 : 0.25;
+            if (k === 37) TIMER_LEFT_VH -= step;
+            else if (k === 39) TIMER_LEFT_VH += step;
+            else if (k === 38) TIMER_BOTTOM_VH += step;
+            else if (k === 40) TIMER_BOTTOM_VH -= step;
+            else if (k === 13 || k === 27) { endEdit(); try { ev.preventDefault(); ev.stopPropagation(); } catch (x) {} return; }
+            else return;
+            try { ev.preventDefault(); ev.stopPropagation(); } catch (x) {}
+            applyPos(); adoptFit(); applyPos(); upd();
+        }
+        st.addEventListener('mousedown', onDown, true);
+        window.addEventListener('mousemove', onMove, true);
+        window.addEventListener('mouseup', onUp, true);
+        window.addEventListener('keydown', onKey, true);
+        editSt = { st: st, lab: lab, demoId: demoId, onDown: onDown, onMove: onMove, onUp: onUp, onKey: onKey };
+        upd();
+    }
+
+    /* args — массив строк после "/tpos" */
+    api.tpos = function (args) {
+        try {
+            args = args || [];
+            if (!args.length) { if (editSt) endEdit(); else startEdit(); return; }
+            if (/^(reset|сброс)$/i.test(args[0])) {
+                if (editSt) endEdit();
+                TIMER_LEFT_VH = DEF_LEFT_VW; TIMER_BOTTOM_VH = DEF_BOTTOM_VH;
+                applyPos(); savePos(true); reportPos('Позиция сброшена');
+                return;
+            }
+            var l = parseFloat(String(args[0]).replace(',', '.')), b = parseFloat(String(args[1]).replace(',', '.'));
+            if (!isFinite(l) || !isFinite(b)) { pushNative('/tpos — режим переноса; /tpos 12.44 15.6 — left(vh) bottom(vh); /tpos reset', T_INFO, 8000); return; }
+            TIMER_LEFT_VH = l; TIMER_BOTTOM_VH = b;
+            applyPos(); adoptFit(); savePos(false); reportPos('Позиция таймера');
+        } catch (e) { console.error('[AhkNotify] tpos:', e); }
+    };
+    /* ═══════════ КОНЕЦ /tpos ═══════════ */
 
     window.AhkNotify = api;
     console.log('[AhkNotify] готов (родные тосты игры: window.pushToast, слева снизу)');
@@ -6494,6 +6724,10 @@ waitForApp(function() {
     window.sendChatInput = function(cmd) {
         if (typeof cmd === 'string') {
             var trimmed = cmd.trim().toLowerCase();
+            if (/^\/tpos(\s|$)/.test(trimmed)) {
+                try { window.AhkNotify && window.AhkNotify.tpos(cmd.trim().split(/\s+/).slice(1)); } catch (e) {}
+                return;
+            }
             if (trimmed === '/mmenu') {
                 // Принудительный сброс — перечитать данные
                 window._pravoFirstName = null;
