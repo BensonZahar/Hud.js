@@ -32,8 +32,13 @@
     // низ = верх колонки тостов (12.59vh + отступ 1.48vh) + небольшой зазор.
     // Позиция в vh по обеим осям (так привязаны HUD-интерфейсы игры: InformationTimer left:35vh, ScreenNotification left:4.26vh),
     // плюс --special-offset (безопасная зона на телефонах с вырезом). 12.44vh ≈ прежние 7vw на экране 16:9.
-    var TIMER_LEFT_VH   = 12.44;
-    var TIMER_BOTTOM_VH = 15.6;
+    var TIMER_LEFT_VH   = 0;
+    var TIMER_BOTTOM_VH = 32.56;
+
+    // Обычные тосты ставятся в ТУ ЖЕ точку, что и таймеры (TIMER_LEFT_VH / TIMER_BOTTOM_VH, их двигает /tpos):
+    // левый край = left, ВЕРХ тоста = верх карточки-таймера. TOAST_H_VH — высота родного тоста (≈ карточки таймера),
+    // если тост сидит чуть выше/ниже таймера — поправьте на 0.2–0.5.
+    var TOAST_H_VH = 4.08;
 
     // hideAll() стирает тосты (в т.ч. игровые), если наш тост ещё на экране.
     var HIDE_ALL_CLEARS = false;
@@ -94,9 +99,34 @@
         return T_INFO;                                       // голубой / синий / фиолетовый
     }
 
+    /* Родной тост «снизу слева» стоит по CSS (left:7vw; bottom:12.59vh). CUSTOM-позиция центрирует колонку по центру,
+       и левый край гуляет от длины текста — поэтому вместо неё временно подменяем CSS колонки .toast-stack_bottom-left:
+       левый край = TIMER_LEFT_VH, верх тоста = верх карточки-таймера. Стиль живёт, пока на экране наш тост (+3 с на анимацию ухода). */
+    var toastStyleEl = null, toastStyleTimer = null, toastStyleUntil = 0;
+    function applyToastPos(ms) {
+        try {
+            var bottom = TIMER_BOTTOM_VH + TOAST_H_VH - 1.48;      // 1.48vh — высота .toast-wrapper; тост растёт вниз от его верха
+            var css = '.toast-stack_bottom-left{left:calc(' + (Math.round(TIMER_LEFT_VH * 100) / 100) + 'vh + var(--special-offset, 0vw)) !important;' +
+                      'bottom:' + (Math.round(bottom * 100) / 100) + 'vh !important;right:auto !important;top:auto !important;}';
+            if (!toastStyleEl || !toastStyleEl.parentNode) {
+                toastStyleEl = document.createElement('style');
+                toastStyleEl.id = 'ahk-toast-pos';
+                (document.head || document.documentElement).appendChild(toastStyleEl);
+            }
+            toastStyleEl.textContent = css;
+            toastStyleUntil = Math.max(toastStyleUntil, Date.now() + ms + 3000);
+            clearTimeout(toastStyleTimer);
+            toastStyleTimer = setTimeout(function () {
+                try { if (toastStyleEl && toastStyleEl.parentNode) toastStyleEl.parentNode.removeChild(toastStyleEl); } catch (e) {}
+                toastStyleEl = null;
+            }, Math.max(0, toastStyleUntil - Date.now()));
+        } catch (e) { console.error('[AhkNotify] applyToastPos:', e); }
+    }
+
     function pushNative(text, type, ms) {
         ms = Number(ms) || 4000;
         if (typeof window.pushToast === 'function') {
+            applyToastPos(ms);
             // [isHud=false (поверх всего), text, type, ms, position, [vw, vh] (нужно всегда, даже если не CUSTOM)]
             window.pushToast([false, text, type, ms, TOAST_POS, [0, 0]]);
             ownToastUntil = Math.max(ownToastUntil, Date.now() + ms);
