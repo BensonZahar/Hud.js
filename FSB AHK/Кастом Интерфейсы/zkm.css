@@ -124,6 +124,7 @@
     border-bottom:0.19vh solid #f4f1e11a;
     display:flex;
     flex-shrink:0;
+    flex-wrap:wrap;
     gap:0.93vh;
     padding:0.93vh 1.67vh;
     position:relative;
@@ -143,7 +144,8 @@
     background:transparent;
     border:none;
     color:#f4f1e1;
-    flex:1 1 auto;
+    flex:1 1 0;
+    min-width:0;
     font-family:"Open Sans",Arial,sans-serif;
     font-size:1.48vh;
     font-weight:600;
@@ -152,12 +154,12 @@
 .laws-helper__search input::placeholder{color:#f4f1e166;font-weight:400}
 
 /* ══ Фильтр документов справа в строке поиска (таб ЗАКОНЫ) ════ */
+/* Фильтры — отдельной строкой под поиском и с переносом: прокрутка вбок в игре не работает */
 .laws-helper__search-filters{
     display:flex;
-    flex-shrink:0;
-    gap:0.37vh;
-    overflow-x:auto;
-    scrollbar-width:none
+    flex:0 0 100%;
+    flex-wrap:wrap;
+    gap:0.56vh 0.37vh
 }
 .laws-helper__search-filters::-webkit-scrollbar{display:none}
 
