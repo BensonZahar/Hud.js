@@ -56,7 +56,7 @@ if (_cssText && !document.getElementById('zkm-style-remote')) {
     document.head.appendChild(s);
 }
 
-// Данные законов (7 файлов: koap/uk/proc/kto/euss/euvs/zot; на сервере 12 ещё gostayna/terror/kontrol/neprik) — опциональны
+// Данные законов (7 файлов: koap/uk/proc/kto/euss/euvs/zot; на сервере 12 ещё gostayna/terror/kontrol/neprik/ierarhiya) — опциональны
 // для этого модуля, но нужны компоненту LawsHelper. Не блокируют загрузку/eval
 // основного JS: компонент сам подождёт этот промис (window.__prefetch_zkm_lawdocs_promise)
 // в фоне, когда откроет окно. Путь другой — это отдельный репозиторий "Законы AHK",
@@ -76,9 +76,9 @@ var _SERVER_ID = _getServerId();
 var _GH_BASE_LAWS = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/' +
     encodeURIComponent('Законы AHK') + '/' + _SERVER_ID + '/';
 var _LAW_DOC_FILES = ['koap', 'uk', 'proc', 'kto', 'euss', 'euvs', 'zot'];
-// Новые законы (гостайна, терроризм, проверки, неприкосновенность) есть только в папке сервера 12.
+// Новые законы (гостайна, терроризм, проверки, неприкосновенность, иерархия) есть только в папке сервера 12.
 // На других серверах не запрашиваем, иначе 404 + повторы задержат загрузку всех законов.
-if (_SERVER_ID === 12) _LAW_DOC_FILES = _LAW_DOC_FILES.concat(['gostayna', 'terror', 'kontrol', 'neprik']);
+if (_SERVER_ID === 12) _LAW_DOC_FILES = _LAW_DOC_FILES.concat(['gostayna', 'terror', 'kontrol', 'neprik', 'ierarhiya']);
 
 if (!window.__prefetch_zkm_lawdocs && !window.__prefetch_zkm_lawdocs_promise) {
     window.__prefetch_zkm_lawdocs_promise = Promise.all(_LAW_DOC_FILES.map(function(id) {

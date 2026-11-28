@@ -159,7 +159,11 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 						createBaseVNode("div",{
 							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_neprik",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="neprik"}]),
 							onClick:$event=>{$data.lawDocType="neprik";}
-						},"Неприк.",10,["onClick"])
+						},"Неприк.",10,["onClick"]),
+						createBaseVNode("div",{
+							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_ierarhiya",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="ierarhiya"}]),
+							onClick:$event=>{$data.lawDocType="ierarhiya";}
+						},"Иерархия",10,["onClick"])
 					]))
 					:createCommentVNode("",true)
 			]),
@@ -192,6 +196,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 													doc.id==="terror"?"Федеральный закон о противодействии терроризму":
 													doc.id==="kontrol"?"Федеральный закон о государственном контроле и проверках":
 													doc.id==="neprik"?"Федеральный закон о неприкосновенности лиц":
+													doc.id==="ierarhiya"?"Федеральный конституционный закон об иерархической структуре в органах власти":
 													doc.title
 												),1)
 											]),
@@ -434,7 +439,8 @@ const LAW_DOC_META=[
 	{id:"gostayna",title:"Гостайна",servers:[12]},
 	{id:"terror",title:"Терроризм",servers:[12]},
 	{id:"kontrol",title:"Проверки",servers:[12]},
-	{id:"neprik",title:"Неприкосновенность",servers:[12]}
+	{id:"neprik",title:"Неприкосновенность",servers:[12]},
+	{id:"ierarhiya",title:"Иерархия",servers:[12]}
 ];
 
 // Номер сервера игрока (как в загрузчике zkm.js); фолбэк — 12

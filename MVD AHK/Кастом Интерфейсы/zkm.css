@@ -188,6 +188,7 @@
 .laws-helper__law-filter-btn_terror.laws-helper__fine-filter-btn_active{background:rgba(123,211,63,.1);border-color:rgba(123,211,63,.4);color:#7bd33f}
 .laws-helper__law-filter-btn_kontrol.laws-helper__fine-filter-btn_active{background:rgba(78,195,247,.1);border-color:rgba(78,195,247,.4);color:#4ec3f7}
 .laws-helper__law-filter-btn_neprik.laws-helper__fine-filter-btn_active{background:rgba(198,167,255,.1);border-color:rgba(198,167,255,.4);color:#c6a7ff}
+.laws-helper__law-filter-btn_ierarhiya.laws-helper__fine-filter-btn_active{background:rgba(212,163,115,.1);border-color:rgba(212,163,115,.4);color:#d4a373}
 
 /* Цвета активных фильтров ДПС/ППС (таб ШТРАФЫ) */
 .laws-helper__fine-filter-btn_dps.laws-helper__fine-filter-btn_active{background:rgba(10,153,71,.1);border-color:rgba(10,153,71,.4);color:#0a9947}
@@ -312,6 +313,7 @@
 .laws-helper__article-doc-tag_terror{background:rgba(123,211,63,.15);color:#7bd33f}
 .laws-helper__article-doc-tag_kontrol{background:rgba(78,195,247,.15);color:#4ec3f7}
 .laws-helper__article-doc-tag_neprik{background:rgba(198,167,255,.15);color:#c6a7ff}
+.laws-helper__article-doc-tag_ierarhiya{background:rgba(212,163,115,.15);color:#d4a373}
 
 /* ══ РОЗЫСК / ШТРАФЫ: двухколоночный лэйаут ═══════════════════ */
 .laws-helper__wanted-layout{display:flex;flex:1 1 auto;overflow:hidden;width:100%}

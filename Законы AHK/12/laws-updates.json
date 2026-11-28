@@ -244,6 +244,19 @@
       "jsonUpdatedAt": "2026-11-28",
       "jsonStatus": "добавлен: собран из HTML форума (снимок 2026-11-28); на форуме нет UPD и пометок о редактировании, текст перенесён как есть",
       "jsonSyncedToForumAt": "2026-09-01T23:56:00+03:00"
+    },
+    {
+      "id": "ierarhiya",
+      "title": "ФКЗ «О иерархической структуре в органах власти»",
+      "forumUrl": "https://forum.hassle.online/threads/fkz-o-iyerarkhicheskoi-strukture-v-organakh-vlasti.3800233/",
+      "threadId": "3800233",
+      "forumCreatedAt": "2026-09-01T23:56:30+03:00",
+      "forumLastUpdatedAt": "2026-09-01T23:56:30+03:00",
+      "forumUpdates": [],
+      "forumPostEdits": [],
+      "jsonUpdatedAt": "2026-11-28",
+      "jsonStatus": "добавлен: собран из HTML форума (снимок 2026-11-28); на форуме нет UPD и пометок о редактировании, текст перенесён как есть",
+      "jsonSyncedToForumAt": "2026-09-01T23:56:30+03:00"
     }
   ]
 }
