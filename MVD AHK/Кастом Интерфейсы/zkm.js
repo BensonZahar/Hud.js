@@ -143,7 +143,23 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 						createBaseVNode("div",{
 							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_euvs",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="euvs"}]),
 							onClick:$event=>{$data.lawDocType="euvs";}
-						},"ЕУВС",10,["onClick"])
+						},"ЕУВС",10,["onClick"]),
+						createBaseVNode("div",{
+							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_gostayna",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="gostayna"}]),
+							onClick:$event=>{$data.lawDocType="gostayna";}
+						},"Гостайна",10,["onClick"]),
+						createBaseVNode("div",{
+							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_terror",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="terror"}]),
+							onClick:$event=>{$data.lawDocType="terror";}
+						},"Терроризм",10,["onClick"]),
+						createBaseVNode("div",{
+							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_kontrol",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="kontrol"}]),
+							onClick:$event=>{$data.lawDocType="kontrol";}
+						},"Проверки",10,["onClick"]),
+						createBaseVNode("div",{
+							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_neprik",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="neprik"}]),
+							onClick:$event=>{$data.lawDocType="neprik";}
+						},"Неприк.",10,["onClick"])
 					]))
 					:createCommentVNode("",true)
 			]),
@@ -172,6 +188,10 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 													doc.title==="ЕУСС"?"Единый устав силовых структур":
 													doc.title==="Закон о ЗОТ"?"Закон о закрытых и охраняемых территориях":
 													doc.title==="ЕУВС"?"Единый устав военных структур":
+													doc.id==="gostayna"?"Федеральный закон о государственной тайне":
+													doc.id==="terror"?"Федеральный закон о противодействии терроризму":
+													doc.id==="kontrol"?"Федеральный закон о государственном контроле и проверках":
+													doc.id==="neprik"?"Федеральный закон о неприкосновенности лиц":
 													doc.title
 												),1)
 											]),
@@ -409,8 +429,21 @@ const LAW_DOC_META=[
 	{id:"kto", title:"Закон о КТО"},
 	{id:"euss",title:"ЕУСС"},
 	{id:"euvs",title:"ЕУВС"},
-	{id:"zot", title:"Закон о ЗОТ"}
+	{id:"zot", title:"Закон о ЗОТ"},
+	// Новые законы — пока только для сервера 12 (на остальных серверах файлов нет)
+	{id:"gostayna",title:"Гостайна",servers:[12]},
+	{id:"terror",title:"Терроризм",servers:[12]},
+	{id:"kontrol",title:"Проверки",servers:[12]},
+	{id:"neprik",title:"Неприкосновенность",servers:[12]}
 ];
+
+// Номер сервера игрока (как в загрузчике zkm.js); фолбэк — 12
+function _lawServerId(){
+	try{
+		const id=parseInt(window.App&&window.App.$store&&window.App.$store.getters["player/serverId"],10);
+		return Number.isFinite(id)&&id>0?id:12;
+	}catch(e){return 12;}
+}
 
 let _lawDataLoadPromise=null;
 function loadAllLawData(){
@@ -422,14 +455,16 @@ function loadAllLawData(){
 			catch(e){}
 		}
 		prefetched=prefetched||{};
-		const parsedDocs=await Promise.all(LAW_DOC_META.map(async(meta)=>{
+		const _srv=_lawServerId();
+		const metas=LAW_DOC_META.filter(m=>!m.servers||m.servers.includes(_srv));
+		const parsedDocs=await Promise.all(metas.map(async(meta)=>{
 			let raw=prefetched[meta.id];
 			if(!raw)raw=await _xhrGetLaws(_GH_BASE_LAWS_12+meta.id+".json",0);
 			return JSON.parse(raw);
 		}));
 		const lawDocuments=parsedDocs.map((doc,i)=>({
-			id:LAW_DOC_META[i].id,
-			title:LAW_DOC_META[i].title,
+			id:metas[i].id,
+			title:metas[i].title,
 			articles:doc.articles||[]
 		}));
 		const koapDoc=parsedDocs.find(d=>d.id==="koap");

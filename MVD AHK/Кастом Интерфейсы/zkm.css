@@ -184,6 +184,10 @@
 .laws-helper__law-filter-btn_euss.laws-helper__fine-filter-btn_active{background:rgba(153,50,204,.1);border-color:rgba(153,50,204,.4);color:#9932cc}
 .laws-helper__law-filter-btn_zot.laws-helper__fine-filter-btn_active{background:rgba(217,164,6,.1);border-color:rgba(217,164,6,.4);color:#d9a406}
 .laws-helper__law-filter-btn_euvs.laws-helper__fine-filter-btn_active{background:rgba(43,168,160,.1);border-color:rgba(43,168,160,.4);color:#2ba8a0}
+.laws-helper__law-filter-btn_gostayna.laws-helper__fine-filter-btn_active{background:rgba(231,95,168,.1);border-color:rgba(231,95,168,.4);color:#e75fa8}
+.laws-helper__law-filter-btn_terror.laws-helper__fine-filter-btn_active{background:rgba(123,211,63,.1);border-color:rgba(123,211,63,.4);color:#7bd33f}
+.laws-helper__law-filter-btn_kontrol.laws-helper__fine-filter-btn_active{background:rgba(78,195,247,.1);border-color:rgba(78,195,247,.4);color:#4ec3f7}
+.laws-helper__law-filter-btn_neprik.laws-helper__fine-filter-btn_active{background:rgba(198,167,255,.1);border-color:rgba(198,167,255,.4);color:#c6a7ff}
 
 /* Цвета активных фильтров ДПС/ППС (таб ШТРАФЫ) */
 .laws-helper__fine-filter-btn_dps.laws-helper__fine-filter-btn_active{background:rgba(10,153,71,.1);border-color:rgba(10,153,71,.4);color:#0a9947}
@@ -304,6 +308,10 @@
 .laws-helper__article-doc-tag_euss{background:rgba(153,50,204,.15);color:#9932cc}
 .laws-helper__article-doc-tag_zot{background:rgba(217,164,6,.15);color:#d9a406}
 .laws-helper__article-doc-tag_euvs{background:rgba(43,168,160,.15);color:#2ba8a0}
+.laws-helper__article-doc-tag_gostayna{background:rgba(231,95,168,.15);color:#e75fa8}
+.laws-helper__article-doc-tag_terror{background:rgba(123,211,63,.15);color:#7bd33f}
+.laws-helper__article-doc-tag_kontrol{background:rgba(78,195,247,.15);color:#4ec3f7}
+.laws-helper__article-doc-tag_neprik{background:rgba(198,167,255,.15);color:#c6a7ff}
 
 /* ══ РОЗЫСК / ШТРАФЫ: двухколоночный лэйаут ═══════════════════ */
 .laws-helper__wanted-layout{display:flex;flex:1 1 auto;overflow:hidden;width:100%}

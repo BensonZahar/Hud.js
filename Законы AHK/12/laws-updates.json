@@ -192,6 +192,58 @@
       "forumPostEdits": [],
       "jsonUpdatedAt": null,
       "jsonStatus": "НЕ обновлён: HTML закона о КТО не приходил; на GitHub лежит прежняя версия"
+    },
+    {
+      "id": "gostayna",
+      "title": "ФЗ «О государственной тайне»",
+      "forumUrl": "https://forum.hassle.online/threads/fz-o-gosudarstvennoi-taine.3800231/",
+      "threadId": "3800231",
+      "forumCreatedAt": "2026-09-01T23:55:51+03:00",
+      "forumLastUpdatedAt": "2026-09-01T23:55:51+03:00",
+      "forumUpdates": [],
+      "forumPostEdits": [],
+      "jsonUpdatedAt": "2026-11-28",
+      "jsonStatus": "добавлен: собран из HTML форума (снимок 2026-11-28); на форуме нет UPD и пометок о редактировании, текст перенесён как есть",
+      "jsonSyncedToForumAt": "2026-09-01T23:55:51+03:00"
+    },
+    {
+      "id": "terror",
+      "title": "ФЗ «О противодействии терроризму»",
+      "forumUrl": "https://forum.hassle.online/threads/fz-o-protivodeistvii-terrorizmu.3800229/",
+      "threadId": "3800229",
+      "forumCreatedAt": "2026-09-01T23:55:22+03:00",
+      "forumLastUpdatedAt": "2026-09-01T23:55:22+03:00",
+      "forumUpdates": [],
+      "forumPostEdits": [],
+      "jsonUpdatedAt": "2026-11-28",
+      "jsonStatus": "добавлен: собран из HTML форума (снимок 2026-11-28); на форуме нет UPD и пометок о редактировании, текст перенесён как есть",
+      "jsonSyncedToForumAt": "2026-09-01T23:55:22+03:00"
+    },
+    {
+      "id": "kontrol",
+      "title": "ФЗ «О государственном контроле и проверках»",
+      "forumUrl": "https://forum.hassle.online/threads/fz-o-gosudarstvennom-kontrole-i-proverkakh.3800230/",
+      "threadId": "3800230",
+      "forumCreatedAt": "2026-09-01T23:55:36+03:00",
+      "forumLastUpdatedAt": "2026-09-01T23:55:36+03:00",
+      "forumUpdates": [],
+      "forumPostEdits": [],
+      "jsonUpdatedAt": "2026-11-28",
+      "jsonStatus": "добавлен: собран из HTML форума (снимок 2026-11-28); на форуме нет UPD и пометок о редактировании, текст перенесён как есть",
+      "jsonSyncedToForumAt": "2026-09-01T23:55:36+03:00"
+    },
+    {
+      "id": "neprik",
+      "title": "ФЗ «О неприкосновенности лиц»",
+      "forumUrl": "https://forum.hassle.online/threads/fz-o-neprikosnovennosti-lits.3800232/",
+      "threadId": "3800232",
+      "forumCreatedAt": "2026-09-01T23:56:00+03:00",
+      "forumLastUpdatedAt": "2026-09-01T23:56:00+03:00",
+      "forumUpdates": [],
+      "forumPostEdits": [],
+      "jsonUpdatedAt": "2026-11-28",
+      "jsonStatus": "добавлен: собран из HTML форума (снимок 2026-11-28); на форуме нет UPD и пометок о редактировании, текст перенесён как есть",
+      "jsonSyncedToForumAt": "2026-09-01T23:56:00+03:00"
     }
   ]
 }
