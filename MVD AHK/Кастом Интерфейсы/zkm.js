@@ -108,65 +108,70 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 					placeholder:currentTabKey==="fines"?"Поиск статьи КоАП...":currentTabKey==="laws"?"Поиск по статьям и документам...":"Поиск нарушения...",
 					value:$data.search,
 					onInput:$event=>{$data.search=$event.target.value}
-				},null,40,["value","onInput","placeholder"]),
-				// Фильтр по документу — только для таба ЗАКОНЫ
-				currentTabKey==="laws"
-					?(openBlock(),createElementBlock("div",{key:"law-filters",class:"laws-helper__search-filters"},[
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="all"}]),
-							onClick:$event=>{$data.lawDocType="all";}
-						},"Все",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_koap",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="koap"}]),
-							onClick:$event=>{$data.lawDocType="koap";}
-						},"КоАП",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_uk",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="uk"}]),
-							onClick:$event=>{$data.lawDocType="uk";}
-						},"УК",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_proc",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="proc"}]),
-							onClick:$event=>{$data.lawDocType="proc";}
-						},"Проц.",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_kto",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="kto"}]),
-							onClick:$event=>{$data.lawDocType="kto";}
-						},"КТО",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_euss",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="euss"}]),
-							onClick:$event=>{$data.lawDocType="euss";}
-						},"ЕУСС",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_zot",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="zot"}]),
-							onClick:$event=>{$data.lawDocType="zot";}
-						},"ЗОТ",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_euvs",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="euvs"}]),
-							onClick:$event=>{$data.lawDocType="euvs";}
-						},"ЕУВС",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_gostayna",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="gostayna"}]),
-							onClick:$event=>{$data.lawDocType="gostayna";}
-						},"Гостайна",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_terror",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="terror"}]),
-							onClick:$event=>{$data.lawDocType="terror";}
-						},"Терроризм",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_kontrol",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="kontrol"}]),
-							onClick:$event=>{$data.lawDocType="kontrol";}
-						},"Проверки",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_neprik",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="neprik"}]),
-							onClick:$event=>{$data.lawDocType="neprik";}
-						},"Неприк.",10,["onClick"]),
-						createBaseVNode("div",{
-							class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_ierarhiya",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="ierarhiya"}]),
-							onClick:$event=>{$data.lawDocType="ierarhiya";}
-						},"Иерархия",10,["onClick"])
-					]))
-					:createCommentVNode("",true)
+				},null,40,["value","onInput","placeholder"])
 			]),
+			// Фильтр по документу — только для таба ЗАКОНЫ. Отдельным блоком под поиском, две строки без переноса
+			// (flex-wrap и прокрутка вбок в игре работают ненадёжно).
+			currentTabKey==="laws"
+				?(openBlock(),createElementBlock("div",{key:"law-filters",class:"laws-helper__search-filters"},[
+						createBaseVNode("div",{class:"laws-helper__search-filters-row"},[
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="all"}]),
+								onClick:$event=>{$data.lawDocType="all";}
+							},"Все",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_koap",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="koap"}]),
+								onClick:$event=>{$data.lawDocType="koap";}
+							},"КоАП",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_uk",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="uk"}]),
+								onClick:$event=>{$data.lawDocType="uk";}
+							},"УК",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_proc",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="proc"}]),
+								onClick:$event=>{$data.lawDocType="proc";}
+							},"Проц.",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_kto",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="kto"}]),
+								onClick:$event=>{$data.lawDocType="kto";}
+							},"КТО",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_euss",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="euss"}]),
+								onClick:$event=>{$data.lawDocType="euss";}
+							},"ЕУСС",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_zot",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="zot"}]),
+								onClick:$event=>{$data.lawDocType="zot";}
+							},"ЗОТ",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_euvs",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="euvs"}]),
+								onClick:$event=>{$data.lawDocType="euvs";}
+							},"ЕУВС",10,["onClick"])
+						]),
+						createBaseVNode("div",{class:"laws-helper__search-filters-row"},[
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_gostayna",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="gostayna"}]),
+								onClick:$event=>{$data.lawDocType="gostayna";}
+							},"Гостайна",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_terror",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="terror"}]),
+								onClick:$event=>{$data.lawDocType="terror";}
+							},"Терроризм",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_kontrol",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="kontrol"}]),
+								onClick:$event=>{$data.lawDocType="kontrol";}
+							},"Проверки",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_neprik",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="neprik"}]),
+								onClick:$event=>{$data.lawDocType="neprik";}
+							},"Неприк.",10,["onClick"]),
+							createBaseVNode("div",{
+								class:normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_ierarhiya",{"laws-helper__fine-filter-btn_active":$data.lawDocType==="ierarhiya"}]),
+								onClick:$event=>{$data.lawDocType="ierarhiya";}
+							},"Иерархия",10,["onClick"])
+						])
+				]))
+				:createCommentVNode("",true),
 			// ─── Тело ─────────────────────────────────────────────────────
 			createBaseVNode("div",_hoisted_body,[
 				// ─── ТАБ: ЗАКОНЫ ──────────────────────────────────────────
